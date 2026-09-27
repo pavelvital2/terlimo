@@ -31,3 +31,7 @@ Android source `19961c5a244e8fe34f4511bb69e074a68e8b219f`, tree `b5ce44885f9ffce
 ## Channel counts in quality and notification — 2026-09-27
 
 Accepted source `ea7110be997f32dd5affe5df0e9019d562f00673`, tree `94dc539b7b60bedef590d79eeb7e0d4271acef57`, based on19961c5. Patch SHA256 `3af5847931dfc7670d667cf775734f57f1f8c64caa83f0c998ab1d5d71ace12b`. Local native bridge carries registered active channels versus configured maximum, fenced by attempt/runtime/lifecycle. Shared display preserves existing wake-ready priority; ordinary lifecycle revision0 is accepted. Sender uses runtime cancellation and1s timeout. Root reviewed original and correction diffs and inspected Kotlin XML7/7 PASS; executor reports focused Go lifecycle/dispatcher tests passed. Device/build validation pending. No server/network protocol change.
+
+## Server-defined channel denominator — 2026-09-27
+
+Accepted Android source `af5f7ebf58fe1ada4066601fe4246fd86d98e47a`, tree `35ac4a63dc3951b77ccc398a9ac474cdfc221dbf`. Incremental patch SHA256 `c227b624d1322c7c86edb21b63e7d35d5b2c22549b086cc034fa8b60af2b5b92`. Shared quality/notification projection uses server-configured target rather than variable registered-slot total during wake. Missing target is shown without a denominator; no hardcoded36. Existing supported parser cap36 unchanged. Root reviewed four-file diff; executor reports ChannelsStatus8/WakeRecoveryProjection4 tests passed. Native unchanged; APK update pending.

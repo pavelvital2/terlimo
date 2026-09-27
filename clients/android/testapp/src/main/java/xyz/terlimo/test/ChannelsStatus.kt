@@ -12,10 +12,20 @@ internal data class ChannelsStatus(val runtimeEpoch: Long, val lifecycleRevision
 }
 
 internal object ChannelsDisplay {
-    fun line(connected: Boolean, channels: ChannelsStatus?, wakeRecoveryText: String?): String? = when {
-        wakeRecoveryText != null -> wakeRecoveryText
+    fun line(connected: Boolean, channels: ChannelsStatus?, wakeRecovery: WakeRecoveryStatus?): String? = when {
+        wakeRecovery != null -> wakeRecoveryLine(wakeRecovery, channels?.target)
         connected -> channels?.text
         else -> null
+    }
+
+    fun wakeRecoveryLine(wake: WakeRecoveryStatus, target: Int?): String {
+        val denominator = target?.takeIf { it > 0 }
+        return when {
+            wake.ready == 0 && denominator != null -> "Проверяем каналы: 0 из $denominator"
+            wake.ready == 0 -> "Проверяем каналы: 0"
+            denominator != null -> "Готовые каналы: ${wake.ready} из $denominator"
+            else -> "Готовые каналы: ${wake.ready}"
+        }
     }
 }
 

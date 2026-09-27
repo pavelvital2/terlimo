@@ -371,7 +371,7 @@ class SessionService : Service() {
         } else null
         val base = listOfNotNull(UserStatusText.phase(state.phase),
             NotificationText.serverLabel(state.nodes.singleOrNull { it.id == state.selectedNodeId }?.name),
-            ChannelsDisplay.line(state.phase == "Connected", state.channels, state.wakeRecovery?.text),
+            ChannelsDisplay.line(state.phase == "Connected", state.channels, state.wakeRecovery),
             AccountAccessPolicy.notificationLine(state.accountAccess, SystemClock.elapsedRealtime()),
             usageSegment).joinToString(" · ")
         val traffic = state.traffic

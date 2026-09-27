@@ -36,11 +36,25 @@ class ChannelsStatusTest {
 
     @Test fun displayPrefersWakeReadyDuringWakeAndChannelsOnlyInNormalConnected() {
         val channels = ChannelsStatusProjection.parse(valid())!!
+        val wake = WakeRecoveryStatus(runtimeEpoch = 2, lifecycleRevision = 3, generation = 9, ready = 5, total = 7)
         assertEquals("Каналы: 12 из 36", ChannelsDisplay.line(true, channels, null))
-        assertEquals("Проверяем каналы: 0 из 36", ChannelsDisplay.line(true, channels, "Проверяем каналы: 0 из 36"))
-        assertEquals("Готовые каналы: 20 из 36", ChannelsDisplay.line(true, channels, "Готовые каналы: 20 из 36"))
+        assertEquals("Готовые каналы: 5 из 36", ChannelsDisplay.line(true, channels, wake))
+        assertEquals("Готовые каналы: 5 из 24", ChannelsDisplay.line(true, ChannelsStatusProjection.parse(valid().put("target", 24))!!, wake))
+        assertEquals("Проверяем каналы: 0 из 36", ChannelsDisplay.line(true, channels, WakeRecoveryStatus(2, 3, 9, 0, 7)))
+        assertEquals("Готовые каналы: 5 из 36", ChannelsDisplay.line(true, channels, WakeRecoveryStatus(2, 3, 9, 5, 9)))
+        assertEquals("Готовые каналы: 5", ChannelsDisplay.line(true, null, wake))
+        assertEquals("Проверяем каналы: 0", ChannelsDisplay.line(true, null, WakeRecoveryStatus(2, 3, 9, 0, 7)))
         assertNull(ChannelsDisplay.line(false, channels, null))
         assertNull(ChannelsDisplay.line(false, null, null))
+    }
+
+    @Test fun foreignAttemptOrEpochCannotReplaceTheConfirmedTarget() {
+        val current = ChannelsStatusProjection.parse(valid().put("target", 24).put("active", 5))!!
+        val late = ChannelsStatusProjection.parse(valid().put("target", 36))!!
+        assertSame(current, ChannelsStatusProjection.accept(current, late, "a", "b", 2, 3, true, false))
+        assertSame(current, ChannelsStatusProjection.accept(current, late, "a", "a", 5, 3, true, false))
+        val wake = WakeRecoveryStatus(2, 3, 9, 5, 7)
+        assertEquals("Готовые каналы: 5 из 24", ChannelsDisplay.line(true, current, wake))
     }
 
     @Test fun lossAndRecoveryWithinTheSameGenerationUpdateTheFact() {
