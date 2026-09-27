@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var connectButton: Button
     private lateinit var activateHourButton: Button
     private lateinit var registerTelegramButton: Button
+    private lateinit var loginTelegramButton: Button
     private lateinit var trialButton: Button
     private lateinit var resumeButton: Button
     private lateinit var captchaButton: Button
@@ -390,6 +391,15 @@ class MainActivity : Activity() {
             }
         }
         mainPanel.addView(registerTelegramButton)
+        loginTelegramButton = Button(this).apply {
+            text = "Уже есть аккаунт? Войти через Telegram"
+            visibility = View.GONE
+            setOnClickListener {
+                startForegroundService(Intent(this@MainActivity, SessionService::class.java)
+                    .setAction("telegram_login"))
+            }
+        }
+        mainPanel.addView(loginTelegramButton)
         trialButton = Button(this).apply {
             text = "Получить 7 дней"
             visibility = View.GONE
@@ -1067,6 +1077,7 @@ class MainActivity : Activity() {
             View.VISIBLE else View.GONE
         registerTelegramButton.visibility = if (RegistrationUi.registerVisible(state)) View.VISIBLE else View.GONE
         registerTelegramButton.text = RegistrationUi.buttonText(state)
+        loginTelegramButton.visibility = if (RegistrationUi.loginVisible(state)) View.VISIBLE else View.GONE
         trialButton.visibility = if (TrialUi.activateVisible(state)) View.VISIBLE else View.GONE
         trialButton.text = TrialUi.buttonText(state)
         armStatusTick()

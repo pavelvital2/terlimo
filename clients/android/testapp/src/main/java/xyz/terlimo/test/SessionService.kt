@@ -140,6 +140,8 @@ class SessionService : Service() {
     private val purchaseGate = PurchaseGate()
     /** §§18–19 devices list/delete cold service-only gate (same bounded flow as purchase). */
     private val devicesGate = DevicesColdGate()
+    /** Explicit "already have account -> Telegram sign in" gate (existing registration flow). */
+    private val loginGate = RegistrationLoginGate()
     /** Durable host-owned idempotency keys for the purchase attempt; loaded lazily after storage. */
     private val purchaseAttempts by lazy { PurchaseAttempts(InstallationPurchaseAttemptStore(storage)) }
     /** Local correlation of the explicitly sent payment_create with its result (no wire pairing). */
@@ -676,6 +678,25 @@ class SessionService : Service() {
                 val attempt = gate.active
                 if (!stopping.get() && attempt != null) native?.send(JSONObject().put("type", "request_telegram_registration"))
             }
+            "telegram_login" -> {
+                // Existing-account sign-in on a fresh installation: reachable without TUN/hour.
+                // A live attempt sends once; otherwise one bounded service-only attempt is
+                // started and the single link request is sent after its first accepted /me.
+                val attempt = gate.active
+                when (loginGate.onTap(attempt, RegistrationUi.loginVisible(view))) {
+                    RegistrationLoginTapAction.SEND_NOW -> {
+                        val live = attempt
+                        if (live != null) submitControl {
+                            if (gate.active == live && !stopping.get())
+                                native?.send(JSONObject().put("type", "request_telegram_registration"))
+                        }
+                    }
+                    RegistrationLoginTapAction.START_SERVICE -> submitControl { begin("") }
+                    RegistrationLoginTapAction.ERROR -> publish(view.copy(registration =
+                        (view.registration ?: RegistrationState()).copy(error = "ACCESS_DENIED")))
+                    RegistrationLoginTapAction.IGNORE -> Unit
+                }
+            }
             "telegram_refresh" -> {
                 val attempt = gate.active
                 if (!stopping.get() && attempt != null) native?.send(JSONObject().put("type", "refresh_telegram_registration"))
@@ -843,6 +864,16 @@ class SessionService : Service() {
                         publish(view.copy(devices = (view.devices ?: DevicesUi())
                             .copy(error = "SERVICE_UNAVAILABLE")))
                         stopAttempt(null, "devices_cold_timeout")
+                    }
+                }, PurchaseGate.COLD_WINDOW_MILLIS)
+            }
+            if (loginGate.onAttemptStarted(attempt)) {
+                main.postDelayed({
+                    if (gate.active == attempt && !stopping.get() &&
+                        loginGate.isCold(attempt) && loginGate.onTimeout(attempt)) {
+                        publish(view.copy(registration = (view.registration ?: RegistrationState())
+                            .copy(error = "REGISTRATION_DISABLED")))
+                        stopAttempt(null, "login_cold_timeout")
                     }
                 }, PurchaseGate.COLD_WINDOW_MILLIS)
             }
@@ -1019,6 +1050,9 @@ class SessionService : Service() {
                             }
                             val pendingPurchase = purchaseGate.onVerifiedRights(attempt)
                             if (pendingPurchase != null) sendPurchaseOperation(attempt, pendingPurchase)
+                            if (loginGate.onVerifiedRights(attempt)) {
+                                native?.send(JSONObject().put("type", "request_telegram_registration"))
+                            }
                             when (val devices = devicesGate.onVerifiedRights(
                                 attempt, DevicesPolicy.canManage(registration))) {
                                 is DevicesVerified.Send -> when (val request = devices.request) {
@@ -1180,11 +1214,15 @@ class SessionService : Service() {
                     val link = event.optString("deep_link")
                     if (event.optString("state") == "pending" && link.startsWith("https://t.me/")) {
                         openExternalLink(link)
-                        publishActive(attempt, view.copy(registration =
+                        // Published before a possible cold release: the final state must keep the
+                        // pending receipt even when the service-only attempt is stopped here.
+                        publish(view.copy(registration =
                             (view.registration ?: RegistrationState()).copy(state = "pending", error = null)))
+                        if (loginGate.onResolved(attempt)) stopAttempt(null, "registration_link_result")
                     } else if (event.optString("state") == "error") {
-                        publishActive(attempt, view.copy(registration =
+                        publish(view.copy(registration =
                             (view.registration ?: RegistrationState()).copy(error = event.optString("code"))))
+                        if (loginGate.onResolved(attempt)) stopAttempt(null, "registration_link_result")
                     }
                 }
                 "telegram_registration_status" -> {
@@ -2522,6 +2560,7 @@ class SessionService : Service() {
         trialGate.reset()
         purchaseGate.reset()
         devicesGate.reset()
+        loginGate.reset()
         // Transport teardown fences the old native stream: any outstanding purchase request
         // is dropped here, and its late callbacks are excluded by the attempt gate.
         purchaseFlight.reset()

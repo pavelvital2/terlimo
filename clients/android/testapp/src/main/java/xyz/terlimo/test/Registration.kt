@@ -28,6 +28,26 @@ internal object RegistrationUi {    /**
         return projection.grant.dataAccess == "onboarding_hour"
     }
 
+    /**
+     * Explicit existing-account sign-in is offered on a fresh installation without any data
+     * right (full slots included): the server decides eligibility of the existing subscription,
+     * the client never guesses it and never promises a trial on this branch.
+     */
+    fun loginVisible(state: ViewState): Boolean {
+        val projection = state.accountAccess?.projection ?: return false
+        return loginVisibleFor(
+            registrationState = projection.registration.state,
+            dataAccess = projection.grant.dataAccess,
+            paidAwaitingBinding = PurchaseFlow.paidAwaitingBinding(state.purchase),
+        )
+    }
+
+    fun loginVisibleFor(registrationState: String, dataAccess: String?, paidAwaitingBinding: Boolean): Boolean {
+        if (registrationState == "registered") return false
+        if (paidAwaitingBinding) return false
+        return dataAccess != "onboarding_hour"
+    }
+
     fun buttonText(state: ViewState): String {
         val registration = state.registration ?: return "Зарегистрироваться в Telegram"
         return when {
