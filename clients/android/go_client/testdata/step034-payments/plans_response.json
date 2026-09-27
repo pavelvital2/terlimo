@@ -1,0 +1,23 @@
+{
+  "plans": [
+    {
+      "amount": {
+        "amount_minor": 30000,
+        "currency": "RUB"
+      },
+      "base_device_limit": 2,
+      "duration_code": "days:30",
+      "methods": [
+        "card",
+        "sbp"
+      ],
+      "plan_id": "p30",
+      "title": "30 \u0434\u043d\u0435\u0439"
+    }
+  ],
+  "plans_revision": "5",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "ok"
+}

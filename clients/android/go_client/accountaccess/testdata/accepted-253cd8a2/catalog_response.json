@@ -1,0 +1,83 @@
+{
+  "gateways": [
+    {
+      "access": {
+        "device_ref": "dev-1",
+        "generation": "1",
+        "grant_id": "g-a",
+        "lease_seq": "1",
+        "not_after": "2026-09-19T15:35:00Z",
+        "password": "node-secret-a",
+        "vk_hashes": [
+          "h1",
+          "h2"
+        ]
+      },
+      "capabilities": [
+        "wdtt-v17"
+      ],
+      "country_code": "DE",
+      "gateway_id": "gw-a",
+      "name": "\u0411\u0435\u043b\u044b\u0435 \u0441\u043f\u0438\u0441\u043a\u0438 TEST",
+      "probe": {
+        "host": "193.5.251.217",
+        "kind": "tcp_connect",
+        "path": null,
+        "port": 443,
+        "timeout_ms": 2000
+      },
+      "region": "DE",
+      "target_workers": 36,
+      "transport": {
+        "dtls_port": 56000,
+        "dtls_spki_sha256": "u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7s",
+        "peer_ip": "193.5.251.217",
+        "protocol": "wdtt-v17",
+        "wg_port": 56002
+      }
+    },
+    {
+      "access": {
+        "device_ref": "dev-1",
+        "generation": "1",
+        "grant_id": "g-b",
+        "lease_seq": "2",
+        "not_after": "2026-09-19T15:35:00Z",
+        "password": "node-secret-b",
+        "vk_hashes": [
+          "h3",
+          "h4"
+        ]
+      },
+      "capabilities": [
+        "wdtt-v17"
+      ],
+      "country_code": null,
+      "gateway_id": "gw-b",
+      "name": "TEST2",
+      "probe": {
+        "host": "23.26.193.88",
+        "kind": "tcp_connect",
+        "path": null,
+        "port": 443,
+        "timeout_ms": 2000
+      },
+      "region": null,
+      "target_workers": 36,
+      "transport": {
+        "dtls_port": 56000,
+        "dtls_spki_sha256": "zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMw",
+        "peer_ip": "23.26.193.88",
+        "protocol": "wdtt-v17",
+        "wg_port": 56002
+      }
+    }
+  ],
+  "issued_at": "2026-09-19T15:20:00Z",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "revision": "7",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "ok",
+  "valid_until": "2026-09-19T15:35:00Z"
+}

@@ -1,0 +1,45 @@
+{
+  "account_ref": null,
+  "account_state": "VERIFIED_NO_SLOT",
+  "binding_revision": null,
+  "binding_status": "none",
+  "entitlement": {
+    "effective_device_limit": 0,
+    "perpetual_commercial": false,
+    "revision": "0",
+    "slots_used": 0,
+    "source_ref": null,
+    "status": "none",
+    "type": "none",
+    "valid_from": null,
+    "valid_until": null
+  },
+  "grant_resolution": {
+    "control_available": true,
+    "data_access": "none",
+    "effective_deadline": null,
+    "restricted_checkout_available": true
+  },
+  "management_only": false,
+  "onboarding": {
+    "creates_trial": false,
+    "duration_seconds": 3600,
+    "extends_on_refresh": false,
+    "extends_on_restart": false,
+    "not_after": null,
+    "one_time": true,
+    "post_telegram_identity": "account_history_correlation",
+    "pre_telegram_reinstall": "may_be_indistinguishable_new_key_separate_unit",
+    "requires_hardware_id": false,
+    "started_at": null,
+    "started_by": "server_confirmed_first_connection",
+    "state": "not_started",
+    "unit": "installation_fingerprint"
+  },
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "revision": "8",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "ok",
+  "telegram_linked": true
+}

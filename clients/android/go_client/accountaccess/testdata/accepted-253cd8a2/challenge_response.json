@@ -1,0 +1,12 @@
+{
+  "challenge_id": "fedcba9876543210fedcba9876543210",
+  "environment": "test",
+  "expires_at": "2026-09-19T15:21:00Z",
+  "nonce_b64": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+  "purpose": "session",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "single_use": true,
+  "status": "ok"
+}

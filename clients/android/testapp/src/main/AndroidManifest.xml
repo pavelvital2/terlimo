@@ -1,0 +1,49 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Required by the owner-visible per installed/system/uninstalled app routing UI. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <application android:label="TERLIMO TEST" android:theme="@android:style/Theme.Material.NoActionBar"
+        android:allowBackup="false" android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false"
+        tools:replace="android:allowBackup">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="whitelists" android:host="subscription" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".QrCaptureActivity" android:exported="false"
+            android:screenOrientation="fullSensor" android:stateNotNeeded="true" />
+        <activity android:name=".RetentionSettingsActivity" android:exported="false" />
+        <receiver android:name=".RetentionAlarmReceiver" android:exported="false" />
+        <activity android:name=".RoutingSettingsActivity" android:exported="false" />
+        <activity android:name=".CaptchaActivity" android:exported="false" android:excludeFromRecents="true" />
+        <service android:name=".SessionService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User initiated TEST VPN connection" />
+        </service>
+        <service android:name="com.wireguard.android.backend.GoBackend$VpnService" tools:node="remove" />
+        <service android:name=".SafeGoBackend$VpnService" android:exported="false" android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+        </service>
+    </application>
+</manifest>

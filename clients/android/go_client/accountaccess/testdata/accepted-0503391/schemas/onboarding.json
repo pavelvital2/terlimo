@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terlimo.local/schemas/onboarding.json",
+  "title": "TERLIMO mobile v1 one-time onboarding hour and data-access classes",
+  "$defs": {
+    "OnboardingState": {
+      "type": "string",
+      "enum": ["not_started", "active", "expired"],
+      "description": "State of the one-time onboarding full-VPN hour."
+    },
+    "OnboardingStart": {
+      "type": "string",
+      "const": "server_confirmed_first_connection",
+      "description": "The hour starts at the server-confirmed first connection after installation, NOT at APK download."
+    },
+    "DataAccessClass": {
+      "type": "string",
+      "enum": ["none", "onboarding_hour", "restricted_checkout", "subscription_data"],
+      "description": "Precise data-access classes. `none` = control-only authorization (no VPN data). `onboarding_hour` = the one-time onboarding full-VPN hour. `restricted_checkout` = backend-issued bounded checkout/payment page and external bank redirect path, available without an active subscription. `subscription_data` = full VPN under an active trial/paid subscription."
+    },
+    "OnboardingHour": {
+      "type": "object",
+      "properties": {
+        "state": { "$ref": "#/$defs/OnboardingState" },
+        "started_by": { "$ref": "#/$defs/OnboardingStart" },
+        "started_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Server-confirmed first-connection time (RFC3339 UTC) or null in not_started."
+        },
+        "not_after": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Server-fixed deadline = started_at + 3600s (RFC3339 UTC); null in not_started. refresh/restart/repeat NEVER extend it. Not a trial and not a paid entitlement."
+        },
+        "duration_seconds": { "type": "integer", "const": 3600 },
+        "one_time": { "type": "boolean", "const": true },
+        "extends_on_refresh": { "type": "boolean", "const": false },
+        "extends_on_restart": { "type": "boolean", "const": false },
+        "creates_trial": { "type": "boolean", "const": false },
+        "requires_hardware_id": { "type": "boolean", "const": false },
+        "unit": {
+          "type": "string",
+          "const": "installation_fingerprint",
+          "description": "Server one-time unit = server-known installation/public-key fingerprint. The same known unit cannot restart or extend the hour."
+        },
+        "post_telegram_identity": {
+          "type": "string",
+          "const": "account_history_correlation",
+          "description": "After Telegram binding, account history can additionally correlate units using the existing identity."
+        },
+        "pre_telegram_reinstall": {
+          "type": "string",
+          "const": "may_be_indistinguishable_new_key_separate_unit",
+          "description": "A pre-Telegram reinstall producing a genuinely new key may be indistinguishable from a first install; it is a separate server unit and may obtain another hour. Prevention is NOT guaranteed and is not claimed."
+        }
+      },
+      "required": ["state", "started_by", "started_at", "not_after", "duration_seconds", "one_time", "extends_on_refresh", "extends_on_restart", "creates_trial", "requires_hardware_id", "unit", "post_telegram_identity", "pre_telegram_reinstall"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "not_started" } }, "required": ["state"] },
+          "then": {
+            "properties": { "started_at": { "type": "null" }, "not_after": { "type": "null" } }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "enum": ["active", "expired"] } }, "required": ["state"] },
+          "then": {
+            "properties": { "started_at": { "type": "string" }, "not_after": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "GrantResolution": {
+      "type": "object",
+      "description": "Resolves the effective data-access class from onboarding state and subscription state. Management/announcement read alone grants no VPN.",
+      "properties": {
+        "control_available": { "type": "boolean", "const": true, "description": "status/link/challenge always available." },
+        "restricted_checkout_available": { "type": "boolean", "const": true, "description": "backend-issued restricted checkout remains after the hour; external page/bank feasibility is TEST evidence pending." },
+        "data_access": { "$ref": "#/$defs/DataAccessClass" },
+        "effective_deadline": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Deadline tied to the resolved class: onboarding_hour -> the hour not_after (always a finite string); subscription_data -> the subscription end (string), or null ONLY when the parent MeResponse carries entitlement.perpetual_commercial=true and entitlement.valid_until=null (the cross-object invariant is enforced on MeResponse); none/restricted_checkout -> null."
+        }
+      },
+      "required": ["control_available", "restricted_checkout_available", "data_access", "effective_deadline"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "data_access": { "const": "onboarding_hour" } }, "required": ["data_access"] },
+          "then": { "properties": { "effective_deadline": { "type": "string" } } }
+        },
+        {
+          "if": { "properties": { "data_access": { "const": "subscription_data" } }, "required": ["data_access"] },
+          "then": { "properties": { "effective_deadline": { "type": ["string", "null"] } } }
+        },
+        {
+          "if": { "properties": { "data_access": { "enum": ["none", "restricted_checkout"] } }, "required": ["data_access"] },
+          "then": { "properties": { "effective_deadline": { "type": "null" } } }
+        }
+      ]
+    }
+  }
+}

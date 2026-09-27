@@ -1,0 +1,9 @@
+{
+  "code": "SERVICE_UNAVAILABLE",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "retry_after_ms": 1000,
+  "retryable": true,
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "error"
+}

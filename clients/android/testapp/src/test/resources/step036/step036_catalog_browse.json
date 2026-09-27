@@ -1,0 +1,15 @@
+{
+  "synthetic": true,
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "server_time": "2026-09-23T12:00:00Z",
+  "schema_version": "0001_core",
+  "status": "ok",
+  "issued_at": "2026-09-23T12:00:00Z",
+  "valid_until": "2026-09-23T12:10:00Z",
+  "catalog_mode": "browse",
+  "gateways": [
+    {"gateway_id": "gw-alpha", "name": "ALPHA", "region": "test", "country_code": "XX"},
+    {"gateway_id": "gw-beta", "name": "BETA"},
+    {"gateway_id": "gw-gamma", "name": "GAMMA", "region": "eu", "country_code": "DE"}
+  ]
+}

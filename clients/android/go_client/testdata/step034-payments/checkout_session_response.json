@@ -1,0 +1,15 @@
+{
+  "allowed_origins": [
+    "https://pay.example.test"
+  ],
+  "allowed_redirects": [
+    "https://bank.example.test/3ds"
+  ],
+  "checkout_session_id": "cs-1",
+  "expires_at": "2026-09-19T15:30:00Z",
+  "policy_version": "checkout-policy-1",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "ok"
+}

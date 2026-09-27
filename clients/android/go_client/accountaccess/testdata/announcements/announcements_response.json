@@ -1,0 +1,21 @@
+{
+  "announcements": [
+    {
+      "action": {
+        "label": "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c",
+        "type": "refresh_catalog"
+      },
+      "announcement_id": "an-1",
+      "revision": "3",
+      "text": "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u043a\u0430\u0442\u0430\u043b\u043e\u0433.",
+      "title": "\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435",
+      "unread": true,
+      "valid_until": null
+    }
+  ],
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "ok",
+  "unread_count": 1
+}

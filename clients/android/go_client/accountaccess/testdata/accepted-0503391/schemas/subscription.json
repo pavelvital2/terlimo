@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terlimo.local/schemas/subscription.json",
+  "title": "TERLIMO mobile v1 entitlement / subscription snapshot",
+  "$defs": {
+    "EntitlementSnapshot": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["none", "trial", "paid", "imported"] },
+        "status": { "type": "string", "enum": ["none", "active", "expired", "revoked", "unknown_review"] },
+        "valid_from": { "type": ["string", "null"] },
+        "valid_until": { "type": ["string", "null"] },
+        "effective_device_limit": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "slots_used": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "revision": { "$ref": "common.json#/$defs/Revision" },
+        "source_ref": { "type": ["string", "null"], "maxLength": 128, "description": "Invoice or legacy record reference; opaque." },
+        "perpetual_commercial": { "type": "boolean", "description": "Legacy TEST commercial expiry=0 marker. Does NOT imply perpetual technical grant." }
+      },
+      "required": ["type", "status", "effective_device_limit", "slots_used", "revision", "perpetual_commercial"],
+      "additionalProperties": false
+    },
+    "MeResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "server_time": { "type": "string" },
+        "schema_version": { "type": "string", "const": "1.0" },
+        "status": { "type": "string", "const": "ok" },
+        "account_state": { "type": "string", "enum": ["UNLINKED", "VERIFIED_NO_ENTITLEMENT", "VERIFIED_NO_SLOT", "ACTIVE_TRIAL", "ACTIVE_PAID", "EXPIRED", "REVOKED_SESSION"] },
+        "account_ref": { "type": ["string", "null"] },
+        "telegram_linked": { "type": "boolean" },
+        "entitlement": { "$ref": "#/$defs/EntitlementSnapshot" },
+        "binding_status": { "type": "string", "enum": ["none", "pending", "active", "revoked", "deactivated"] },
+        "binding_revision": {
+          "anyOf": [{ "$ref": "common.json#/$defs/Revision" }, { "type": "null" }],
+          "description": "Real binding generation fence for this session subject as a decimal string; null when the subject has no binding. Never \"0\" and never the subject revision. Reading /me never creates a binding slot or an entitlement."
+        },
+        "management_only": { "type": "boolean" },
+        "onboarding": { "$ref": "onboarding.json#/$defs/OnboardingHour" },
+        "grant_resolution": { "$ref": "onboarding.json#/$defs/GrantResolution" },
+        "revision": { "$ref": "common.json#/$defs/Revision" }
+      },
+      "required": ["request_id", "server_time", "schema_version", "status", "account_state", "telegram_linked", "entitlement", "binding_status", "binding_revision", "management_only", "onboarding", "grant_resolution", "revision"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "Cross-object invariant: a truthful NULL subscription deadline is allowed only for an indefinite commercial right (perpetual_commercial=true AND valid_until=null). Finite subscription_data keeps a string deadline; onboarding_hour stays string-only via GrantResolution; technical node grant lease/catalog/session validity are separate and remain finite.",
+          "if": {
+            "properties": {
+              "grant_resolution": {
+                "properties": {
+                  "data_access": { "const": "subscription_data" },
+                  "effective_deadline": { "type": "null" }
+                },
+                "required": ["data_access", "effective_deadline"]
+              }
+            },
+            "required": ["grant_resolution"]
+          },
+          "then": {
+            "properties": {
+              "entitlement": {
+                "properties": {
+                  "perpetual_commercial": { "const": true },
+                  "valid_until": { "type": "null" }
+                },
+                "required": ["perpetual_commercial", "valid_until"]
+              }
+            },
+            "required": ["entitlement"]
+          }
+        }
+      ]
+    },
+    "TrialResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "server_time": { "type": "string" },
+        "schema_version": { "type": "string", "const": "1.0" },
+        "status": { "type": "string", "enum": ["ok", "error"] },
+        "activated": { "type": "boolean" },
+        "entitlement": { "$ref": "#/$defs/EntitlementSnapshot" },
+        "operation_id": { "type": ["string", "null"] }
+      },
+      "required": ["request_id", "server_time", "schema_version", "status"],
+      "additionalProperties": false,
+      "description": "Trial is exactly seven days from server activation after Telegram + eligibility. On error the standard ErrorResponse shape applies."
+    }
+  }
+}

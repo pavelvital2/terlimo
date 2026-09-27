@@ -1,0 +1,14 @@
+{
+  "env": "test",
+  "issuer_kid": "terlimo-test-20260910",
+  "issuer_spki_b64url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdgvrCkr7qopD6OGlJ5K3xYfBMS14A-SNnZ-xAMbrP_WbBwNTznFRM-Bo91ja8ItIaHJ00_m8wCQEnLD9yPxMLw",
+  "dtls_spki_sha256": "_Q6VjDy9QAx0PSWDJwRvOSCvAFEaW3tR5VUZhnJjx0Y",
+  "peer_ip": "193.5.251.217",
+  "dtls_port": 56000,
+  "wg_port": 56002,
+  "probe_url": "https://api.ipify.org",
+  "expected_exit_ip": "193.5.251.217",
+  "probe_verification": "HTTPS IPv4 GET bound to TEST ens3; not measured through client VPN",
+  "node_id": "terlimo-test-193-5-251-217",
+  "max_workers": 36
+}

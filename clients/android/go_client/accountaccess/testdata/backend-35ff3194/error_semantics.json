@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "basis": {
+    "contract": "terlimo-s1-contracts@336bd6dae9e9340874d6e128a360fe6cfe2f26e6",
+    "backend": "590481f0477f07627b0749f3187b0e93aff83297",
+    "synthetic": true,
+    "note": "Synthetic server-side fixture for STEP03.4 preparation; no real subscription, no user bypass."
+  },
+  "policy": {
+    "last_good_catalog_on_error": true,
+    "nonterminal_errors_do_not_invalidate_known_right": true,
+    "expired_right_never_resurrected": true,
+    "management_read_grants_no_data": true,
+    "same_subject_bearer_refresh_keeps_catalog_baseline": true,
+    "native_sole_retry_and_canonical_coordinator": true,
+    "catalog_nonterminal_keeps_last_good": true,
+    "catalog_authoritative_empty_only_on_true_removal": true,
+    "catalog_admission_tokens_are_not_a_catalog": true
+  },
+  "cases": [
+    {
+      "scenario": "session_expired",
+      "http": 401,
+      "code": "SESSION_EXPIRED",
+      "retryable": false,
+      "native": "relogin_with_fresh_proof_then_reload"
+    },
+    {
+      "scenario": "session_revoked",
+      "http": 401,
+      "code": "SESSION_INVALID",
+      "retryable": false,
+      "native": "relogin"
+    },
+    {
+      "scenario": "device_revoked",
+      "http": 403,
+      "code": "DEVICE_REVOKED",
+      "retryable": false,
+      "native": "no_new_data_grant"
+    },
+    {
+      "scenario": "subscription_expired",
+      "http": 403,
+      "code": "SUBSCRIPTION_EXPIRED",
+      "retryable": false,
+      "native": "keep_status_and_checkout_offer_no_data"
+    },
+    {
+      "scenario": "no_entitlement_sync",
+      "http": 403,
+      "code": "SUBSCRIPTION_MISSING",
+      "retryable": false
+    },
+    {
+      "scenario": "revision_conflict",
+      "http": 409,
+      "code": "REVISION_CONFLICT",
+      "retryable": true,
+      "native": "reload_catalog_status_then_resync"
+    },
+    {
+      "scenario": "idempotency_conflict",
+      "http": 409,
+      "code": "IDEMPOTENCY_CONFLICT",
+      "retryable": false
+    },
+    {
+      "scenario": "catalog_pending_get",
+      "http": 409,
+      "code": "ACCESS_SYNC_PENDING",
+      "retryable": true,
+      "route": "GET /gateways",
+      "native": "keep_last_good_and_retry_catalog",
+      "note": "whole-response nonterminal; details carry catalog_revision/binding_revision admission tokens only; no CatalogResponse and never an instruction to clear last-good"
+    },
+    {
+      "scenario": "catalog_application_failed",
+      "http": 503,
+      "code": "SERVICE_UNAVAILABLE",
+      "retryable": true,
+      "route": "GET /gateways",
+      "native": "keep_last_good_no_removal",
+      "note": "actual application failure (failed/exhausted/missing readback) with an active right is not a removal; bounded reason access_application_failed; a NEW sync is also blocked with the same bounded failure, no attempts reset"
+    },
+    {
+      "scenario": "registry_node_identity_mismatch",
+      "http": 503,
+      "code": "SERVICE_UNAVAILABLE",
+      "retryable": true,
+      "route": "GET /gateways",
+      "native": "keep_last_good",
+      "note": "registered row whose key != endpoints.node_id is rejected explicitly; never renamed or fallback-mapped"
+    },
+    {
+      "scenario": "worker_cap_mismatch",
+      "http": 200,
+      "code": null,
+      "retryable": false,
+      "route": "POST /access/sync",
+      "native": "poll_operation_no_new_effect",
+      "note": "readback max_workers must equal declared target_workers; mismatch fails the apply (worker_cap_mismatch) and no verified catalog is published"
+    },
+    {
+      "scenario": "catalog_registry_unknown",
+      "http": 503,
+      "code": "SERVICE_UNAVAILABLE",
+      "retryable": true,
+      "route": "GET /gateways",
+      "native": "keep_last_good",
+      "note": "fresh/unknown environment (no rows, no tombstones, no lifecycle marker) is never an authoritative removal"
+    },
+    {
+      "scenario": "catalog_registry_published_empty",
+      "http": 200,
+      "code": null,
+      "retryable": false,
+      "route": "GET /gateways",
+      "native": "adopt_authoritative_empty",
+      "note": "published environment with tombstones or lifecycle marker and no registered nodes: authoritative empty, revision monotonic and stable"
+    },
+    {
+      "scenario": "access_sync_pending",
+      "http": 200,
+      "code": "ACCESS_SYNC_PENDING",
+      "retryable": true,
+      "route": "POST /access/sync",
+      "note": "returned as operation state (access_application_state=pending), not a fatal error; distinct from the GET 409 catalog signal"
+    },
+    {
+      "scenario": "node_unavailable",
+      "http": 200,
+      "code": "NODE_UNAVAILABLE",
+      "retryable": true,
+      "note": "per-node result of an accepted operation"
+    },
+    {
+      "scenario": "rate_limited",
+      "http": 429,
+      "code": "RATE_LIMITED",
+      "retryable": true
+    }
+  ]
+}

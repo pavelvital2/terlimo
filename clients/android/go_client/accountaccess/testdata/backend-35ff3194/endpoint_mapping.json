@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "basis": {
+    "contract": "terlimo-s1-contracts@336bd6dae9e9340874d6e128a360fe6cfe2f26e6",
+    "backend": "590481f0477f07627b0749f3187b0e93aff83297",
+    "synthetic": true,
+    "note": "Synthetic server-side fixture for STEP03.4 preparation; no real subscription, no user bypass."
+  },
+  "note": "Mirror of the accepted C01 op/scope/session mapping for server-side preparation; no new wire.",
+  "routes": [
+    {
+      "path": "/auth/challenge",
+      "method": "POST",
+      "auth": "public",
+      "op": "N/A",
+      "scope": "N/A",
+      "proof_bearing": false,
+      "data_access": "none",
+      "creates_entitlement": false
+    },
+    {
+      "path": "/installations",
+      "method": "POST",
+      "auth": "public",
+      "op": "installations.create",
+      "scope": "enrollment",
+      "proof_bearing": true,
+      "data_access": "none",
+      "creates_entitlement": false
+    },
+    {
+      "path": "/auth/session",
+      "method": "POST",
+      "auth": "public",
+      "op": "auth.session",
+      "scope": "session",
+      "proof_bearing": true,
+      "data_access": "none",
+      "creates_entitlement": false
+    },
+    {
+      "path": "/me",
+      "method": "GET",
+      "auth": "session",
+      "op": "N/A",
+      "scope": "N/A",
+      "proof_bearing": false,
+      "data_access": "none",
+      "creates_entitlement": false
+    },
+    {
+      "path": "/gateways",
+      "method": "GET",
+      "auth": "session",
+      "op": "N/A",
+      "scope": "N/A",
+      "proof_bearing": false,
+      "data_access": "subscription_data",
+      "requires_active_entitlement": true,
+      "creates_entitlement": false
+    },
+    {
+      "path": "/access/sync",
+      "method": "POST",
+      "auth": "session",
+      "op": "N/A_SESSION_AUTH",
+      "scope": "N/A_SESSION_AUTH",
+      "proof_bearing": false,
+      "required_scope": "access:sync",
+      "account_states": [
+        "ACTIVE_TRIAL",
+        "ACTIVE_PAID"
+      ],
+      "ownership": "account/installation owns the binding",
+      "data_access": "subscription_data",
+      "idempotency": "Idempotency-Key + business projection digest",
+      "creates_entitlement": false
+    },
+    {
+      "path": "/trial",
+      "method": "POST",
+      "auth": "session",
+      "op": "N/A_SESSION_AUTH",
+      "scope": "N/A_SESSION_AUTH",
+      "proof_bearing": false,
+      "required_scope": "session:write",
+      "account_states": [
+        "VERIFIED_NO_ENTITLEMENT"
+      ],
+      "ownership": "account owns the installation",
+      "data_access": "subscription_data",
+      "idempotency": "Idempotency-Key; exactly one trial activation",
+      "creates_entitlement": true
+    },
+    {
+      "path": "/payments/{id}/checkout-session",
+      "method": "POST",
+      "auth": "session",
+      "op": "N/A_SESSION_AUTH",
+      "scope": "N/A_SESSION_AUTH",
+      "proof_bearing": false,
+      "required_scope": "payment:write",
+      "account_states": [
+        "VERIFIED_NO_ENTITLEMENT",
+        "VERIFIED_NO_SLOT",
+        "ACTIVE_TRIAL",
+        "ACTIVE_PAID",
+        "EXPIRED"
+      ],
+      "ownership": "account owns the payment",
+      "data_access": "restricted_checkout",
+      "creates_entitlement": false
+    }
+  ]
+}

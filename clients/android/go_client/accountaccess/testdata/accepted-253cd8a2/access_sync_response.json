@@ -1,0 +1,21 @@
+{
+  "access_application_state": "applied",
+  "grants": [
+    {
+      "applied_generation": "2",
+      "binding_ref": "dev-1",
+      "desired_generation": "2",
+      "gateway_id": "gw-a",
+      "grant_id": "g-a",
+      "last_error": null,
+      "not_after": "2026-09-19T15:35:00Z",
+      "state": "active"
+    }
+  ],
+  "operation_id": "op-sync-1",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "revision": "8",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "ok"
+}

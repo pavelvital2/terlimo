@@ -1,0 +1,31 @@
+{
+  "request": {
+    "v": 1,
+    "op": "service.http",
+    "request_id": "000102030405060708090a0b0c0d0e0f",
+    "method": "GET",
+    "path": "/api/mobile/v1/me",
+    "query": "",
+    "headers": {
+      "Authorization": "Bearer golden"
+    },
+    "body_b64": ""
+  },
+  "response": {
+    "v": 1,
+    "request_id": "000102030405060708090a0b0c0d0e0f",
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body_b64": "eyJ2IjoxfQ"
+  },
+  "error": {
+    "v": 1,
+    "request_id": "000102030405060708090a0b0c0d0e0f",
+    "error": {
+      "code": "SERVICE_UNAVAILABLE",
+      "retryable": true
+    }
+  }
+}

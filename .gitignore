@@ -1,0 +1,35 @@
+# Runtime credentials and local configuration
+**/.env
+**/.env.*
+**/local.properties
+**/test-mobile.json
+**/*secret*.json
+**/*private*.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+
+# Databases, logs, captures, and build artifacts
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.log
+**/*.pcap
+**/*.pcapng
+**/*.apk
+**/*.aab
+**/*.so
+**/*.o
+**/*.pyc
+**/__pycache__/
+**/build/
+**/.gradle/
+**/.idea/
+**/.venv/
+**/venv/
+**/node_modules/
+**/.cache/
+.github-source-export-20260927/

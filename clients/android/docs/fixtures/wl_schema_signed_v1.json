@@ -1,0 +1,339 @@
+{
+  "not_credentials": true,
+  "note": "Synthetic schema and signed VPN example only; no usable link, live trust assets or private key. Prior crypto files unchanged. max_workers=1 admits config worker 0 in this example.",
+  "vpn_payload": {
+    "op": "vpn_auth",
+    "node_id": "test-1",
+    "grant_id": "11111111-1111-4111-8111-111111111111",
+    "registration_id": "22222222-2222-4222-8222-222222222222",
+    "generation": "1",
+    "lease_seq": "1",
+    "transport_session": "0123456789abcdef0123456789abcdef",
+    "worker_id": "0",
+    "mode": "getconf"
+  },
+  "bootstrap_challenge": {
+    "v": 1,
+    "op": "challenge",
+    "status": "ok",
+    "challenge_id": "EBESExQVFhcYGRobHB0eHw",
+    "nonce": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+    "expires_at": "2026-09-10T12:01:00Z",
+    "server_time": "2026-09-10T12:00:00Z"
+  },
+  "operation_status_pending": {
+    "v": 1,
+    "status": "pending"
+  },
+  "operation_status_failed": {
+    "v": 1,
+    "status": "failed",
+    "code": "DEVICE_LIMIT_REACHED"
+  },
+  "operation_status_unknown": {
+    "v": 1,
+    "status": "unknown"
+  },
+  "catalog": {
+    "v": 1,
+    "status": "ok",
+    "subscription_ref": "fixture-only",
+    "registration_id": "22222222-2222-4222-8222-222222222222",
+    "subscription_status": "active",
+    "subscription_expires_at": "2026-09-11T12:00:00Z",
+    "slots_limit": 2,
+    "slots_used": 1,
+    "revision": "7",
+    "issued_at": "2026-09-10T12:00:00Z",
+    "refresh_after": "2026-09-10T12:05:00Z",
+    "catalog_expires_at": "2026-09-10T12:15:00Z",
+    "nodes": [
+      {
+        "node_id": "test-1",
+        "name": "Synthetic TEST",
+        "country_code": "ZZ",
+        "peer_ip": "192.0.2.10",
+        "dtls_port": 56000,
+        "wg_port": 51820,
+        "protocol": "wdtt-v17",
+        "auth_mode": "installation-pop-v1",
+        "dtls_spki_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "max_workers": 1,
+        "access": {
+          "grant_id": "11111111-1111-4111-8111-111111111111",
+          "device_id": "22222222-2222-4222-8222-222222222222",
+          "password": "SYNTHETIC-NOT-A-CREDENTIAL",
+          "vk_hashes": [
+            "SYNTHETIC-NOT-A-VK-HASH"
+          ],
+          "expires_at": "2026-09-10T12:15:00Z",
+          "generation": "1",
+          "lease_seq": "1"
+        }
+      }
+    ]
+  },
+  "register_success": {
+    "v": 1,
+    "status": "ok",
+    "catalog": {
+      "v": 1,
+      "status": "ok",
+      "subscription_ref": "fixture-only",
+      "registration_id": "22222222-2222-4222-8222-222222222222",
+      "subscription_status": "active",
+      "subscription_expires_at": "2026-09-11T12:00:00Z",
+      "slots_limit": 2,
+      "slots_used": 1,
+      "revision": "7",
+      "issued_at": "2026-09-10T12:00:00Z",
+      "refresh_after": "2026-09-10T12:05:00Z",
+      "catalog_expires_at": "2026-09-10T12:15:00Z",
+      "nodes": [
+        {
+          "node_id": "test-1",
+          "name": "Synthetic TEST",
+          "country_code": "ZZ",
+          "peer_ip": "192.0.2.10",
+          "dtls_port": 56000,
+          "wg_port": 51820,
+          "protocol": "wdtt-v17",
+          "auth_mode": "installation-pop-v1",
+          "dtls_spki_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "max_workers": 1,
+          "access": {
+            "grant_id": "11111111-1111-4111-8111-111111111111",
+            "device_id": "22222222-2222-4222-8222-222222222222",
+            "password": "SYNTHETIC-NOT-A-CREDENTIAL",
+            "vk_hashes": [
+              "SYNTHETIC-NOT-A-VK-HASH"
+            ],
+            "expires_at": "2026-09-10T12:15:00Z",
+            "generation": "1",
+            "lease_seq": "1"
+          }
+        }
+      ]
+    }
+  },
+  "refresh_access_success": {
+    "v": 1,
+    "status": "ok",
+    "catalog": {
+      "v": 1,
+      "status": "ok",
+      "subscription_ref": "fixture-only",
+      "registration_id": "22222222-2222-4222-8222-222222222222",
+      "subscription_status": "active",
+      "subscription_expires_at": "2026-09-11T12:00:00Z",
+      "slots_limit": 2,
+      "slots_used": 1,
+      "revision": "7",
+      "issued_at": "2026-09-10T12:00:00Z",
+      "refresh_after": "2026-09-10T12:05:00Z",
+      "catalog_expires_at": "2026-09-10T12:15:00Z",
+      "nodes": [
+        {
+          "node_id": "test-1",
+          "name": "Synthetic TEST",
+          "country_code": "ZZ",
+          "peer_ip": "192.0.2.10",
+          "dtls_port": 56000,
+          "wg_port": 51820,
+          "protocol": "wdtt-v17",
+          "auth_mode": "installation-pop-v1",
+          "dtls_spki_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "max_workers": 1,
+          "access": {
+            "grant_id": "11111111-1111-4111-8111-111111111111",
+            "device_id": "22222222-2222-4222-8222-222222222222",
+            "password": "SYNTHETIC-NOT-A-CREDENTIAL",
+            "vk_hashes": [
+              "SYNTHETIC-NOT-A-VK-HASH"
+            ],
+            "expires_at": "2026-09-10T12:15:00Z",
+            "generation": "1",
+            "lease_seq": "1"
+          }
+        }
+      ]
+    }
+  },
+  "operation_status_complete": {
+    "v": 1,
+    "status": "complete",
+    "catalog": {
+      "v": 1,
+      "status": "ok",
+      "subscription_ref": "fixture-only",
+      "registration_id": "22222222-2222-4222-8222-222222222222",
+      "subscription_status": "active",
+      "subscription_expires_at": "2026-09-11T12:00:00Z",
+      "slots_limit": 2,
+      "slots_used": 1,
+      "revision": "7",
+      "issued_at": "2026-09-10T12:00:00Z",
+      "refresh_after": "2026-09-10T12:05:00Z",
+      "catalog_expires_at": "2026-09-10T12:15:00Z",
+      "nodes": [
+        {
+          "node_id": "test-1",
+          "name": "Synthetic TEST",
+          "country_code": "ZZ",
+          "peer_ip": "192.0.2.10",
+          "dtls_port": 56000,
+          "wg_port": 51820,
+          "protocol": "wdtt-v17",
+          "auth_mode": "installation-pop-v1",
+          "dtls_spki_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "max_workers": 1,
+          "access": {
+            "grant_id": "11111111-1111-4111-8111-111111111111",
+            "device_id": "22222222-2222-4222-8222-222222222222",
+            "password": "SYNTHETIC-NOT-A-CREDENTIAL",
+            "vk_hashes": [
+              "SYNTHETIC-NOT-A-VK-HASH"
+            ],
+            "expires_at": "2026-09-10T12:15:00Z",
+            "generation": "1",
+            "lease_seq": "1"
+          }
+        }
+      ]
+    }
+  },
+  "vpn_challenge": {
+    "v": 1,
+    "op": "VPN_CHALLENGE",
+    "status": "ok",
+    "challenge_id": "EBESExQVFhcYGRobHB0eHw",
+    "nonce": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+    "node_id": "test-1",
+    "grant_id": "11111111-1111-4111-8111-111111111111",
+    "registration_id": "22222222-2222-4222-8222-222222222222",
+    "generation": "1",
+    "lease_seq": "1",
+    "challenge_expires_at": "2026-09-10T12:00:15Z",
+    "access_expires_at": "2026-09-10T12:15:00Z",
+    "server_time": "2026-09-10T12:00:00Z"
+  },
+  "vpn_auth": {
+    "v": 1,
+    "op": "VPN_AUTH",
+    "challenge_id": "EBESExQVFhcYGRobHB0eHw",
+    "payload_b64": "eyJvcCI6InZwbl9hdXRoIiwibm9kZV9pZCI6InRlc3QtMSIsImdyYW50X2lkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwicmVnaXN0cmF0aW9uX2lkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZ2VuZXJhdGlvbiI6IjEiLCJsZWFzZV9zZXEiOiIxIiwidHJhbnNwb3J0X3Nlc3Npb24iOiIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZiIsIndvcmtlcl9pZCI6IjAiLCJtb2RlIjoiZ2V0Y29uZiJ9",
+    "proof_b64": "MEUCIQCQLVA_nMF2rU1XuKXbjWETvKg269DMVS8gWldzoKaiRwIgbxYRxHhWZHjeyDMtaM72TFnVkKp_UFzF8l9GtxJRV7I"
+  },
+  "vpn_auth_ok": {
+    "v": 1,
+    "op": "VPN_AUTH_OK",
+    "status": "ok",
+    "challenge_id": "EBESExQVFhcYGRobHB0eHw",
+    "node_id": "test-1",
+    "grant_id": "11111111-1111-4111-8111-111111111111",
+    "registration_id": "22222222-2222-4222-8222-222222222222",
+    "generation": "1",
+    "lease_seq": "1",
+    "transport_session": "0123456789abcdef0123456789abcdef",
+    "worker_id": "0",
+    "mode": "getconf",
+    "access_expires_at": "2026-09-10T12:15:00Z",
+    "server_time": "2026-09-10T12:00:00Z"
+  },
+  "signed_vpn": {
+    "public_key_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZDs2uqRUU_UrwKkrojQKFRYxsA03fOOY0Z31ogx0_oLvC3IcfWtvc97D1D_UVfVjFO1lxFwWiYkllCxJObFKXg",
+    "synthetic_exporter_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "challenge_id": "EBESExQVFhcYGRobHB0eHw",
+    "nonce": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+    "payload_b64": "eyJvcCI6InZwbl9hdXRoIiwibm9kZV9pZCI6InRlc3QtMSIsImdyYW50X2lkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwicmVnaXN0cmF0aW9uX2lkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiZ2VuZXJhdGlvbiI6IjEiLCJsZWFzZV9zZXEiOiIxIiwidHJhbnNwb3J0X3Nlc3Npb24iOiIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZiIsIndvcmtlcl9pZCI6IjAiLCJtb2RlIjoiZ2V0Y29uZiJ9",
+    "transcript_hex": "574c2d56504e2d504f502d3100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f069dd7a4055274b50203fdc9b2bbe7bf9032be691b1ab7f4238826b328caefd7",
+    "sha256_transcript_hex": "afd2926ed0e12ece5372f13a8a13611172db04bd18933b04f71d3672aeb67559",
+    "proof_b64": "MEUCIQCQLVA_nMF2rU1XuKXbjWETvKg269DMVS8gWldzoKaiRwIgbxYRxHhWZHjeyDMtaM72TFnVkKp_UFzF8l9GtxJRV7I",
+    "begin_request_id": "QEFCQ0RFRkdISUpLTE1OTw",
+    "auth_request_id": "AAECAwQFBgcICQoLDA0ODw",
+    "begin_frames_hex": [
+      "574c425301000020404142434445464748494a4b4c4d4e4f0000001d000000007b2276223a312c226f70223a2256504e5f415554485f424547494e227d"
+    ],
+    "challenge_frames_hex": [
+      "574c425301010020404142434445464748494a4b4c4d4e4f000001a5000000007b2276223a312c226f70223a2256504e5f4348414c4c454e4745222c22737461747573223a226f6b222c226368616c6c656e67655f6964223a2245424553457851564668635947526f62484230654877222c226e6f6e6365223a22494345694979516c4a69636f4b536f724c4330754c7a41784d6a4d304e5459334f446b364f7a7739506a38222c226e6f64655f6964223a22746573742d31222c226772616e745f6964223a2231313131313131312d313131312d343131312d383131312d313131313131313131313131222c22726567697374726174696f6e5f6964223a2232323232323232322d323232322d343232322d383232322d323232323232323232323232222c2267656e65726174696f6e223a2231222c226c656173655f736571223a2231222c226368616c6c656e67655f657870697265735f6174223a22323032362d30392d31305431323a30303a31355a222c226163636573735f657870697265735f6174223a22323032362d30392d31305431323a31353a30305a222c227365727665725f74696d65223a22323032362d30392d31305431323a30303a30305a227d"
+    ],
+    "auth_frames_hex": [
+      "574c425301000020000102030405060708090a0b0c0d0e0f0000021e000000007b2276223a312c226f70223a2256504e5f41555448222c226368616c6c656e67655f6964223a2245424553457851564668635947526f62484230654877222c227061796c6f61645f623634223a2265794a7663434936496e5a77626c39686458526f49697769626d396b5a5639705a434936496e526c633351744d534973496d64795957353058326c6b496a6f694d5445784d5445784d5445744d5445784d5330304d5445784c5467784d5445744d5445784d5445784d5445784d54457849697769636d566e61584e30636d46306157397558326c6b496a6f694d6a49794d6a49794d6a49744d6a49794d6930304d6a49794c5467794d6a49744d6a49794d6a49794d6a49794d6a4979496977695a3256755a584a6864476c7662694936496a45694c434a735a57467a5a56397a5a5845694f6949784969776964484a68626e4e7762334a3058334e6c63334e70623234694f6949774d54497a4e4455324e7a673559574a6a5a47566d4d4445794d7a51314e6a63344f5746695932526c5a694973496e6476636d746c636c39705a434936496a41694c434a746232526c496a6f695a325630593239755a694a39222c2270726f6f665f623634223a224d455543495143514c56415f6e4d463272553158754b58626a574554764b67323639444d56533867576c647a6f4b61695277496762785952784868575a486a6579444d74614d373254466e566b4b705f55467a46386c394774784a52563749227d"
+    ],
+    "ok_frames_hex": [
+      "574c425301010020000102030405060708090a0b0c0d0e0f00000197000000007b2276223a312c226f70223a2256504e5f415554485f4f4b222c22737461747573223a226f6b222c226368616c6c656e67655f6964223a2245424553457851564668635947526f62484230654877222c226e6f64655f6964223a22746573742d31222c226772616e745f6964223a2231313131313131312d313131312d343131312d383131312d313131313131313131313131222c22726567697374726174696f6e5f6964223a2232323232323232322d323232322d343232322d383232322d323232323232323232323232222c2267656e65726174696f6e223a2231222c226c656173655f736571223a2231222c227472616e73706f72745f73657373696f6e223a223031323334353637383961626364656630313233343536373839616263646566222c22776f726b65725f6964223a2230222c226d6f6465223a22676574636f6e66222c226163636573735f657870697265735f6174223a22323032362d30392d31305431323a31353a30305a222c227365727665725f74696d65223a22323032362d30392d31305431323a30303a30305a227d"
+    ]
+  },
+  "status_request_payload": {
+    "op": "operation_status",
+    "credential_id": "fixture-only",
+    "public_key_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZDs2uqRUU_UrwKkrojQKFRYxsA03fOOY0Z31ogx0_oLvC3IcfWtvc97D1D_UVfVjFO1lxFwWiYkllCxJObFKXg",
+    "installation_id": "8bed728692fe8c5163453caaab56829ecaa8ea0631648bdba9011a4572c56d03",
+    "original_request_id": "AAECAwQFBgcICQoLDA0ODw"
+  },
+  "catalog_not_modified": {
+    "v": 1,
+    "status": "not_modified",
+    "revision": "7",
+    "catalog_expires_at": "2026-09-10T12:15:00Z",
+    "checked_at": "2026-09-10T12:00:00Z"
+  },
+  "negative_schema": [
+    {
+      "field": "worker_id",
+      "value": "worker-0",
+      "reason": "noncanonical decimal"
+    },
+    {
+      "field": "worker_id",
+      "value": "00",
+      "reason": "noncanonical decimal"
+    },
+    {
+      "field": "worker_id",
+      "value": "+1",
+      "reason": "noncanonical decimal"
+    },
+    {
+      "field": "worker_id",
+      "value": "-1",
+      "reason": "noncanonical decimal"
+    },
+    {
+      "field": "worker_id",
+      "value": " 0",
+      "reason": "noncanonical decimal"
+    },
+    {
+      "field": "worker_id",
+      "value": "1",
+      "mode": "getconf",
+      "reason": "config worker must be 0"
+    },
+    {
+      "field": "worker_id",
+      "value": "1",
+      "mode": "data",
+      "max_workers": 1,
+      "reason": "cap excludes 1"
+    },
+    {
+      "field": "dtls_spki_sha256",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000",
+      "reason": "hex instead of base64url32"
+    },
+    {
+      "field": "original_request_id",
+      "value": "000102030405060708090a0b0c0d0e0f",
+      "reason": "hex instead of base64url16"
+    },
+    {
+      "field": "operation_status",
+      "value": {
+        "v": 1,
+        "status": "complete"
+      },
+      "reason": "missing catalog"
+    }
+  ]
+}

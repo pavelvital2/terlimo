@@ -1,0 +1,45 @@
+{
+  "account_ref": "acc-1",
+  "account_state": "ACTIVE_PAID",
+  "binding_revision": "3",
+  "binding_status": "active",
+  "entitlement": {
+    "effective_device_limit": 2,
+    "perpetual_commercial": false,
+    "revision": "7",
+    "slots_used": 1,
+    "source_ref": "legacy-1",
+    "status": "active",
+    "type": "imported",
+    "valid_from": "2026-08-01T00:00:00Z",
+    "valid_until": "2027-08-01T00:00:00Z"
+  },
+  "grant_resolution": {
+    "control_available": true,
+    "data_access": "subscription_data",
+    "effective_deadline": "2027-08-01T00:00:00Z",
+    "restricted_checkout_available": true
+  },
+  "management_only": false,
+  "onboarding": {
+    "creates_trial": false,
+    "duration_seconds": 3600,
+    "extends_on_refresh": false,
+    "extends_on_restart": false,
+    "not_after": "2026-09-19T14:20:00Z",
+    "one_time": true,
+    "post_telegram_identity": "account_history_correlation",
+    "pre_telegram_reinstall": "may_be_indistinguishable_new_key_separate_unit",
+    "requires_hardware_id": false,
+    "started_at": "2026-09-19T13:20:00Z",
+    "started_by": "server_confirmed_first_connection",
+    "state": "expired",
+    "unit": "installation_fingerprint"
+  },
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "revision": "7",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "ok",
+  "telegram_linked": true
+}

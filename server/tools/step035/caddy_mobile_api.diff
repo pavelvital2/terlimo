@@ -1,0 +1,13 @@
+--- /etc/terlimo-minishop-edge/Caddyfile	(existing, do not edit in place)
++++ /etc/terlimo-minishop-edge/Caddyfile	(reviewed change)
+@@ -6,6 +6,10 @@
+ terlimo.193-5-251-217.sslip.io {
+ 	bind 193.5.251.217
+ 
++	# STEP03.5 phone seed: only the mobile API goes to the isolated 03.4 backend.
++	@mobile_api path /api/mobile/v1/*
++	reverse_proxy @mobile_api 127.0.0.1:18091
++
+ 	@telegram_webhook path /tg/webhook
+ 	reverse_proxy @telegram_webhook 127.0.0.1:18080
+ 

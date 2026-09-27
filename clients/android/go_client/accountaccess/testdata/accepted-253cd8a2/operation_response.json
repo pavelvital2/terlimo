@@ -1,0 +1,20 @@
+{
+  "access_application_state": "applied",
+  "operation_id": "op-bind-1",
+  "operation_type": "device_binding",
+  "per_node": [
+    {
+      "applied_generation": "2",
+      "attempts": 1,
+      "gateway_id": "gw-a",
+      "last_error": null,
+      "not_after": "2026-09-19T15:35:00Z",
+      "state": "applied"
+    }
+  ],
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "state": "applied",
+  "status": "ok"
+}

@@ -1,0 +1,2 @@
+ALTER TABLE payment_orders DROP CONSTRAINT payment_orders_credit_requires_entitlement;
+ALTER TABLE payment_orders DROP COLUMN credited_entitlement_revision;

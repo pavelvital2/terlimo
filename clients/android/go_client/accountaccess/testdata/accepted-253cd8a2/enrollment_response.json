@@ -1,0 +1,30 @@
+{
+  "entitlement_created": false,
+  "installation": {
+    "created_at": "2026-09-19T15:20:00Z",
+    "environment": "test",
+    "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "installation_id": "spki-abc",
+    "last_seen_at": "2026-09-19T15:20:00Z",
+    "name": "Pixel TEST",
+    "platform": "android",
+    "public_key_spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE",
+    "state": "technical"
+  },
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "session": {
+    "account_ref": null,
+    "expires_at": "2026-09-19T16:20:00Z",
+    "generation": "1",
+    "installation_ref": "spki-abc",
+    "issued_at": "2026-09-19T15:20:00Z",
+    "scopes": [
+      "session:read",
+      "account:read"
+    ],
+    "session_id": "sess-1"
+  },
+  "status": "ok"
+}

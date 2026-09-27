@@ -1,0 +1,24 @@
+{
+  "synthetic": true,
+  "with_gateway_key": {
+    "env": "test",
+    "scope": "onboarding:start",
+    "op": "onboarding.intent",
+    "installation_id": "0000000000000000000000000000000000000000000000000000000000000000",
+    "request_key": "synthetic-request-key",
+    "gateway_key": "gw-beta",
+    "ts": "2026-09-23T12:00:00Z",
+    "nonce": "synthetic-nonce-0000000000000000000000000",
+    "request_id": "0123456789abcdef0123456789abcdef"
+  },
+  "legacy_without_gateway_key": {
+    "env": "test",
+    "scope": "onboarding:start",
+    "op": "onboarding.intent",
+    "installation_id": "0000000000000000000000000000000000000000000000000000000000000000",
+    "request_key": "synthetic-request-key",
+    "ts": "2026-09-23T12:00:00Z",
+    "nonce": "synthetic-nonce-0000000000000000000000000",
+    "request_id": "0123456789abcdef0123456789abcdef"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "code": "REVISION_CONFLICT",
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "retryable": false,
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "status": "error"
+}

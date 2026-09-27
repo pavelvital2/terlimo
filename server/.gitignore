@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.runtime/
+.test-pg/
+evidence/*.local
+.env
+.test-035/
+.step035-runs/

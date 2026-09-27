@@ -1,0 +1,13 @@
+{
+  "scope": "synthetic request shape only; no real credential or trust anchor",
+  "challenge_json": "{\"v\":1,\"op\":\"challenge\"}",
+  "full_payload_json": "{\"op\":\"catalog\",\"credential_id\":\"fixture-only\",\"registration_id\":\"registration\"}",
+  "conditional_payload_json": "{\"op\":\"catalog\",\"credential_id\":\"fixture-only\",\"registration_id\":\"registration\",\"known_revision\":\"9007199254740993\"}",
+  "outer_keys": ["v", "op", "challenge_id", "payload_b64", "proof_b64"],
+  "outer_types": ["integer=1", "string=catalog", "base64url16", "base64url(payload UTF-8)", "base64url(ECDSA DER)"],
+  "request_id_location": "WLBS header bytes 8:24, 16 raw bytes; absent from JSON",
+  "proof_transcript": "WLBS-POP-1\\0 || request_id[16] || challenge_id[16] || nonce[32] || SHA256(payload bytes)",
+  "signature": "P-256 ECDSA over SHA256(transcript), DER; tests generate ephemeral synthetic keys",
+  "frame": {"magic": "WLBS", "version": 1, "flags": 0, "header_length": 32, "total_length": "UTF-8 outer body byte length, big endian u32", "offset": 0},
+  "response": "full catalog for omitted known_revision; no freshness inferred from not_modified"
+}

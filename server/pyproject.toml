@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "terlimo-backend"
+version = "0.1.0"
+description = "TERLIMO unified backend: minimal TEST runtime (API, migrations, durable outbox worker)"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.9,<4",
+    "asyncpg>=0.29,<1",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pgserver>=0.1.4",
+    "jsonschema>=4.18",
+]
+
+[project.scripts]
+terlimo-api = "terlimo_backend.api:main"
+terlimo-worker = "terlimo_backend.worker:main"
+terlimo-migrate = "terlimo_backend.migrate:main"
+terlimo-outbox = "terlimo_backend.outbox_cli:main"
+terlimo-management-handler = "terlimo_backend.management_handler:main"
+
+[tool.setuptools.packages.find]
+include = ["terlimo_backend*"]
+
+[tool.setuptools.package-data]
+terlimo_backend = ["migrations/versions/*.sql"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

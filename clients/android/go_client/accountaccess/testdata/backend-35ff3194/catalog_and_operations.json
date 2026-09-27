@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "basis": {
+    "contract": "terlimo-s1-contracts@336bd6dae9e9340874d6e128a360fe6cfe2f26e6",
+    "backend": "590481f0477f07627b0749f3187b0e93aff83297",
+    "synthetic": true,
+    "note": "Synthetic server-side fixture for STEP03.4 preparation; no real subscription, no user bypass."
+  },
+  "catalog": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-09-21T12:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "revision": "4",
+    "valid_until": "2026-09-21T12:10:00Z",
+    "issued_at": "2026-09-21T11:55:00Z",
+    "gateways": [
+      {
+        "gateway_id": "gw-synth-1",
+        "name": "Synthetic Gateway 1",
+        "region": "test",
+        "country_code": "XX",
+        "capabilities": [
+          "managed"
+        ],
+        "target_workers": 36,
+        "transport": {
+          "protocol": "wdtt-v17",
+          "peer_ip": "127.0.0.1",
+          "dtls_port": 56300,
+          "wg_port": 56302,
+          "dtls_spki_sha256": "PAyFy4YlbMsIfA4GfHvX_r8-HUWKVuj9PUeJ4pEtAjo"
+        },
+        "access": {
+          "grant_id": "grant-synth-1",
+          "device_ref": "dev-synth-1",
+          "password": "synthetic-grant-credential",
+          "generation": "1",
+          "not_after": "2026-09-21T12:10:00Z",
+          "lease_seq": "2"
+        }
+      }
+    ]
+  },
+  "access_sync_cases": [
+    {
+      "name": "applied",
+      "response": {
+        "request_id": "0123456789abcdef0123456789abcdef",
+        "server_time": "2026-09-21T12:00:00Z",
+        "schema_version": "1.0",
+        "status": "ok",
+        "operation_id": "op-synth-1",
+        "access_application_state": "applied",
+        "revision": "5",
+        "grants": [
+          {
+            "grant_id": "grant-synth-1",
+            "binding_ref": "bind-synth-1",
+            "gateway_id": "gw-synth-1",
+            "desired_generation": "1",
+            "applied_generation": "1",
+            "not_after": "2026-09-21T12:10:00Z",
+            "state": "active"
+          }
+        ]
+      },
+      "expected": {
+        "http": 200,
+        "terminal": true
+      }
+    },
+    {
+      "name": "pending",
+      "response": {
+        "request_id": "0123456789abcdef0123456789abcdef",
+        "server_time": "2026-09-21T12:00:00Z",
+        "schema_version": "1.0",
+        "status": "ok",
+        "operation_id": "op-synth-2",
+        "access_application_state": "pending",
+        "revision": "5",
+        "grants": [
+          {
+            "grant_id": "grant-synth-1",
+            "binding_ref": "bind-synth-1",
+            "gateway_id": "gw-synth-1",
+            "desired_generation": "2",
+            "applied_generation": "1",
+            "not_after": "2026-09-21T12:10:00Z",
+            "state": "enrolling"
+          }
+        ]
+      },
+      "expected": {
+        "http": 200,
+        "terminal": false,
+        "native_action": "poll_operation_no_new_effect"
+      }
+    },
+    {
+      "name": "retryable_failure",
+      "response": {
+        "request_id": "0123456789abcdef0123456789abcdef",
+        "server_time": "2026-09-21T12:00:00Z",
+        "schema_version": "1.0",
+        "status": "ok",
+        "operation_id": "op-synth-3",
+        "access_application_state": "retryable_failure",
+        "revision": "5",
+        "grants": [
+          {
+            "grant_id": "grant-synth-1",
+            "binding_ref": "bind-synth-1",
+            "gateway_id": "gw-synth-1",
+            "desired_generation": "2",
+            "applied_generation": "1",
+            "not_after": "2026-09-21T12:10:00Z",
+            "state": "enrolling",
+            "last_error": "NODE_UNAVAILABLE"
+          }
+        ]
+      },
+      "expected": {
+        "http": 200,
+        "terminal": false,
+        "native_action": "retry_with_same_idempotency_key"
+      }
+    }
+  ]
+}

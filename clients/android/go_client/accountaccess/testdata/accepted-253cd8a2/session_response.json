@@ -1,0 +1,21 @@
+{
+  "request_id": "0123456789abcdef0123456789abcdef",
+  "schema_version": "1.0",
+  "server_time": "2026-09-19T15:20:00Z",
+  "session": {
+    "account_ref": "acc-1",
+    "expires_at": "2026-09-19T16:20:00Z",
+    "generation": "3",
+    "installation_ref": "spki-abc",
+    "issued_at": "2026-09-19T15:20:00Z",
+    "scopes": [
+      "session:read",
+      "session:write",
+      "account:read",
+      "devices:write",
+      "access:sync"
+    ],
+    "session_id": "sess-2"
+  },
+  "status": "ok"
+}
