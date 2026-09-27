@@ -23,3 +23,7 @@ Accepted Android source `c4e8a1532518368ccdce0895628bdc1d5042d0c3`, tree `3549a7
 ## Catalog country length compatibility — 2026-09-27
 
 Android source `1961d089b58f7997f6fed85702adead28e87f462`, tree `91223e4d926d0a0a7db1a610cc681b62df8bbaac`, patch SHA-256 `1752b8c029dddf6afdae78af381942750d4430fd495310ab0497cf03cfc0da84`. Credential parser and retained-cache decoder now accept country-code lengths up to eight; existing cache uppercase validation remains. Root reviewed all four changed files; executor reports NodeSelectionTest/CatalogCacheTest 32/32 passed. No new phone or large-catalog test. APK deployment pending.
+
+## Notification traffic at zero — 2026-09-27
+
+Android source `19961c5a244e8fe34f4511bb69e074a68e8b219f`, tree `b5ce44885f9ffce4e8d02ef0882fb06b5db945cb`; patch SHA-256 `27b7d95a6db9d81c53405d1cb873ce627086db7ee09db281793d01c44b42b4b8`. Connected notification now includes incoming/outgoing totals even at zero. Root reviewed three-file diff; executor reports NotificationTextTest 2 and OnboardingHourSourceTest 6 passed. Workers/stream telemetry remains unresolved; this is partial source acceptance, not full notification acceptance. New APK pending. Previous country source1961d08 installed APK `4d18b0e6055e4486b907cab9a07438be9d5d5361ec13cd82e4da2572190beeff`, built/installed artifact hashes independently matched.

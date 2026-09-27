@@ -374,8 +374,8 @@ class SessionService : Service() {
             AccountAccessPolicy.notificationLine(state.accountAccess, SystemClock.elapsedRealtime()),
             usageSegment).joinToString(" · ")
         val traffic = state.traffic
-        val trafficPart = if (state.phase == "Connected" && (traffic.rxTotal > 0 || traffic.txTotal > 0))
-            "↓${TrafficText.bytes(traffic.rxTotal)} ↑${TrafficText.bytes(traffic.txTotal)}" else ""
+        // §9: an active connection always shows its incoming/outgoing traffic, zero included.
+        val trafficPart = NotificationText.trafficSegment(state.phase, traffic).orEmpty()
         val now = SystemClock.elapsedRealtime()
         val baseChanged = base != lastNotificationBase
         // Traffic is refreshed at most every 5 s so the notification is not updated per tick.
