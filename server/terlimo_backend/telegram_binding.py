@@ -100,6 +100,25 @@ async def _hour_active(connection: asyncpg.Connection, installation_id: Any) -> 
     return found is not None
 
 
+async def _active_binding_status(connection, installation_id, telegram_id):
+    """Server-side binding projection for registration views; never client input."""
+    active = await connection.fetchrow(
+        "SELECT account_id FROM account_bindings WHERE installation_id = $1 AND status = 'active' LIMIT 1",
+        installation_id,
+    )
+    if active is not None:
+        return "active"
+    account_id = await connection.fetchval("SELECT id FROM accounts WHERE telegram_id = $1", telegram_id)
+    if account_id is None:
+        return "no_binding"
+    still = await connection.fetchval(
+        "SELECT 1 FROM account_bindings WHERE installation_id = $1 AND account_id = $2 LIMIT 1",
+        installation_id,
+        account_id,
+    )
+    return "removed" if still is not None else "no_binding"
+
+
 async def registration_view(
     connection: asyncpg.Connection, installation_id: Any, settings: Settings
 ) -> dict[str, Any]:
@@ -117,6 +136,8 @@ async def registration_view(
     if link is not None and link["status"] == "confirmed":
         if not registration_enabled(settings):
             return _empty_registration()
+        # NOTE: the /me Registration projection schema is frozen (additionalProperties=false);
+        # device binding state is reported by GET /api/mobile/v1/devices, not here.
         return {
             "state": "registered",
             "telegram_id": link["telegram_id"],
@@ -140,6 +161,19 @@ async def registration_view(
     return _empty_registration()
 
 
+async def _account_advisory(connection, account_id: Any) -> None:
+    """Single serialization point for all slot-affecting operations.
+
+    Global lock order (root correction 2026-09-27): account advisory lock FIRST, then
+    installation, then registration_links rows, then account_bindings rows. Every writer
+    that can change slots or bindings (confirm, link rotation, device delete) follows it.
+    """
+    await connection.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        f"bind-account:{account_id}",
+    )
+
+
 async def create_registration_link(
     connection: asyncpg.Connection,
     settings: Settings,
@@ -148,7 +182,31 @@ async def create_registration_link(
 ) -> dict[str, Any]:
     if not registration_enabled(settings):
         raise ApiError("REGISTRATION_DISABLED", http=503)
+    # Pre-read only to derive the advisory-lock key (never trusted for writes); every
+    # decision below is re-validated under the locks.
+    active0 = await connection.fetchrow(
+        "SELECT id, account_id FROM account_bindings WHERE installation_id = $1 AND status = 'active' LIMIT 1",
+        installation_id,
+    )
+    confirmed0 = await connection.fetchrow(
+        """
+        SELECT telegram_id FROM registration_links
+        WHERE installation_id = $1 AND environment = $2 AND status = 'confirmed'
+        ORDER BY confirmed_at DESC, id DESC LIMIT 1
+        """,
+        installation_id,
+        settings.environment,
+    )
+    account_id = None
+    if active0 is not None:
+        account_id = active0["account_id"]
+    elif confirmed0 is not None and confirmed0["telegram_id"] is not None:
+        account_id = await connection.fetchval(
+            "SELECT id FROM accounts WHERE telegram_id = $1", confirmed0["telegram_id"]
+        )
     async with connection.transaction():
+        if account_id is not None:
+            await _account_advisory(connection, account_id)
         installation = await connection.fetchrow(
             "SELECT id, state FROM installations WHERE id = $1 FOR UPDATE", installation_id
         )
@@ -156,29 +214,41 @@ async def create_registration_link(
             raise ApiError("PROOF_INVALID", http=404)
         if installation["state"] == "revoked":
             raise ApiError("DEVICE_REVOKED", http=403)
+        # Global lock order: advisory -> installation -> registration_links -> account_bindings.
         confirmed = await connection.fetchrow(
             """
             SELECT * FROM registration_links
             WHERE installation_id = $1 AND environment = $2 AND status = 'confirmed'
             ORDER BY confirmed_at DESC, id DESC LIMIT 1
+            FOR UPDATE
             """,
             installation_id,
             settings.environment,
         )
-        if confirmed is not None:
-            return {
-                "state": "registered",
-                "telegram_id": confirmed["telegram_id"],
-                "registered_at": rfc3339(confirmed["confirmed_at"]),
-                "within_hour": bool(confirmed["within_hour"]),
-                "trial_available": bool(confirmed["trial_available"]),
-                "trial_reason": confirmed["trial_reason"],
-                "purchase_available": PURCHASE_AVAILABLE,
-            }
+        active = await connection.fetchrow(
+            "SELECT id, account_id FROM account_bindings WHERE installation_id = $1 AND status = 'active' FOR UPDATE",
+            installation_id,
+        )
+        # Re-validate the advisory key derived before the lock against the locked rows.
+        locked_account = active["account_id"] if active is not None else None
+        if locked_account is None and confirmed is not None and confirmed["telegram_id"] is not None:
+            locked_account = await connection.fetchval(
+                "SELECT id FROM accounts WHERE telegram_id = $1", confirmed["telegram_id"]
+            )
+        if account_id is not None and locked_account != account_id:
+            raise ApiError("REVISION_CONFLICT", http=409, retryable=True)
+        if confirmed is not None and active is not None:
+            # Registered is reported only while an active binding exists.
+            result = _confirmed_result(confirmed, binding_status="active")
+            result["state"] = result.pop("registration_state")
+            return result
+        # No active binding: a new Telegram proof is required (first bind, limit window after a
+        # full-slot confirmation, or re-bind after removal). Invalidate every stale pending and
+        # confirmed proof for this installation first so old tokens can never manage or bind.
         await connection.execute(
             """
             UPDATE registration_links SET status = 'expired'
-            WHERE installation_id = $1 AND status = 'pending'
+            WHERE installation_id = $1 AND status IN ('pending', 'confirmed')
             """,
             installation_id,
         )
@@ -215,59 +285,128 @@ async def confirm_registration(
 ) -> dict[str, Any]:
     if not registration_enabled(settings):
         raise ApiError("REGISTRATION_DISABLED", http=503)
+    token_sha = _token_hash(token)
+    link0 = await connection.fetchrow(
+        "SELECT installation_id FROM registration_links WHERE token_sha256 = $1", token_sha
+    )
+    if link0 is None:
+        raise ApiError("REGISTRATION_UNKNOWN", http=404)
+    # Pre-read only to derive the advisory-lock key; re-validated under the locks.
+    account0 = await connection.fetchval(
+        "SELECT id FROM accounts WHERE telegram_id = $1", telegram_id
+    )
+    limit_details: dict[str, int] | None = None
+    result: dict[str, Any] | None = None
     async with connection.transaction():
-        link = await connection.fetchrow(
-            "SELECT * FROM registration_links WHERE token_sha256 = $1 FOR UPDATE",
-            _token_hash(token),
+        if account0 is not None:
+            await _account_advisory(connection, account0)
+        installation = await connection.fetchrow(
+            "SELECT id, state FROM installations WHERE id = $1 FOR UPDATE",
+            link0["installation_id"],
         )
-        if link is None:
+        link = await connection.fetchrow(
+            "SELECT * FROM registration_links WHERE token_sha256 = $1 FOR UPDATE", token_sha
+        )
+        if link is None or link["installation_id"] != installation["id"]:
             raise ApiError("REGISTRATION_UNKNOWN", http=404)
         if link["status"] == "confirmed":
             if link["telegram_id"] != telegram_id:
                 raise ApiError("REGISTRATION_CONFLICT", http=409)
-            return _confirmed_result(link)
+            # Idempotent replay: never (re)creates a binding. Only the current binding
+            # projection is reported; a new Telegram flow is required to bind.
+            binding_status = await _active_binding_status(connection, link["installation_id"], telegram_id)
+            return _confirmed_result(link, binding_status=binding_status)
         if link["status"] == "expired" or link["expires_at"] <= now_utc():
             await connection.execute(
                 "UPDATE registration_links SET status = 'expired' WHERE id = $1", link["id"]
             )
             raise ApiError("REGISTRATION_EXPIRED", http=410)
-        installation = await connection.fetchrow(
-            "SELECT id, state FROM installations WHERE id = $1 FOR UPDATE",
-            link["installation_id"],
-        )
         if installation is None or installation["state"] == "revoked":
+            # Original precedence preserved: replay/expiry decisions above, then the fence.
             raise ApiError("DEVICE_REVOKED", http=403)
-
         account_id = await connection.fetchval(
             "SELECT id FROM accounts WHERE telegram_id = $1", telegram_id
         )
         if account_id is None:
-            account_id = await connection.fetchval(
+            row = await connection.fetchrow(
                 """
                 INSERT INTO accounts (status, telegram_id) VALUES ('verified', $1)
                 ON CONFLICT (telegram_id) DO UPDATE SET updated_at = now()
-                RETURNING id
+                RETURNING id, (xmax = 0) AS inserted
                 """,
                 telegram_id,
             )
-        existing = await connection.fetchrow(
+            if not row["inserted"]:
+                # Inverse-order hazard: the account appeared concurrently after our pre-read.
+                # Taking its advisory lock while already holding the installation lock could
+                # deadlock with a confirm that took the advisory first; report a retryable
+                # conflict instead. The retry sees the account at pre-read and locks in order.
+                raise ApiError("REVISION_CONFLICT", http=409, retryable=True)
+            account_id = row["id"]
+            await _account_advisory(connection, account_id)
+        from .mobile_account import effective_device_limit  # local import avoids a cycle
+
+        effective_limit = await effective_device_limit(connection, account_id)
+        used = int(await connection.fetchval(
+            "SELECT count(*) FROM account_bindings WHERE account_id = $1 AND status = 'active'",
+            account_id,
+        ) or 0)
+        slots_after = used
+        binding_status = "active"
+        # Exact (account, installation) pair only: history for this account may be reactivated,
+        # a binding of another account is never repointed or reused.
+        pair = await connection.fetchrow(
             """
-            SELECT id, account_id FROM account_bindings
-            WHERE installation_id = $1 AND status = 'active'
+            SELECT id, status FROM account_bindings
+            WHERE account_id = $1 AND installation_id = $2
+            FOR UPDATE
             """,
+            account_id,
             link["installation_id"],
         )
-        if existing is not None and existing["account_id"] != account_id:
-            raise ApiError("REGISTRATION_CONFLICT", http=409)
-        if existing is None:
+        if pair is None:
+            other_active = await connection.fetchrow(
+                """
+                SELECT id FROM account_bindings
+                WHERE installation_id = $1 AND account_id <> $2 AND status = 'active'
+                FOR UPDATE
+                """,
+                link["installation_id"],
+                account_id,
+            )
+            if other_active is not None:
+                raise ApiError("REGISTRATION_CONFLICT", http=409)
+            if used >= effective_limit:
+                # Telegram proof is still confirmed below; the binding is not created and the
+                # caller gets an honest DEVICE_LIMIT_REACHED after the commit.
+                limit_details = {"slots_used": used, "device_limit": effective_limit}
+                binding_status = "no_binding"
+            else:
+                await connection.execute(
+                    """
+                    INSERT INTO account_bindings (account_id, installation_id, status)
+                    VALUES ($1, $2, 'active')
+                    """,
+                    account_id,
+                    link["installation_id"],
+                )
+                slots_after = used + 1
+        elif pair["status"] == "active":
+            binding_status = "active"
+        elif used >= effective_limit:
+            limit_details = {"slots_used": used, "device_limit": effective_limit}
+            binding_status = "no_binding"
+        else:
             await connection.execute(
                 """
-                INSERT INTO account_bindings (account_id, installation_id, status)
-                VALUES ($1, $2, 'active')
+                UPDATE account_bindings
+                SET status = 'active', generation = generation + 1,
+                    revoked_at = NULL, bound_at = now()
+                WHERE id = $1 AND status <> 'active'
                 """,
-                account_id,
-                link["installation_id"],
+                pair["id"],
             )
+            slots_after = used + 1
         within_hour = await _hour_active(connection, link["installation_id"])
         trial_used = await _trial_used(connection, telegram_id)
         if trial_used:
@@ -290,18 +429,35 @@ async def confirm_registration(
             trial_available,
             reason,
         )
-        # A paid order created before Telegram binding stays parked on the installation and is
-        # applied exactly once to the account that has just been bound (S4).
-        from .payments import apply_parked_payments
+        if limit_details is None:
+            # A paid order created before Telegram binding stays parked on the installation and
+            # is applied exactly once to the account that has just been bound (S4).
+            from .payments import apply_parked_payments
 
-        await apply_parked_payments(
-            connection, settings, installation_id=link["installation_id"]
+            await apply_parked_payments(
+                connection, settings, installation_id=link["installation_id"]
+            )
+        result = _confirmed_result(
+            confirmed,
+            binding_status=binding_status,
+            slots_used=slots_after,
+            device_limit=effective_limit,
         )
-        return _confirmed_result(confirmed)
+    if limit_details is not None:
+        # Raised after the transaction committed so the Telegram proof and account rows are
+        # durable; a repeat of the same token is idempotent and never bypasses the limit.
+        raise ApiError("DEVICE_LIMIT_REACHED", http=409, details=limit_details)
+    return result
 
 
-def _confirmed_result(link: asyncpg.Record) -> dict[str, Any]:
-    return {
+def _confirmed_result(
+    link: asyncpg.Record,
+    *,
+    binding_status: str | None = None,
+    slots_used: int | None = None,
+    device_limit: int | None = None,
+) -> dict[str, Any]:
+    result = {
         "registration_state": "registered",
         "telegram_id": link["telegram_id"],
         "registered_at": rfc3339(link["confirmed_at"]) if link["confirmed_at"] else None,
@@ -310,6 +466,13 @@ def _confirmed_result(link: asyncpg.Record) -> dict[str, Any]:
         "trial_reason": link["trial_reason"],
         "purchase_available": PURCHASE_AVAILABLE,
     }
+    if binding_status is not None:
+        result["binding_status"] = binding_status
+    if slots_used is not None:
+        result["slots_used"] = slots_used
+    if device_limit is not None:
+        result["device_limit"] = device_limit
+    return result
 
 
 def register_telegram_registration_routes(

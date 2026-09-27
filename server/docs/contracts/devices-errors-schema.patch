@@ -1,0 +1,11 @@
+--- /home/pavel/projects/terlimo-s1-contracts/schemas/errors.json	2026-09-19 18:17:44.523804772 +0300
++++ /tmp/opencode/artifacts/errors.new.json	2026-09-27 21:03:29.054180586 +0300
+@@ -25,6 +25,8 @@
+         "DEVICE_LIMIT_REACHED",
+         "APPROVAL_REQUIRED",
+         "DEVICE_REVOKED",
++        "DEVICE_REMOVED",
++        "DEVICE_MANAGEMENT_FORBIDDEN",
+         "SUBSCRIPTION_EXPIRED",
+         "SUBSCRIPTION_MISSING",
+         "IDEMPOTENCY_CONFLICT",

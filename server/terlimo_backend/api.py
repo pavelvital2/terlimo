@@ -14,6 +14,7 @@ import uuid
 from aiohttp import web
 
 from . import SCHEMA_VERSION, __version__
+from .announcements import register_announcement_routes
 from .auth_api import AUTH_SERVICE_KEY, InstallationSessionService, register_mobile_auth_routes
 from .config import Settings, load_settings
 from .db import Database
@@ -22,16 +23,16 @@ from .maintenance import run_maintenance_loop
 from .migrations import runner
 from .mobile_account import ACCOUNT_SERVICE_KEY, AccountService, register_account_routes
 from .mobile_catalog import CATALOG_SERVICE_KEY, CatalogService, register_catalog_routes
+from .mobile_devices import register_device_routes
 from .onboarding_api import (
     ONBOARDING_SERVICE_KEY,
     OnboardingIntentService,
     register_onboarding_routes,
 )
-from .telegram_binding import register_telegram_registration_routes
-from .trial_activation import register_trial_routes
 from .payments import register_payment_routes
 from .s5_payments import register_s5_payment_routes
-from .announcements import register_announcement_routes
+from .telegram_binding import register_telegram_registration_routes
+from .trial_activation import register_trial_routes
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,7 @@ def create_app(settings: Settings, database: Database) -> web.Application:
     register_payment_routes(app, settings, database)
     register_s5_payment_routes(app, settings, database)
     register_announcement_routes(app, settings, database)
+    register_device_routes(app, settings, database)
     app[MAINTENANCE_TASK_KEY] = None
 
     async def _startup(_: web.Application) -> None:

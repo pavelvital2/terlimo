@@ -44,6 +44,30 @@ _TERMINAL_FAILURES = frozenset(
 )
 
 
+
+async def effective_device_limit(connection, account_id, *, now: datetime | None = None) -> int:
+    """Most recent EFFECTIVE commercial right decides the slot limit.
+
+    Same semantics as session_auth commercial selection: status=active and
+    starts_at <= now < ends_at (NULL start/end allowed). A future or expired right never
+    changes the limit; without one the base limit applies.
+    """
+    now = now or datetime.now(UTC)
+    rows = await connection.fetch(
+        """
+        SELECT device_limit, starts_at, ends_at, status FROM entitlements
+        WHERE account_id = $1 AND kind IN ('trial','paid','imported')
+        ORDER BY created_at DESC
+        """,
+        account_id,
+    )
+    for item in rows:
+        started = item["starts_at"] is None or item["starts_at"] <= now
+        not_ended = item["ends_at"] is None or item["ends_at"] > now
+        if item["status"] == "active" and started and not_ended:
+            return int(item["device_limit"]) if item["device_limit"] is not None else BASE_LIMIT
+    return BASE_LIMIT
+
 def rfc3339(moment: datetime | None) -> str | None:
     if moment is None:
         return None
