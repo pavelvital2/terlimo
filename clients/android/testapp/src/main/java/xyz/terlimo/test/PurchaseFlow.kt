@@ -17,6 +17,17 @@ internal data class PurchaseState(
     val selectedMethod: String? = null,
     val quote: PaymentQuote? = null,
     val payment: PaymentStatusView? = null,
+    /**
+     * Correlated acknowledgement of the explicitly sent payment_create of the current
+     * attempt; null until that create result arrives and dropped on every attempt
+     * replacement/failure (see [PaymentCreateAck]).
+     */
+    val createAck: PaymentCreateAck? = null,
+    /**
+     * True while one purchase request is outstanding on the native stream (single-flight);
+     * the UI shows waiting and disables pay/plan/method until the matching result arrives.
+     */
+    val sending: Boolean = false,
     val error: String? = null,
 )
 
@@ -58,6 +69,9 @@ internal object PurchaseFlow {
             // A quote stays valid only while the selected plan is unchanged; a different
             // selection must request a new quote instead of silently paying an old one.
             quote = if (base.selectedPlanId == selected?.planId) base.quote else null,
+            // The create correlation follows the same attempt: a replaced selection drops it.
+            createAck = if (base.selectedPlanId == selected?.planId) base.createAck else null,
+            sending = false,
             error = null,
         )
     }
@@ -71,6 +85,8 @@ internal object PurchaseFlow {
             selectedMethod = plan.methods.firstOrNull(),
             // A different plan invalidates the previous plan's quote; it is never reused silently.
             quote = null,
+            // The replaced attempt's create correlation is dropped with its quote.
+            createAck = null,
         )
     }
 
@@ -78,11 +94,12 @@ internal object PurchaseFlow {
         val base = current ?: return PurchaseState()
         val plan = base.plans.firstOrNull { it.planId == base.selectedPlanId } ?: return base
         if (method !in plan.methods || base.selectedMethod == method) return base
-        return base.copy(selectedMethod = method, quote = null)
+        return base.copy(selectedMethod = method, quote = null, createAck = null)
     }
 
     fun quoteReady(current: PurchaseState?, quote: PaymentQuote): PurchaseState =
-        (current ?: PurchaseState()).copy(phase = QUOTE_READY, quote = quote, error = null)
+        (current ?: PurchaseState()).copy(
+            phase = QUOTE_READY, quote = quote, error = null, createAck = null, sending = false)
 
     fun quoteExpired(current: PurchaseState?, now: Instant): Boolean {
         val quote = current?.quote ?: return false
@@ -95,7 +112,12 @@ internal object PurchaseFlow {
      * quote and request a new one (with new host-owned keys), never silently reuse it.
      */
     fun quoteExpiredState(current: PurchaseState?): PurchaseState =
-        (current ?: PurchaseState()).copy(phase = ERROR, quote = null, error = "QUOTE_EXPIRED")
+        (current ?: PurchaseState()).copy(
+            phase = ERROR, quote = null, error = "QUOTE_EXPIRED", createAck = null, sending = false)
+
+    /** Marks the explicit purchase request as outstanding (single-flight captured). */
+    fun sending(current: PurchaseState?): PurchaseState =
+        (current ?: PurchaseState()).copy(sending = true)
 
     fun paymentResult(current: PurchaseState?, payment: PaymentStatusView): PurchaseState {
         val phase = when (payment.paymentStatus) {
@@ -111,24 +133,35 @@ internal object PurchaseFlow {
             "created", "pending", "paid" -> null
             else -> "PAYMENT_STATUS_UNKNOWN"
         }
-        return (current ?: PurchaseState()).copy(phase = phase, payment = payment, error = error)
+        return (current ?: PurchaseState()).copy(
+            phase = phase, payment = payment, error = error, sending = false)
     }
 
-    /** The payment-get status is only ever refreshed from server data, never locally advanced. */
+    /**
+     * The payment-get status is only ever refreshed from server data, never locally advanced,
+     * and it never sets or refreshes the create acknowledgement: a get result can neither
+     * satisfy nor replace the explicit pay correlation.
+     */
     fun paymentGetResult(current: PurchaseState?, payment: PaymentStatusView): PurchaseState =
         paymentResult(current, payment)
 
+    /** A correlated payment_create result: the payment state plus the ack of the sent create. */
+    fun paymentCreateResult(
+        current: PurchaseState?, payment: PaymentStatusView, ack: PaymentCreateAck,
+    ): PurchaseState = paymentResult(current, payment).copy(createAck = ack)
+
     fun failure(current: PurchaseState?, code: String): PurchaseState {
         val base = current ?: PurchaseState()
-        return if (PaymentsText.isUnavailable(code)) base.copy(phase = UNAVAILABLE, error = code)
-        else base.copy(phase = ERROR, error = code)
+        return if (PaymentsText.isUnavailable(code))
+            base.copy(phase = UNAVAILABLE, error = code, createAck = null, sending = false)
+        else base.copy(phase = ERROR, error = code, createAck = null, sending = false)
     }
 
     /** A failed plans refresh cannot leave an older offer or quote actionable. */
     fun plansFailure(current: PurchaseState?, code: String): PurchaseState = failure(
         (current ?: PurchaseState()).copy(
             plansRevision = null, plans = emptyList(), selectedPlanId = null,
-            selectedMethod = null, quote = null, payment = null,
+            selectedMethod = null, quote = null, payment = null, createAck = null, sending = false,
         ), code)
 
     /** A definitive terminal payment state ends the attempt; retry becomes a new key pair. */

@@ -110,8 +110,9 @@ internal class NativeProcess(
         stream.write(bytes); stream.write(10); stream.flush()
     }
     /**
-     * Switch-diagnostic-only truthful write: `true` only after a real write+flush. Never throws
-     * and never changes the behavior of [send] used by every other caller.
+     * Truthful write: `true` only after a real write+flush. Never throws and never changes the
+     * behavior of [send] used by every other caller. Used by switch diagnostics and by the
+     * single-flight purchase send, whose holder must not be left busy by an escaped exception.
      */
     @Synchronized fun trySend(message: JSONObject): Boolean {
         if (closing) return false

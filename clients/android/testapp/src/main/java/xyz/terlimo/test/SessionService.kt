@@ -136,6 +136,12 @@ class SessionService : Service() {
     private val purchaseGate = PurchaseGate()
     /** Durable host-owned idempotency keys for the purchase attempt; loaded lazily after storage. */
     private val purchaseAttempts by lazy { PurchaseAttempts(InstallationPurchaseAttemptStore(storage)) }
+    /** Local correlation of the explicitly sent payment_create with its result (no wire pairing). */
+    private val paymentCreates = PaymentCreateTracker()
+    /** Host-owned single-flight: at most one Quote/Payment request outstanding on the stream. */
+    private val purchaseFlight = PurchaseSingleFlight()
+    /** Truthful send orchestration around the single-flight capture (no swallowed exceptions). */
+    private val purchaseSender = PurchaseSender(purchaseFlight)
     /** Finite catalogue window timer; applies the bounded gate actions to the existing lifecycle. */
     private val catalogTimer = CatalogDeadlineTimer(
         schedule = { delayMillis, callback -> main.postDelayed(callback, delayMillis) },
@@ -638,7 +644,9 @@ class SessionService : Service() {
                 // Only the currently displayed server plan may be quoted; the extras are
                 // never trusted past that check.
                 val plan = view.purchase?.plans?.firstOrNull { it.planId == planId }
-                if (!stopping.get() && plan != null && plan.durationCode == durationCode &&
+                if (purchaseFlight.busy()) {
+                    publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
+                } else if (!stopping.get() && plan != null && plan.durationCode == durationCode &&
                     method in plan.methods) {
                     val selected = PurchaseFlow.selectMethod(
                         PurchaseFlow.selectPlan(view.purchase, planId), method)
@@ -652,6 +660,10 @@ class SessionService : Service() {
                 val quoteId = intent.getStringExtra("quote_id").orEmpty()
                 val current = view.purchase
                 when {
+                    // A create is still outstanding: a second Pay is not queued and the durable
+                    // attempt keys are not rotated while the request is unanswered.
+                    purchaseFlight.busy() ->
+                        publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
                     quoteId.isEmpty() || current?.quote?.quoteId != quoteId ||
                         current?.phase == PurchaseFlow.UNAVAILABLE ||
                         current?.selectedPlanId == null ||
@@ -660,9 +672,11 @@ class SessionService : Service() {
                             ?.durationCode != current?.quote?.durationCode ->
                         publish(view.copy(purchase = PurchaseFlow.failure(current, "QUOTE_EXPIRED")))
                     // An expired quote is a new attempt: keys rotate, the stale quote is dropped
-                    // and is never silently reused for a new payment_create.
+                    // and is never silently reused for a new payment_create. Its create
+                    // correlation cannot survive the attempt either.
                     PurchaseFlow.quoteExpired(current, java.time.Instant.now()) -> {
                         purchaseAttempts.restart()
+                        paymentCreates.clear()
                         publish(view.copy(purchase = PurchaseFlow.quoteExpiredState(current)))
                     }
                     else -> handlePurchaseOperation(PurchaseOperation.Payment(quoteId))
@@ -1309,6 +1323,12 @@ class SessionService : Service() {
      */
     private fun handlePurchaseOperation(operation: PurchaseOperation) {
         if (stopping.get()) return
+        // Single-flight: while one purchase request is outstanding a queued duplicate is not
+        // sent (and rotates no key); the send path re-checks under the same serial control.
+        if (purchaseFlight.busy()) {
+            publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
+            return
+        }
         when (purchaseGate.onTap(gate.active, operation)) {
             PurchaseTapAction.SEND_NOW -> {
                 val attempt = gate.active ?: return
@@ -1330,23 +1350,72 @@ class SessionService : Service() {
      */
     private fun sendPurchaseOperation(attempt: String, operation: PurchaseOperation) {
         if (stopping.get() || gate.active != attempt) return
-        val message = when (operation) {
-            PurchaseOperation.Plans -> JSONObject().put("type", PaymentsContract.ACTION_PLANS_LIST)
-            is PurchaseOperation.Quote -> {
-                val record = purchaseAttempts.beginQuote(operation.planId, operation.durationCode, operation.method)
-                JSONObject().put("type", PaymentsContract.ACTION_QUOTE_CREATE)
-                    .put("plan_id", operation.planId).put("duration_code", operation.durationCode)
-                    .put("method", operation.method).put("idempotency_key", record.quoteKey)
-            }
-            is PurchaseOperation.Payment -> {
-                val record = purchaseAttempts.beginPayment(operation.quoteId)
-                JSONObject().put("type", PaymentsContract.ACTION_PAYMENT_CREATE)
-                    .put("quote_id", operation.quoteId).put("idempotency_key", record.paymentKey)
-            }
-            is PurchaseOperation.PaymentGet ->
-                JSONObject().put("type", PaymentsContract.ACTION_PAYMENT_GET).put("payment_id", operation.paymentId)
+        // No live native connection: a local pre-send refusal, nothing reaches the wire and no
+        // durable key is rotated.
+        val connection = native ?: return
+        val kind = when (operation) {
+            PurchaseOperation.Plans -> PurchaseFlightKind.PLANS
+            is PurchaseOperation.Quote -> PurchaseFlightKind.QUOTE
+            is PurchaseOperation.Payment -> PurchaseFlightKind.PAYMENT
+            is PurchaseOperation.PaymentGet -> PurchaseFlightKind.PAYMENT_GET
         }
-        native?.send(message)
+        val flight = PurchaseFlight(
+            kind = kind, attempt = attempt,
+            quoteId = (operation as? PurchaseOperation.Payment)?.quoteId,
+        )
+        // One explicit request under the single-flight capture: a queued duplicate is refused
+        // before any durable key is touched, and the write result is never an escaped exception.
+        val outcome = purchaseSender.send(
+            request = flight,
+            prepare = {
+                when (operation) {
+                    PurchaseOperation.Plans ->
+                        JSONObject().put("type", PaymentsContract.ACTION_PLANS_LIST)
+                    is PurchaseOperation.Quote -> {
+                        val before = purchaseAttempts.current()
+                        val record = purchaseAttempts.beginQuote(
+                            operation.planId, operation.durationCode, operation.method)
+                        // A new quote attempt identity replaces the previous one: the old create
+                        // correlation must not survive the replacement.
+                        if (before?.attemptId != record.attemptId) paymentCreates.clear()
+                        purchaseFlight.attachKey(flight, record.quoteKey)
+                        JSONObject().put("type", PaymentsContract.ACTION_QUOTE_CREATE)
+                            .put("plan_id", operation.planId).put("duration_code", operation.durationCode)
+                            .put("method", operation.method).put("idempotency_key", record.quoteKey)
+                    }
+                    is PurchaseOperation.Payment -> {
+                        val record = purchaseAttempts.beginPayment(operation.quoteId)
+                        // Only this explicit send of this exact quote may later build an ack; the
+                        // single-flight gate guarantees it is the only create on the stream.
+                        paymentCreates.onSent(operation.quoteId)
+                        purchaseFlight.attachKey(flight, record.paymentKey)
+                        JSONObject().put("type", PaymentsContract.ACTION_PAYMENT_CREATE)
+                            .put("quote_id", operation.quoteId).put("idempotency_key", record.paymentKey)
+                    }
+                    is PurchaseOperation.PaymentGet -> JSONObject()
+                        .put("type", PaymentsContract.ACTION_PAYMENT_GET).put("payment_id", operation.paymentId)
+                }
+            },
+            write = { connection.trySend(it) },
+        )
+        when (outcome) {
+            PurchaseSendOutcome.WAITING ->
+                publishActive(attempt, view.copy(purchase = PurchaseFlow.sending(view.purchase)))
+            PurchaseSendOutcome.LOCAL_FAILURE -> {
+                // Preparation failed after capture and nothing was written: no create correlation
+                // may survive, and the capture was already freed by the sender.
+                paymentCreates.clear()
+                publishActive(attempt, view.copy(purchase = PurchaseFlow.failure(view.purchase, "TRANSPORT")))
+            }
+            PurchaseSendOutcome.WRITTEN ->
+                publishActive(attempt, view.copy(purchase = PurchaseFlow.sending(view.purchase)))
+            PurchaseSendOutcome.UNKNOWN_WRITE ->
+                // Closed/partial/exception write: the request outcome is unknown, so the stream
+                // is fenced by the standard terminal teardown (stopAttempt resets the holder and
+                // the correlation). The durable idempotency keys are preserved for an idempotent
+                // retry; no new create is released over a possibly written one.
+                terminalFailure(attempt, "BRIDGE_WRITE_UNKNOWN")
+        }
     }
 
     /**
@@ -1360,9 +1429,22 @@ class SessionService : Service() {
             android.util.Log.w("WDTT/Payments", "rejected")
             return
         }
+        // Release the single-flight holder only through the matching result/failure type of the
+        // outstanding operation; a GET result can never release a create holder.
+        when (parsed) {
+            is PaymentsEvent.Plans -> purchaseFlight.releaseOn(PaymentsContract.TYPE_PLANS_LIST_RESULT)
+            is PaymentsEvent.Quote -> purchaseFlight.releaseOn(PaymentsContract.TYPE_QUOTE_CREATE_RESULT)
+            is PaymentsEvent.Payment -> purchaseFlight.releaseOn(parsed.type)
+            is PaymentsEvent.Failure -> purchaseFlight.releaseOn(parsed.type)
+        }
         when (parsed) {
             is PaymentsEvent.Failure -> {
-                if (parsed.code == "IDEMPOTENCY_CONFLICT") purchaseAttempts.restart()
+                if (parsed.code == "IDEMPOTENCY_CONFLICT") {
+                    purchaseAttempts.restart()
+                    paymentCreates.clear()
+                }
+                // A failed create is an abandoned attempt: no later result may correlate.
+                if (parsed.type == PaymentsContract.TYPE_PAYMENT_CREATE_RESULT) paymentCreates.clear()
                 val failed = if (parsed.type == PaymentsContract.TYPE_PLANS_LIST_RESULT)
                     PurchaseFlow.plansFailure(view.purchase, parsed.code)
                 else PurchaseFlow.failure(view.purchase, parsed.code)
@@ -1378,7 +1460,20 @@ class SessionService : Service() {
                 if (purchaseGate.stopCold(attempt)) stopAttempt(null)
             }
             is PaymentsEvent.Payment -> {
-                publishActive(attempt, view.copy(purchase = PurchaseFlow.paymentResult(view.purchase, parsed.payment)))
+                // Only the payment_create_result of the explicitly sent operation may carry
+                // the correlated acknowledgement; a get result never sets or refreshes it.
+                val ack = paymentCreates.onCreateResult(parsed.type, parsed.payment)
+                val terminal = parsed.payment.paymentStatus == "paid" ||
+                    PurchaseFlow.terminalPayment(parsed.payment)
+                // A terminal status tears the attempt down: no create correlation survives.
+                if (terminal) paymentCreates.clear()
+                val result = when {
+                    terminal -> PurchaseFlow.paymentResult(view.purchase, parsed.payment)
+                        .copy(createAck = null)
+                    ack != null -> PurchaseFlow.paymentCreateResult(view.purchase, parsed.payment, ack)
+                    else -> PurchaseFlow.paymentGetResult(view.purchase, parsed.payment)
+                }
+                publishActive(attempt, view.copy(purchase = result))
                 when {
                     parsed.payment.paymentStatus == "paid" -> {
                         // Existing fresh-/me trigger (registration refresh command, no new
@@ -1412,6 +1507,7 @@ class SessionService : Service() {
      */
     private fun releaseConfirmedColdPurchase(attempt: String) {
         purchaseAttempts.restart()
+        paymentCreates.clear()
         if (purchaseGate.stopCold(attempt)) stopAttempt(null)
     }
 
@@ -2192,6 +2288,11 @@ class SessionService : Service() {
     private fun stopAttempt(code: String?) {
         trialGate.reset()
         purchaseGate.reset()
+        // Transport teardown fences the old native stream: any outstanding purchase request
+        // is dropped here, and its late callbacks are excluded by the attempt gate.
+        purchaseFlight.reset()
+        // Attempt teardown: no pending create result may correlate into a dead attempt.
+        paymentCreates.clear()
         if (!stopping.compareAndSet(false, true)) return
         connectOnCatalog = null
         invalidateHoldFailover()

@@ -9,3 +9,9 @@
 Gateway and server sources were exported from TEST A's persistent Git object databases. Android sources came from the accepted Laptop worktree commit rather than its dirty local TEST overlay. This repository has no live secrets, DB, profile, logs or compiled application artifacts by design. A local source backup is not proof of TEST B parity, production readiness or payment acceptance.
 
 Follow-up source classification: `gateway/udp_listener_test.go` matches the pinned commit byte-for-byte (SHA-256 `be93b515b2040f3a0562aaa7a1e7b493180da16cd4d31aa1facea0eeee6215f0`); its flagged literal is confined to a loopback/in-memory DTLS test. `server/tools/gateway_integration_03_3.py` is a sanitized copy (SHA-256 `ec176e4bdd0bf0220139fd64c8563cd56c9b3a0abcbfe042162fe12c9a042a65`), with only the fixed password at original line 50 replaced by a placeholder. The original unredacted file is not part of this backup.
+
+## Android checkout source acceptance — 2026-09-27
+
+Integrated source: `46cde3aadd360a65791fbc781fd9f2e0b0900f3c`, tree `83cdaa766f72c4372716b8fbd6d8c2c56d3dc7e9`, based on `3eaea7121a917940ba1fa2183989023d4742f767`. Full patch SHA-256 `2d3641d743b615c9cdcfed1688c7602efca0a86b7885f82d4944b3affccff79c`. Existing subscription-binding tests from `a762198` retained.
+
+Reviewed explicit browser-open policy, single-flight purchase correlation, truthful write/terminal handling, and capture identity release. Executor evidence: 48 focused tests passed before final two-file identity correction; final PaymentCreateCorrelationTest 14/14 passed. These are successive scoped runs, not a full-suite result. Source accepted; APK installation and phone checkout acceptance remain pending. TEST backend compatible source: `554151b`. Real payment provider remains disabled; no real checkout/payment success claimed.

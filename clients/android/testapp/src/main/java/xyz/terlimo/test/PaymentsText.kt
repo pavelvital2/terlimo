@@ -98,6 +98,24 @@ internal object PaymentsText {
      */
     const val hostedCheckoutOffered = false
 
+    /**
+     * §3.2B: the user tap opens the provider-issued HTTPS checkout URL in the system
+     * browser. Final button labels/set follow the working-bot matrix from root; the
+     * browser launch and its honest errors are independent of those texts.
+     */
+    const val browserCheckoutEnabled = true
+
+    /** Explicit continue/retry of an already-created payment; it never creates a new order. */
+    const val CONTINUE_PAYMENT_TEXT = "Продолжить оплату"
+
+    const val CHECKOUT_NO_BROWSER_TEXT =
+        "Не удалось открыть браузер для оплаты. Заказ сохранён — проверьте статус оплаты."
+    const val CHECKOUT_INVALID_LINK_TEXT =
+        "Сервис не вернул ссылку на оплату. Заказ сохранён — проверьте статус оплаты."
+
+    /** Single-flight: one explicit purchase request is outstanding; no action may be repeated. */
+    const val PURCHASE_SENDING_TEXT = "Отправляем запрос. Дождитесь ответа сервера."
+
     const val UNAVAILABLE_TEXT = "Покупка временно недоступна. Попробуйте позже."
     const val CHECK_AVAILABILITY_TEXT = "Проверьте тарифы и доступность оплаты на сервере."
     const val PROVIDER_UNAVAILABLE_TEXT = "Платёжный провайдер недоступен. Оплата сейчас невозможна."
@@ -139,6 +157,8 @@ internal object PaymentsText {
         if (state == null || state.phase == PurchaseFlow.IDLE) {
             return if (offered) CHECK_AVAILABILITY_TEXT else PaymentsText.UNAVAILABLE_TEXT
         }
+        // One outstanding purchase request: show waiting and let no other line imply progress.
+        if (state.sending) return PURCHASE_SENDING_TEXT
         return when (state.phase) {
             PurchaseFlow.UNAVAILABLE -> PaymentsText.errorText(state.error)
             PurchaseFlow.ERROR -> {

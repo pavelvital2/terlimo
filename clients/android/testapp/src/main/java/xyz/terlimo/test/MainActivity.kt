@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private lateinit var purchaseQuoteLine: TextView
     private lateinit var purchaseQuoteButton: Button
     private lateinit var purchasePayButton: Button
+    private lateinit var purchaseContinueButton: Button
     private lateinit var purchaseCheckButton: Button
     private lateinit var purchaseStatus: TextView
     private lateinit var purchaseReference: TextView
@@ -48,6 +49,10 @@ class MainActivity : Activity() {
     private var purchasePlanId: String? = null
     private var purchaseMethod: String? = null
     private var purchaseRendering = false
+    // §3.2B: explicit-action checkout-open state (opened id, live attempt key, visible error).
+    // Owned by CheckoutOpenPolicy; only an explicitly armed tap can open, and renders carry the
+    // current attempt key so a refresh/replaced attempt/recreation can never auto-open.
+    private val checkoutOpenPolicy = CheckoutOpenPolicy()
     private lateinit var catalogView: ServerCatalogView
     private lateinit var orbitHeader: OrbitHomeHeader
     private val installationStore by lazy { InstallationStore(this) }
@@ -100,6 +105,9 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NotificationPermission.REQUEST_CODE)
         }
         externalIntentConsumed = savedInstanceState?.getBoolean(STATE_EXTERNAL_INTENT_CONSUMED) == true
+        // Restores only the opened id and visible error; never a live open marker, so a
+        // recreated Activity cannot auto-open the browser (explicit action only).
+        checkoutOpenPolicy.restoreFrom(savedInstanceState)
         val mainPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -314,11 +322,18 @@ class MainActivity : Activity() {
                 if (state.phase == PurchaseFlow.UNAVAILABLE || state.selectedPlanId != plan.planId ||
                     state.selectedMethod != purchaseMethod || quote.method != purchaseMethod ||
                     quote.durationCode != plan.durationCode) return@setOnClickListener
+                noteExplicitPay(quote.quoteId)
                 startForegroundService(Intent(this@MainActivity, SessionService::class.java)
                     .setAction("purchase_pay").putExtra("quote_id", quote.quoteId))
             }
         }
         subscriptionPanel.addView(purchasePayButton)
+        purchaseContinueButton = Button(this).apply {
+            text = PaymentsText.CONTINUE_PAYMENT_TEXT
+            visibility = View.GONE
+            setOnClickListener { continueExistingPayment() }
+        }
+        subscriptionPanel.addView(purchaseContinueButton)
         purchaseCheckButton = Button(this).apply {
             text = "Проверить статус оплаты"
             visibility = View.GONE
@@ -767,6 +782,7 @@ class MainActivity : Activity() {
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_EXTERNAL_INTENT_CONSUMED, externalIntentConsumed)
+        checkoutOpenPolicy.saveTo(outState)
         super.onSaveInstanceState(outState)
     }
     override fun onStart() {
@@ -978,6 +994,47 @@ class MainActivity : Activity() {
             main.postDelayed(statusTick, AccountAccessDisplayRefresh.TICK_MILLIS)
     }
 
+    /**
+     * Explicit «Оплатить» tap: the only live marker that may auto-open the created payment.
+     * It is armed with the exact quote id sent in this tap, so only the correlated
+     * payment_create_result of this attempt can consume it; any payment kept in ViewState
+     * (an older order) matches nothing.
+     */
+    private fun noteExplicitPay(sentQuoteId: String) {
+        checkoutOpenPolicy.onPayRequested(sentQuoteId)
+    }
+
+    /** Explicit «Продолжить оплату» for the existing payment: same saved order, no new invoice. */
+    private fun continueExistingPayment() {
+        val payment = SessionService.view.purchase?.payment
+        val open = checkoutOpenPolicy.onContinueRequested(payment)
+        if (open != null) launchCheckoutBrowser(open)
+        render(SessionService.view)
+    }
+
+    /**
+     * §3.2B: open the provider-issued HTTPS checkout URL for an already-created payment.
+     * The payment is recorded as opened only after `startActivity` actually succeeds, so a
+     * failed launch stays retryable through the explicit continue action; no browser / no
+     * network / invalid link becomes an honest visible error and the kept payment stays
+     * checkable. Returning from the browser never writes access.
+     */
+    private fun launchCheckoutBrowser(open: CheckoutOpen) {
+        val parsed = android.net.Uri.parse(open.url)
+        if (!open.url.startsWith("https://") || parsed.host.isNullOrBlank()) {
+            checkoutOpenPolicy.onOpenFailed(PaymentsText.CHECKOUT_INVALID_LINK_TEXT)
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, parsed))
+            checkoutOpenPolicy.onOpened(open.paymentId)
+        } catch (_: android.content.ActivityNotFoundException) {
+            checkoutOpenPolicy.onOpenFailed(PaymentsText.CHECKOUT_NO_BROWSER_TEXT)
+        } catch (_: Exception) {
+            checkoutOpenPolicy.onOpenFailed(PaymentsText.CHECKOUT_INVALID_LINK_TEXT)
+        }
+    }
+
     /** Display-only text refresh of the existing surfaces; it republishes no view state. */
     private fun refreshStatusTexts() {
         val state = SessionService.view
@@ -996,9 +1053,17 @@ class MainActivity : Activity() {
     private fun renderPurchase(state: ViewState) {
         val registration = state.accountAccess?.projection?.registration
         val offered = PurchaseFlow.offered(registration)
-        purchaseStatus.text = PaymentsText.purchaseStatus(state.purchase, registration, java.time.ZoneId.systemDefault())
+        purchaseStatus.text = purchaseStatusLine(state, registration)
         val plans = PurchaseFlow.selectablePlans(state.purchase?.plans.orEmpty())
         purchaseRendering = true
+        // Single-flight: while one purchase request is outstanding, pay/selection are disabled
+        // and the status line shows waiting; the service guard holds regardless of this UI.
+        val sending = state.purchase?.sending == true
+        purchasePlansButton.isEnabled = !sending
+        purchasePlanSpinner.isEnabled = !sending
+        purchaseMethodSpinner.isEnabled = !sending
+        purchaseQuoteButton.isEnabled = !sending
+        purchasePayButton.isEnabled = !sending
         try {
             if (!offered) {
                 purchasePlansButton.visibility = View.GONE
@@ -1007,6 +1072,7 @@ class MainActivity : Activity() {
                 purchaseQuoteLine.visibility = View.GONE
                 purchaseQuoteButton.visibility = View.GONE
                 purchasePayButton.visibility = View.GONE
+                purchaseContinueButton.visibility = View.GONE
                 purchaseCheckButton.visibility = View.GONE
                 purchaseReference.visibility = View.GONE
                 purchasePlansShown = emptyList()
@@ -1029,6 +1095,7 @@ class MainActivity : Activity() {
                 purchaseQuoteLine.visibility = View.GONE
                 purchaseQuoteButton.visibility = View.GONE
                 purchasePayButton.visibility = View.GONE
+                purchaseContinueButton.visibility = View.GONE
                 purchaseCheckButton.visibility = View.GONE
                 purchaseReference.visibility = View.GONE
                 return
@@ -1063,6 +1130,22 @@ class MainActivity : Activity() {
             purchasePayButton.visibility = if (quote == null) View.GONE else View.VISIBLE
 
             val payment = state.purchase?.payment
+            // A create/attempt failure (the existing error/unavailable purchase phase) drops
+            // the live marker: no later payment of a failed attempt may auto-open.
+            if (state.purchase?.phase == PurchaseFlow.ERROR ||
+                state.purchase?.phase == PurchaseFlow.UNAVAILABLE) {
+                checkoutOpenPolicy.clearAwaiting()
+            }
+            // Only the live consequence of the explicit «Оплатить» tap may open the browser,
+            // and only through the correlated create result of the exact sent quote; a
+            // payment from ViewState (an old order), an ordinary render, a status refresh or
+            // a recreation can never consume the marker.
+            val open = checkoutOpenPolicy.autoOpenAfterPay(state.purchase?.createAck)
+            if (open != null) launchCheckoutBrowser(open)
+            // Repaint: a refused/invalid reference or a failed launch stores its visible error now.
+            purchaseStatus.text = purchaseStatusLine(state, registration)
+            purchaseContinueButton.visibility =
+                if (checkoutOpenPolicy.canContinue(payment)) View.VISIBLE else View.GONE
             purchaseReference.text = payment?.let { PaymentsText.checkoutReferenceText(it) }.orEmpty()
             purchaseReference.visibility = if (purchaseReference.text.isNullOrEmpty()) View.GONE else View.VISIBLE
             purchaseCheckButton.visibility = if (payment == null) View.GONE else View.VISIBLE
@@ -1070,6 +1153,13 @@ class MainActivity : Activity() {
             purchaseRendering = false
         }
     }
+
+    /** The accepted purchase status plus the visible checkout-open error, when one exists. */
+    private fun purchaseStatusLine(
+        state: ViewState,
+        registration: AccountAccessProjection.Registration?,
+    ): String = PaymentsText.purchaseStatus(state.purchase, registration, java.time.ZoneId.systemDefault()) +
+        (checkoutOpenPolicy.openError?.let { "\n$it" } ?: "")
 
     /**
      * The existing main-screen status text plus the same display-only access line as the

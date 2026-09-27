@@ -46,7 +46,8 @@ internal data class PaymentStatusView(
 internal sealed class PaymentsEvent {
     data class Plans(val plansRevision: String, val plans: List<PaymentPlan>) : PaymentsEvent()
     data class Quote(val quote: PaymentQuote) : PaymentsEvent()
-    data class Payment(val payment: PaymentStatusView) : PaymentsEvent()
+    /** `type` is the parsed wire type: exactly TYPE_PAYMENT_CREATE_RESULT or TYPE_PAYMENT_GET_RESULT. */
+    data class Payment(val type: String, val payment: PaymentStatusView) : PaymentsEvent()
     data class Failure(val type: String, val code: String) : PaymentsEvent()
 }
 
@@ -124,7 +125,7 @@ internal object PaymentsContract {
                 "ok" -> when (type) {
                     TYPE_PLANS_LIST_RESULT -> parsePlans(event, keys)
                     TYPE_QUOTE_CREATE_RESULT -> parseQuote(event, keys)
-                    TYPE_PAYMENT_CREATE_RESULT, TYPE_PAYMENT_GET_RESULT -> parsePayment(event, keys)
+                    TYPE_PAYMENT_CREATE_RESULT, TYPE_PAYMENT_GET_RESULT -> parsePayment(type, event, keys)
                     else -> error("PAYMENTS_INVALID")
                 }
                 else -> error("PAYMENTS_INVALID")
@@ -183,7 +184,7 @@ internal object PaymentsContract {
         ))
     }
 
-    private fun parsePayment(event: JSONObject, keys: Set<String>): PaymentsEvent.Payment {
+    private fun parsePayment(type: String, event: JSONObject, keys: Set<String>): PaymentsEvent.Payment {
         check(keys == PAYMENT_KEYS) { "PAYMENTS_INVALID" }
         validateEnvelope(event)
         val paymentId = event.getString("payment_id")
@@ -195,7 +196,7 @@ internal object PaymentsContract {
         }
         val reference = nullableBoundedString(event, "checkout_reference", 256)
         val credited = nullableBoundedString(event, "credited_entitlement_revision", 128)
-        return PaymentsEvent.Payment(PaymentStatusView(
+        return PaymentsEvent.Payment(type, PaymentStatusView(
             paymentId = paymentId, paymentStatus = status, checkoutReference = reference,
             creditedEntitlementRevision = credited, accessApplicationState = applicationState,
         ))
