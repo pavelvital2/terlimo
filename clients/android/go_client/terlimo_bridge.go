@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -131,6 +132,7 @@ type managedBridge struct {
 	attempt          string
 	out              io.Writer
 	writeSlot        chan struct{}
+	runEnd           atomic.Int32
 	mu               sync.Mutex
 	waiters          map[string]chan bridgeMessage
 	selection        chan string
@@ -325,10 +327,46 @@ func (b *managedBridge) request(ctx context.Context, m bridgeMessage, idField, r
 	}
 }
 
+const (
+	runEndNone int32 = iota
+	runEndEOF
+	runEndScanError
+	runEndCtxAlreadyCanceled
+	runEndExplicitCancel
+)
+
+// noteRunEnd records the FIRST observed read-loop end cause only; later observations never
+// overwrite it. No raw error text is stored (fixed enum for the bounded exit diagnostic).
+func (b *managedBridge) noteRunEnd(code int32) { b.runEnd.CompareAndSwap(runEndNone, code) }
+
+// RunEndToken returns the fixed source token of the read loop end, or "NONE".
+func (b *managedBridge) RunEndToken() string {
+	switch b.runEnd.Load() {
+	case runEndEOF:
+		return "STDIN_EOF"
+	case runEndScanError:
+		return "STDIN_ERROR"
+	case runEndCtxAlreadyCanceled:
+		return "CTX_ALREADY_CANCELED"
+	case runEndExplicitCancel:
+		return "EXPLICIT_CANCEL"
+	default:
+		return "NONE"
+	}
+}
+
 func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
-	defer b.cancel()
+	defer func() {
+		if scanner.Err() != nil {
+			b.noteRunEnd(runEndScanError)
+		} else {
+			b.noteRunEnd(runEndEOF)
+		}
+		b.cancel()
+	}()
 	for scanner.Scan() {
 		if ctx.Err() != nil {
+			b.noteRunEnd(runEndCtxAlreadyCanceled)
 			return
 		}
 		var m bridgeMessage
@@ -363,6 +401,9 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 				}
 			}
 		case "cancel":
+			// Explicit host cancel: the nested defer would otherwise classify the clean
+			// scanner end as STDIN_EOF. First-cause wins, so record this branch first.
+			b.noteRunEnd(runEndExplicitCancel)
 			return
 		case "select_node":
 			// `explicit_connect` is set only by the SessionService select / one-tap

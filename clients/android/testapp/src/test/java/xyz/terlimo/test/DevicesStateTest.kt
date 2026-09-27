@@ -186,6 +186,31 @@ class DevicesStateTest {
             "r", "ok", "op", false, "retryable_failure", null))!!.contains("повторит"))
     }
 
+    @Test fun attemptStopReleasesStuckTokensAndKeepsCorrelatedRows() {
+        val loaded = DevicesPolicy.applyList(
+            DevicesPolicy.beginList(null, "d1", attempt, account), "d1", attempt, account,
+            DevicesList(listOf(row("a", true), row("b", false)), 2, 2, "7"))
+        val pendingList = DevicesPolicy.beginList(loaded, "d2", attempt, account)
+        // A token from a dead attempt would block every later send…
+        assertFalse(DevicesPolicy.canSendList(pendingList, "d3"))
+        val released = DevicesPolicy.releaseInFlight(pendingList, "SERVICE_UNAVAILABLE")
+        assertTrue(DevicesPolicy.canSendList(released, "d3"))
+        assertEquals("SERVICE_UNAVAILABLE", released.error)
+        assertEquals(2, released.devices.size)
+        assertEquals(7L, released.revision)
+        assertEquals(attempt, released.loadedAttempt)
+        val releasedKeepsError = DevicesPolicy.releaseInFlight(
+            DevicesPolicy.beginList(loaded, "d4", attempt, account).copy(error = "DEVICE_NOT_FOUND"),
+            "SERVICE_UNAVAILABLE")
+        assertEquals("DEVICE_NOT_FOUND", releasedKeepsError.error)
+        val pendingDelete = DevicesPolicy.beginDelete(loaded, "devdel-1", "b", attempt, account)
+        assertFalse(DevicesPolicy.canSendDelete(pendingDelete, "devdel-2"))
+        val releasedDelete = DevicesPolicy.releaseInFlight(pendingDelete, "SERVICE_UNAVAILABLE")
+        assertTrue(DevicesPolicy.canSendDelete(releasedDelete, "devdel-2"))
+        assertFalse(releasedDelete.deleteInFlight)
+        assertNull(DevicesPolicy.releaseInFlight(null, "SERVICE_UNAVAILABLE").listRequestId)
+    }
+
     @Test fun correlatedListSlotsWinOverOlderMeAndForeignCacheIsExcluded() {
         val fallback = "Устройства: 2 из 2"
         val first = DevicesPolicy.applyList(

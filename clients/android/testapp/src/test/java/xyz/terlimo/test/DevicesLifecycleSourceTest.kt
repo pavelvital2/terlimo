@@ -22,10 +22,12 @@ class DevicesLifecycleSourceTest {
 
     @Test fun refusalTimeoutAndReplacedAttemptReleaseOnlyTheOwnedColdState() {
         val service = source("testapp/src/main/java/xyz/terlimo/test/SessionService.kt")
-        assertTrue(service.contains("if (devicesGate.onRefused(attempt)) stopAttempt(null)"))
+        assertTrue(service.contains("if (devicesGate.onRefused(attempt)) stopAttempt(null, \"devices_refused\")"))
         assertTrue(service.contains("gate.active == attempt && !stopping.get() &&"))
         assertTrue(service.contains("devicesGate.isCold(attempt) && devicesGate.onTimeout(attempt)"))
         assertTrue(service.contains("else devicesGate.onResult(liveAttempt)"))
+        assertTrue(service.contains("DevicesPolicy.releaseInFlight(view.devices, \"SERVICE_UNAVAILABLE\")"))
+        assertTrue(service.contains("if (type == \"error\") \"native_error\" else \"native_stopped\""))
         assertTrue(service.contains("devicesGate.onTimeout(null)"))
         val gate = source("testapp/src/main/java/xyz/terlimo/test/DevicesColdGate.kt")
         assertTrue(gate.contains("fun onRefused(attemptId: String): Boolean"))

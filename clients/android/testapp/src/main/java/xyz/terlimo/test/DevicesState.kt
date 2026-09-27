@@ -143,6 +143,19 @@ internal object DevicesPolicy {
     fun applyDelete(current: DevicesUi, result: DeviceDeleteResult): DevicesUi =
         current.copy(pendingRequestId = null, pendingDeviceId = null, lastDelete = result, error = null)
 
+    /**
+     * Attempt teardown must not leave a list/delete token from the dead attempt behind:
+     * a stuck token would block every later send (canSendList/canSendDelete) while the
+     * rows themselves stay as the last correlated server data.
+     */
+    fun releaseInFlight(current: DevicesUi?, fallbackError: String?): DevicesUi {
+        val base = current ?: return DevicesUi()
+        if (base.listRequestId == null && !base.deleteInFlight) return base
+        return base.copy(listRequestId = null, listAttempt = null, listAccountRef = null,
+            pendingRequestId = null, pendingDeviceId = null, pendingAttempt = null,
+            pendingAccountRef = null, error = base.error ?: fallbackError)
+    }
+
     /** Releases the in-flight delete only for the matching request id (never a foreign one). */
     fun releaseDelete(current: DevicesUi, requestId: String?, error: String?): DevicesUi =
         if (requestId != null && current.pendingRequestId == requestId) {

@@ -192,8 +192,26 @@ func runTerlimoMain() {
 	// Upstream diagnostics contain raw provider errors: this private mode emits
 	// only typed codes. It never executes the legacy config-print/file branch.
 	log.SetOutput(io.Discard)
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
+	ctx, cancelCause := context.WithCancelCause(context.Background())
+	cancel := func() { cancelCause(context.Canceled) }
+	defer cancelCause(nil)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case <-ctx.Done():
+		case s := <-sigCh:
+			switch s {
+			case syscall.SIGTERM:
+				cancelCause(errRunSignalTerm)
+			case syscall.SIGINT:
+				cancelCause(errRunSignalInt)
+			default:
+				cancelCause(errRunSignalOther)
+			}
+		}
+	}()
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4096), managedBridgeLimit)
 	if !scanner.Scan() {
@@ -209,6 +227,13 @@ func runTerlimoMain() {
 	}
 	defer out.Close()
 	b := newManagedBridge(out, start.AttemptID, cancel)
+	var runErr error
+	// Registered before the stopped frame: defers run LIFO, so the bounded exit diagnostic is
+	// emitted after stopped and can never delay it. The write is best-effort with a deadline.
+	defer func() {
+		outcome, source := runtimeExitStages(runErr, b.RunEndToken(), context.Cause(ctx))
+		emitRunExitBounded(outcome, source)
+	}()
 	defer b.send(bridgeMessage{"type": "stopped"})
 	go b.read(ctx, scanner)
 	managedCaptchaOutput = func(id, mode, redirect, token string, timeout time.Duration) {
@@ -216,12 +241,64 @@ func runTerlimoMain() {
 		b.send(bridgeMessage{"type": "captcha", "request_id": id, "mode": mode, "redirect_uri": redirect, "session_token": token, "deadline_unix_ms": time.Now().Add(timeout).UnixMilli()})
 	}
 	c := &managedController{bridge: b, start: start, signSem: make(chan struct{}, 1)}
-	if err := c.run(ctx, cancel); err != nil && !errors.Is(err, context.Canceled) {
+	runErr = c.run(ctx, cancel)
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
 		if c.vpnDiagnostics != nil {
 			_ = b.send(c.vpnDiagnostics.terminalMessage())
 		}
-		b.send(bridgeMessage{"type": "error", "code": managedCode(err)})
+		b.send(bridgeMessage{"type": "error", "code": managedCode(runErr)})
 	}
+}
+
+// emitRunExitBounded writes the fixed exit tokens to stderr best-effort with a short write
+// deadline. If the descriptor does not support deadlines the optional telemetry is skipped
+// entirely: there is no blocking fallback write, so a full pipe can never delay completion.
+func emitRunExitBounded(outcome, source string) {
+	f := os.Stderr
+	if err := f.SetWriteDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		return
+	}
+	defer func() { _ = f.SetWriteDeadline(time.Time{}) }()
+	_, _ = f.WriteString("svcstage: RUN_EXIT_" + outcome + "\nsvcstage: RUN_STOP_SOURCE_" + source + "\n")
+}
+
+var (
+	errRunSignalTerm  = errors.New("RUN_SIGNAL_TERM")
+	errRunSignalInt   = errors.New("RUN_SIGNAL_INT")
+	errRunSignalOther = errors.New("RUN_SIGNAL_OTHER")
+)
+
+// runtimeExitStages maps the controller return and its cancel cause to fixed bounded enums.
+// The read-loop token is consulted only when no actual signal cause is present, so a host
+// SIGTERM is never misreported as a stdin EOF; the token itself is set only in the exact
+// read-loop branch (EOF / scanner error / already-canceled context), never by a blanket flag.
+func runtimeExitStages(runErr error, runEndToken string, cause error) (string, string) {
+	outcome := "OK"
+	if runErr != nil {
+		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			outcome = "CANCELED"
+		} else {
+			outcome = "ERROR"
+		}
+	}
+	source := "UNKNOWN"
+	switch {
+	case errors.Is(cause, errRunSignalTerm):
+		source = "SIGNAL_TERM"
+	case errors.Is(cause, errRunSignalInt):
+		source = "SIGNAL_INT"
+	case errors.Is(cause, errRunSignalOther):
+		source = "SIGNAL_OTHER"
+	case runEndToken != "" && runEndToken != "NONE":
+		source = runEndToken
+	case runErr == nil && cause == nil:
+		source = "CONTROLLER_RETURN"
+	case errors.Is(cause, context.Canceled):
+		source = "CANCELED_OTHER"
+	default:
+		source = "UNKNOWN"
+	}
+	return outcome, source
 }
 
 // Java ProcessBuilder owns the peer end. Duplicate the inherited stdout so this

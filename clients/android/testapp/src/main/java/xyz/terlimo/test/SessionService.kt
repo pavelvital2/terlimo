@@ -743,7 +743,7 @@ class SessionService : Service() {
                     handlePurchaseOperation(PurchaseOperation.PaymentGet(paymentId))
                 }
             }
-            "cancel" -> stopAttempt(null)
+            "cancel" -> stopAttempt(null, "user_cancel")
         }
         return START_NOT_STICKY
     }
@@ -830,7 +830,7 @@ class SessionService : Service() {
                 main.postDelayed({
                     if (gate.active == attempt && purchaseGate.onTimeout(attempt)) {
                         publish(view.copy(purchase = PurchaseFlow.failure(view.purchase, "MOBILE_STATE_UNAVAILABLE")))
-                        stopAttempt(null)
+                        stopAttempt(null, "purchase_cold_timeout")
                     }
                 }, PurchaseGate.COLD_WINDOW_MILLIS)
             }
@@ -842,7 +842,7 @@ class SessionService : Service() {
                         devicesGate.isCold(attempt) && devicesGate.onTimeout(attempt)) {
                         publish(view.copy(devices = (view.devices ?: DevicesUi())
                             .copy(error = "SERVICE_UNAVAILABLE")))
-                        stopAttempt(null)
+                        stopAttempt(null, "devices_cold_timeout")
                     }
                 }, PurchaseGate.COLD_WINDOW_MILLIS)
             }
@@ -1028,7 +1028,7 @@ class SessionService : Service() {
                                 DevicesVerified.Refused -> {
                                     publish(view.copy(devices = (view.devices ?: DevicesUi())
                                         .copy(error = "DEVICE_MANAGEMENT_FORBIDDEN")))
-                                    if (devicesGate.onRefused(attempt)) stopAttempt(null)
+                                    if (devicesGate.onRefused(attempt)) stopAttempt(null, "devices_refused")
                                 }
                                 DevicesVerified.NotCold -> Unit
                             }
@@ -1116,7 +1116,7 @@ class SessionService : Service() {
                                     current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.list)
                                 publishActive(attempt, view.copy(devices = next))
                                 if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
-                                else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
+                                else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null, "devices_result")
                             }
                         }
                         is DevicesEvent.Delete -> {
@@ -1136,7 +1136,7 @@ class SessionService : Service() {
                                     publishActive(attempt, view.copy(devices = DevicesPolicy.releaseDelete(
                                         current, parsedEvent.clientRequestId, parsedEvent.code)))
                                     if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
-                                    else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
+                                    else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null, "devices_result")
                                 }
                             } else {
                                 // A list error clears only its own read token; any unrelated
@@ -1149,7 +1149,7 @@ class SessionService : Service() {
                                         current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.code)
                                     publishActive(attempt, view.copy(devices = next))
                                     if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
-                                    else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
+                                    else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null, "devices_result")
                                 }
                             }
                         }
@@ -1160,14 +1160,14 @@ class SessionService : Service() {
                                 if (DevicesPolicy.deleteCorrelated(current, rawRequestId, attempt, accountRef)) {
                                     publishActive(attempt, view.copy(devices =
                                         DevicesPolicy.releaseDelete(current, rawRequestId, "DEVICES_INVALID")))
-                                    if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
+                                    if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null, "devices_malformed")
                                 }
                             } else {
                                 val next = DevicesPolicy.applyListFailure(
                                     current, rawRequestId, attempt, accountRef, "DEVICES_INVALID")
                                 if (next != current) {
                                     publishActive(attempt, view.copy(devices = next))
-                                    if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
+                                    if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null, "devices_malformed")
                                 }
                             }
                             android.util.Log.w("WDTT/Devices", "rejected")
@@ -1213,7 +1213,7 @@ class SessionService : Service() {
                         endsAt = event.optString("ends_at").ifEmpty { view.trial?.endsAt },
                         error = error,
                     )))
-                    if (stopCold && error != null) stopAttempt(null)
+                    if (stopCold && error != null) stopAttempt(null, "trial_terminal")
                 }
                 "plans_list_result", "quote_create_result", "payment_create_result", "payment_get_result" ->
                     handlePurchaseEvent(event, attempt)
@@ -1443,7 +1443,7 @@ class SessionService : Service() {
                     publishActive(attempt, view.copy(phase = if (view.phase == "Connected") "Connected" else "WaitingUser", error = "VK_CAPTCHA_REQUIRED"))
                 }
                 "error" -> stopAttempt(safeCode(event.optString("code")))
-                "stopped" -> stopAttempt(null)
+                "stopped" -> stopAttempt(null, "native_stopped")
                 else -> error("BRIDGE_MESSAGE_INVALID")
             }
         } catch (e: Exception) {
@@ -1503,7 +1503,7 @@ class SessionService : Service() {
         if (!sent) {
             publish(view.copy(devices = DevicesPolicy.applyListFailure(
                 pending, requestId, attempt, accountRef, "TRANSPORT")))
-            if (devicesGate.onResult(attempt)) stopAttempt(null)
+            if (devicesGate.onResult(attempt)) stopAttempt(null, "devices_send_failed")
         }
     }
 
@@ -1545,7 +1545,7 @@ class SessionService : Service() {
             .put("client_request_id", request.requestId)) == true
         if (!sent) {
             publish(view.copy(devices = DevicesPolicy.releaseDelete(pending, request.requestId, "TRANSPORT")))
-            if (devicesGate.onResult(attempt)) stopAttempt(null)
+            if (devicesGate.onResult(attempt)) stopAttempt(null, "devices_delete_send_failed")
         }
     }
 
@@ -1677,7 +1677,7 @@ class SessionService : Service() {
                     PurchaseFlow.plansFailure(view.purchase, parsed.code)
                 else PurchaseFlow.failure(view.purchase, parsed.code)
                 publishActive(attempt, view.copy(purchase = failed))
-                if (purchaseGate.stopCold(attempt)) stopAttempt(null)
+                if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
             }
             is PaymentsEvent.Plans ->
                 publishActive(attempt, view.copy(purchase =
@@ -1685,7 +1685,7 @@ class SessionService : Service() {
             is PaymentsEvent.Quote -> {
                 purchaseAttempts.bindQuote(parsed.quote.quoteId)
                 publishActive(attempt, view.copy(purchase = PurchaseFlow.quoteReady(view.purchase, parsed.quote)))
-                if (purchaseGate.stopCold(attempt)) stopAttempt(null)
+                if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
             }
             is PaymentsEvent.Payment -> {
                 // Only the payment_create_result of the explicitly sent operation may carry
@@ -1712,9 +1712,9 @@ class SessionService : Service() {
                     }
                     PurchaseFlow.terminalPayment(parsed.payment) -> {
                         purchaseAttempts.restart()
-                        if (purchaseGate.stopCold(attempt)) stopAttempt(null)
+                        if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
                     }
-                    else -> if (purchaseGate.stopCold(attempt)) stopAttempt(null)
+                    else -> if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
                 }
             }
         }
@@ -1724,7 +1724,7 @@ class SessionService : Service() {
     private fun armPurchaseConfirmationWindow(attempt: String) {
         if (!purchaseGate.isCold(attempt)) return
         main.postDelayed({
-            if (gate.active == attempt && purchaseGate.stopCold(attempt)) stopAttempt(null)
+            if (gate.active == attempt && purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_confirmed")
         }, PurchaseGate.CONFIRMATION_WINDOW_MILLIS)
     }
 
@@ -1736,7 +1736,7 @@ class SessionService : Service() {
     private fun releaseConfirmedColdPurchase(attempt: String) {
         purchaseAttempts.restart()
         paymentCreates.clear()
-        if (purchaseGate.stopCold(attempt)) stopAttempt(null)
+        if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
     }
 
     private fun sign(event: JSONObject, attempt: String) {
@@ -2119,7 +2119,8 @@ class SessionService : Service() {
         // Terminal notifications, like the owner's Cancel, never queue behind ingress.
         if (type == "error" || type == "stopped") {
             val code = if (type == "error") safeCode(event.optString("code")) else null
-            if (code == null) stopAttempt(null) else handleAttemptTerminal(attempt, code)
+            if (code == null) stopAttempt(null, if (type == "error") "native_error" else "native_stopped")
+            else handleAttemptTerminal(attempt, code)
             return
         }
         val result = actor.submit(BridgeActor.BACKPRESSURE_MS) {
@@ -2516,8 +2517,8 @@ class SessionService : Service() {
 
     private fun stopTrafficTick() = main.removeCallbacks(trafficTick)
 
-    private fun stopAttempt(code: String?) {
-        android.util.Log.w("WDTT/Teardown", "stage=stop_enter child=" + (native != null))
+    private fun stopAttempt(code: String?, caller: String = "unspecified") {
+        android.util.Log.w("WDTT/Teardown", "stage=stop_enter child=" + (native != null) + " caller=" + caller)
         trialGate.reset()
         purchaseGate.reset()
         devicesGate.reset()
@@ -2530,6 +2531,11 @@ class SessionService : Service() {
             android.util.Log.w("WDTT/Teardown", "stage=stop_cas_fail")
             return
         }
+        // Ownership of the teardown is established: no in-flight devices token may survive
+        // its attempt (a stuck token would block every later send). A previously published
+        // refusal/timeout/transport/malformed error is preserved.
+        val releasedDevices = DevicesPolicy.releaseInFlight(view.devices, "SERVICE_UNAVAILABLE")
+        if (releasedDevices != view.devices) publish(view.copy(devices = releasedDevices))
         connectOnCatalog = null
         invalidateHoldFailover()
         // Reset the per-attempt state and fence all older callbacks; a stale stop of a foreign
@@ -2621,7 +2627,7 @@ class SessionService : Service() {
         if (runningService === this) runningService = null
         retention.close()
         listeners.remove(statusListener)
-        stopAttempt(null)
+        stopAttempt(null, "on_destroy")
         captcha = null
         main.removeCallbacksAndMessages(null)
         leaseAlarms.close()

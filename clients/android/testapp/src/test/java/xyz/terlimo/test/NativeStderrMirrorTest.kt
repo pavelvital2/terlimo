@@ -260,6 +260,18 @@ class NativeStderrMirrorTest {
             mirror.accept("svcstage: SERVICE_ERROR_SERVICE_SEED_BINDING", 0))
         assertEquals("svcstage:SERVICE_ERROR_OTHER",
             mirror.accept("svcstage: SERVICE_ERROR_OTHER", 0))
+        assertEquals("svcstage:RUN_EXIT_CANCELED",
+            mirror.accept("svcstage: RUN_EXIT_CANCELED", 0))
+        assertEquals("svcstage:RUN_STOP_SOURCE_STDIN_EOF",
+            mirror.accept("svcstage: RUN_STOP_SOURCE_STDIN_EOF", 0))
+        assertEquals("svcstage:RUN_STOP_SOURCE_STDIN_ERROR",
+            mirror.accept("svcstage: RUN_STOP_SOURCE_STDIN_ERROR", 0))
+        assertEquals("svcstage:RUN_STOP_SOURCE_CTX_ALREADY_CANCELED",
+            mirror.accept("svcstage: RUN_STOP_SOURCE_CTX_ALREADY_CANCELED", 0))
+        assertEquals("svcstage:RUN_STOP_SOURCE_EXPLICIT_CANCEL",
+            mirror.accept("svcstage: RUN_STOP_SOURCE_EXPLICIT_CANCEL", 0))
+        assertEquals("svcstage:RUN_STOP_SOURCE_SIGNAL_TERM",
+            mirror.accept("svcstage: RUN_STOP_SOURCE_SIGNAL_TERM", 0))
         assertNull(mirror.accept("svcstage: SERVICE_ERROR_RAW_UNKNOWN", 0))
     }
 

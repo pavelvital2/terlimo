@@ -75,3 +75,8 @@ Android source 3eca4d5263d881a511abc761d96307a2abcbaf0f, tree c8a9ef9a3092e84e92
 ## 2026-09-28 installed UI checkpoint
 
 Android3eca4d5 / APK920a4fcc03b1881dc3a95842916d90cc6c803289c249264d7e2c0a877b643925 installed in user0 with matching readback; prior APK6b261597 retained. SEND_NOW list refresh rendered both counters1/2 and preserved current device; explicit disconnect clean per receipt. Root inspected UI XML. Cold START_SERVICE refresh stopped before devices response; cause not yet established, diagnosis assigned. No new deletion executed; full-slot new-installation scenario remains open.
+
+## 2026-09-28 final diagnostics source and cold acceptance
+
+Android source91f78a7456f69bcb6cdf0f2f48c7f5e53aa672f9/tree260d573249486054abcaf425af868396fa86d54e accepted after review and focused Go build/vet/read-loop tests and Kotlin mirror31/31. Explicit cancel has a distinct first-cause token; optional exit output skips unsupported deadlines. Teardown releases in-flight device tokens after ownership and preserves prior errors.
+Installed sourcec5a60de/APK654e5b20051e622e2a4b9ed71823fd90bc861b6e40ba99e9f0717aeb3da19638 separately passed one true cold devices GET at22:39:04UTC27Sep with correlated reply and automatic own-attempt stop. Original earlier intermittent stop cause remains unknown. Final diagnostic correction is not installed yet; no redundant phone retest. Gateway2619c86/backendf887575 unchanged. Full-slot new-installation replacement is next.
