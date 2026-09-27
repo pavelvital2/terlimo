@@ -38,6 +38,14 @@ internal object DevicesPolicy {
     fun canManage(registration: AccountAccessProjection.Registration?): Boolean =
         registration?.state == "registered"
 
+    /** A send is allowed when no foreign list token is outstanding; the own token is reusable. */
+    fun canSendList(current: DevicesUi?, requestId: String): Boolean =
+        current?.listRequestId == null || current.listRequestId == requestId
+
+    /** A send is allowed when no foreign delete in-flight; the own host-owned request is reusable. */
+    fun canSendDelete(current: DevicesUi?, requestId: String): Boolean =
+        current?.pendingRequestId == null || current.pendingRequestId == requestId
+
     /** Records the outstanding list read. */
     fun beginList(current: DevicesUi?, requestId: String, attempt: String, accountRef: String?): DevicesUi =
         (current ?: DevicesUi()).copy(

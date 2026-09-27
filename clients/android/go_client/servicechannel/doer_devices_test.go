@@ -74,7 +74,9 @@ func devicesFixture(t *testing.T) (*fixtureEstablisher, *Doer) {
 	return fixture, fixtureDoer(t, fixture)
 }
 
-func jsonHeadersForTest() map[string]string { return map[string]string{"Content-Type": "application/json"} }
+func jsonHeadersForTest() map[string]string {
+	return map[string]string{"Content-Type": "application/json"}
+}
 
 // Full Doer.Do + validateRequest + Channel path for the devices read.
 func TestDoerDevicesGetThroughFullPath(t *testing.T) {
@@ -91,6 +93,36 @@ func TestDoerDevicesGetThroughFullPath(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 || fixture.dialCount() != 1 {
 		t.Fatalf("GET /devices status=%d dials=%d", resp.StatusCode, fixture.dialCount())
+	}
+}
+
+// TestDevicesClientThroughProductionBasePath pins the real production request shape: the
+// managed client is constructed with BaseURL = origin + "/api/mobile/v1" (terlimo_mobile.go),
+// so the devices methods must append a relative path exactly once. Before the fix the
+// absolute device path was appended to that base, producing
+// /api/mobile/v1/api/mobile/v1/devices, which the bounded path gate rejects (REJECT_PATH).
+func TestDevicesClientThroughProductionBasePath(t *testing.T) {
+	fixture, doer := devicesFixture(t)
+	client := &accountaccess.Client{
+		BaseURL: testOrigin + "/api/mobile/v1",
+		HTTP:    doer,
+		Tokens:  accountaccess.StaticToken("bearer-test"),
+	}
+	list, apiError, err := client.GetDevices(context.Background())
+	if err != nil || apiError != nil || len(list.Devices) != 0 {
+		t.Fatalf("GetDevices through production base rejected: err=%v apiError=%+v", err, apiError)
+	}
+	result, apiError, err := client.DeleteDevice(context.Background(), "dev-1", "terlimo-delete-key-0001")
+	if err != nil || apiError != nil || result.OperationID != "op-1" {
+		t.Fatalf("DeleteDevice through production base rejected: err=%v apiError=%+v", err, apiError)
+	}
+	frames, _, _, invalid := fixture.snapshot()
+	if len(frames) != 2 || len(invalid) != 2 || invalid[0] != nil || invalid[1] != nil {
+		t.Fatalf("expected two valid frames, got %d/%d invalid=%v", len(frames), len(invalid), invalid)
+	}
+	if frames[0].Method != "GET" || frames[0].Path != "/api/mobile/v1/devices" ||
+		frames[1].Method != "DELETE" || frames[1].Path != "/api/mobile/v1/devices/dev-1" {
+		t.Fatalf("unexpected production request shapes: %+v %+v", frames[0], frames[1])
 	}
 }
 
@@ -124,7 +156,7 @@ func TestDoerDeleteOnlyForDevicePath(t *testing.T) {
 // The unmodified accountaccess client drives both calls through the same full path.
 func TestAccountaccessDevicesThroughFullDoer(t *testing.T) {
 	_, doer := devicesFixture(t)
-	client := &accountaccess.Client{BaseURL: testOrigin, HTTP: doer, Tokens: accountaccess.StaticToken("b")}
+	client := &accountaccess.Client{BaseURL: testOrigin + "/api/mobile/v1", HTTP: doer, Tokens: accountaccess.StaticToken("b")}
 	if _, apiError, err := client.GetDevices(context.Background()); err != nil || apiError != nil {
 		t.Fatalf("GetDevices through full Doer: err=%v apiError=%+v", err, apiError)
 	}

@@ -60,3 +60,6 @@ Gateway source checkpoint 2026-09-27 UTC: 2619c860809c4fa14c1e4c9c3277ea46e62954
 
 
 Backend source checkpoint f8875757223d3610f428414cc4436afb0257f65b/tree433026ff0203b1610944c8df4f5b59d29c282891, base318ff77. Echo validated request_id on service parse-stage rejection; preserves validation/caps. Root reviewed patch49c34ecb; executor reports 17 focused tests passing and reproducer failing before fix. Devices BAD_RESPONSE traced to stale API process rejecting devices and zero error request_id. API-only rollout assigned, pending runtime receipt; phone acceptance still open. Gateway2619c86 already active.
+
+
+Android devices GET accepted 2026-09-27 21:28Z: source9bb9ab3241a90bfe5d708d3a493cc98c439599f6/tree0fd91e574385304cb500d9ef2e432f8aa8d389df, APK6b261597fe0dc879fb14bedc4b5b31c97b521fbed8f8adf22bc80d3f980c167e. Ordinary SEND_NOW refresh produced current Android row; root correlated API GET /devices 200 at21:28:55.342UTC. Explicit disconnect clean, no force-stop. Compatible gateway2619c86 active and APIf887575 reloaded at21:22:26UTC, service probes matchingrequestid/readiness24of24. DELETE/revoke/fullslot replacement and cold-start branch remain outside this acceptance. Latest focused Kotlin/Go tests passed by receipt; earlier bdb1ef8 Kotlin claim was withdrawn and repaired in8d313f1. Source only, no overlay/APK copied.

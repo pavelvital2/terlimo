@@ -137,6 +137,8 @@ class SessionService : Service() {
     private val trialGate = TrialActivateGate()
     /** S5 explicit purchase action gate (cold service-only attempt when none is active). */
     private val purchaseGate = PurchaseGate()
+    /** §§18–19 devices list/delete cold service-only gate (same bounded flow as purchase). */
+    private val devicesGate = DevicesColdGate()
     /** Durable host-owned idempotency keys for the purchase attempt; loaded lazily after storage. */
     private val purchaseAttempts by lazy { PurchaseAttempts(InstallationPurchaseAttemptStore(storage)) }
     /** Local correlation of the explicitly sent payment_create with its result (no wire pairing). */
@@ -453,43 +455,52 @@ class SessionService : Service() {
             }
             "announcements_request" -> requestAnnouncements()
             "devices_refresh" -> {
-                // Read-only refresh, offered only after a confirmed Telegram proof.
-                val attempt = gate.active
-                if (!stopping.get() && attempt != null &&
-                    DevicesPolicy.canManage(view.accountAccess?.projection?.registration)) {
-                    requestDevicesList(attempt)
-                } else if (!stopping.get()) {
-                    publish(view.copy(devices = (view.devices ?: DevicesUi())
+                // Read-only refresh, offered only after a confirmed Telegram proof. Without a
+                // live attempt the same explicit tap starts one bounded service-only attempt
+                // (the accepted cold flow) and the single list read is sent exactly once after
+                // the first accepted /me on it.
+                val liveAttempt = gate.active?.takeIf { native != null }
+                val canManage = DevicesPolicy.canManage(view.accountAccess?.projection?.registration)
+                val proofUnknown = view.accountAccess == null
+                val requestId = "devlist-" + java.util.UUID.randomUUID()
+                when (devicesGate.onTap(liveAttempt, canManage || proofUnknown, DevicesRequest.List(requestId))) {
+                    DevicesTapAction.START_SERVICE -> {
+                        startDevicesColdAttempt()
+                    }
+                    DevicesTapAction.SEND_NOW -> if (liveAttempt != null) submitControl {
+                        if (gate.active == liveAttempt && !stopping.get())
+                            requestDevicesList(liveAttempt, requestId)
+                        else devicesGate.onResult(liveAttempt)
+                    }
+                    DevicesTapAction.ERROR -> publish(view.copy(devices = (view.devices ?: DevicesUi())
                         .copy(error = "DEVICE_MANAGEMENT_FORBIDDEN")))
+                    DevicesTapAction.IGNORE -> Unit
                 }
             }
             "device_delete" -> {
                 // Exactly one explicitly chosen device; the host owns both the Idempotency-Key
                 // and the correlation id and never repeats the DELETE blindly. Single-flight is
-                // enforced here (serial service path), not only by a disabled button.
-                val attempt = gate.active
+                // enforced in the gate and on the serial service path, not only by a disabled
+                // button. Without a live attempt the same bounded cold attempt is used.
+                val liveAttempt = gate.active?.takeIf { native != null }
                 val deviceId = intent.getStringExtra("device_id").orEmpty()
                 val canManage = DevicesPolicy.canManage(view.accountAccess?.projection?.registration)
-                val devices = view.devices ?: DevicesUi()
-                when {
-                    stopping.get() || attempt == null || deviceId.isEmpty() || !canManage -> Unit
-                    devices.deleteInFlight -> Unit
-                    else -> {
-                        val requestId = "devdel-" + java.util.UUID.randomUUID()
-                        val accountRef = view.accountAccess?.projection?.account?.accountRef
-                        val pending = DevicesPolicy.beginDelete(devices, requestId, deviceId, attempt, accountRef)
-                        publish(view.copy(devices = pending))
-                        // Truthful write result: trySend is false for a null/closing native and
-                        // never throws; a false release must not auto-replay the DELETE.
-                        val sent = native?.trySend(org.json.JSONObject().put("type", "device_delete")
-                            .put("device_id", deviceId)
-                            .put("idempotency_key", "terlimo-device-" + java.util.UUID.randomUUID())
-                            .put("client_request_id", requestId)) == true
-                        if (!sent) {
-                            publish(view.copy(devices =
-                                DevicesPolicy.releaseDelete(pending, requestId, "TRANSPORT")))
-                        }
+                val request = if (!stopping.get() && deviceId.isNotEmpty()) DevicesRequest.Delete(
+                    requestId = "devdel-" + java.util.UUID.randomUUID(),
+                    deviceId = deviceId,
+                    idempotencyKey = "terlimo-device-" + java.util.UUID.randomUUID(),
+                ) else null
+                if (request != null) when (devicesGate.onTap(liveAttempt, canManage, request)) {
+                    DevicesTapAction.START_SERVICE -> {
+                        startDevicesColdAttempt()
                     }
+                    DevicesTapAction.SEND_NOW -> if (liveAttempt != null) submitControl {
+                        if (gate.active == liveAttempt && !stopping.get()) performDeviceDelete(liveAttempt, request)
+                        else devicesGate.onResult(liveAttempt)
+                    }
+                    DevicesTapAction.ERROR -> publish(view.copy(devices = (view.devices ?: DevicesUi())
+                        .copy(error = "DEVICE_MANAGEMENT_FORBIDDEN")))
+                    DevicesTapAction.IGNORE -> Unit
                 }
             }
             "announcement_read" -> openAnnouncement(intent.getStringExtra("announcement_id").orEmpty())
@@ -821,6 +832,18 @@ class SessionService : Service() {
                     }
                 }, PurchaseGate.COLD_WINDOW_MILLIS)
             }
+            // §§18–19: a devices refresh/delete without a live attempt starts the same bounded
+            // cold attempt; if no confirmed /me arrives in the window it is released truthfully.
+            if (devicesGate.onAttemptStarted(attempt)) {
+                main.postDelayed({
+                    if (gate.active == attempt && !stopping.get() &&
+                        devicesGate.isCold(attempt) && devicesGate.onTimeout(attempt)) {
+                        publish(view.copy(devices = (view.devices ?: DevicesUi())
+                            .copy(error = "SERVICE_UNAVAILABLE")))
+                        stopAttempt(null)
+                    }
+                }, PurchaseGate.COLD_WINDOW_MILLIS)
+            }
             if (mobileBaseUrl != null) {
                 // Exactly one bounded line per mobile attempt: public hex64 + normalized endpoint.
                 android.util.Log.i(MobileAttemptDiagnostics.TAG,
@@ -994,6 +1017,19 @@ class SessionService : Service() {
                             }
                             val pendingPurchase = purchaseGate.onVerifiedRights(attempt)
                             if (pendingPurchase != null) sendPurchaseOperation(attempt, pendingPurchase)
+                            when (val devices = devicesGate.onVerifiedRights(
+                                attempt, DevicesPolicy.canManage(registration))) {
+                                is DevicesVerified.Send -> when (val request = devices.request) {
+                                    is DevicesRequest.List -> requestDevicesList(attempt, request.requestId)
+                                    is DevicesRequest.Delete -> performDeviceDelete(attempt, request)
+                                }
+                                DevicesVerified.Refused -> {
+                                    publish(view.copy(devices = (view.devices ?: DevicesUi())
+                                        .copy(error = "DEVICE_MANAGEMENT_FORBIDDEN")))
+                                    if (devicesGate.onRefused(attempt)) stopAttempt(null)
+                                }
+                                DevicesVerified.NotCold -> Unit
+                            }
                             if (trialGate.onVerifiedRights(attempt, registration.state == "registered", trial.canActivate)) {
                                 native?.send(JSONObject().put("type", "activate_trial"))
                             }
@@ -1078,6 +1114,7 @@ class SessionService : Service() {
                                     current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.list)
                                 publishActive(attempt, view.copy(devices = next))
                                 if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
+                                else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
                             }
                         }
                         is DevicesEvent.Delete -> {
@@ -1097,6 +1134,7 @@ class SessionService : Service() {
                                     publishActive(attempt, view.copy(devices = DevicesPolicy.releaseDelete(
                                         current, parsedEvent.clientRequestId, parsedEvent.code)))
                                     if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
+                                    else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
                                 }
                             } else {
                                 // A list error clears only its own read token; any unrelated
@@ -1109,6 +1147,7 @@ class SessionService : Service() {
                                         current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.code)
                                     publishActive(attempt, view.copy(devices = next))
                                     if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
+                                    else if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
                                 }
                             }
                         }
@@ -1119,11 +1158,15 @@ class SessionService : Service() {
                                 if (DevicesPolicy.deleteCorrelated(current, rawRequestId, attempt, accountRef)) {
                                     publishActive(attempt, view.copy(devices =
                                         DevicesPolicy.releaseDelete(current, rawRequestId, "DEVICES_INVALID")))
+                                    if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
                                 }
                             } else {
                                 val next = DevicesPolicy.applyListFailure(
                                     current, rawRequestId, attempt, accountRef, "DEVICES_INVALID")
-                                if (next != current) publishActive(attempt, view.copy(devices = next))
+                                if (next != current) {
+                                    publishActive(attempt, view.copy(devices = next))
+                                    if (!stopping.get() && devicesGate.onResult(attempt)) stopAttempt(null)
+                                }
                             }
                             android.util.Log.w("WDTT/Devices", "rejected")
                         }
@@ -1448,8 +1491,8 @@ class SessionService : Service() {
      * or resume path starts anything: only the explicit UI tap.
      */
     /** One correlated devices list read (host-owned token + attempt/account scope). */
-    private fun requestDevicesList(attempt: String) {
-        val requestId = "devlist-" + java.util.UUID.randomUUID()
+    private fun requestDevicesList(attempt: String, requestId: String = "devlist-" + java.util.UUID.randomUUID()) {
+        if (!DevicesPolicy.canSendList(view.devices, requestId)) return
         val accountRef = view.accountAccess?.projection?.account?.accountRef
         val pending = DevicesPolicy.beginList(view.devices, requestId, attempt, accountRef)
         publish(view.copy(devices = pending))
@@ -1458,6 +1501,49 @@ class SessionService : Service() {
         if (!sent) {
             publish(view.copy(devices = DevicesPolicy.applyListFailure(
                 pending, requestId, attempt, accountRef, "TRANSPORT")))
+            if (devicesGate.onResult(attempt)) stopAttempt(null)
+        }
+    }
+
+    /**
+     * A devices tap that found no live bridge starts one cold service-only attempt once the
+     * previous attempt is fully torn down (a quick tap during teardown must not become a
+     * generic transport error). Bounded local scheduling only; no new product timeout.
+     */
+    private fun startDevicesColdAttempt(remaining: Int = 8) {
+        main.post {
+            if (stopping.get()) {
+                devicesGate.onTimeout(null)
+                return@post
+            }
+            if (gate.active == null) {
+                submitControl { begin("") }
+                return@post
+            }
+            if (native != null || remaining <= 0) {
+                devicesGate.onTimeout(null)
+                publish(view.copy(devices = (view.devices ?: DevicesUi()).copy(error = "TRANSPORT")))
+                return@post
+            }
+            main.postDelayed({ startDevicesColdAttempt(remaining - 1) }, 250)
+        }
+    }
+
+    /** The one explicitly chosen delete; the host-owned request/key travel unchanged. */
+    private fun performDeviceDelete(attempt: String, request: DevicesRequest.Delete) {
+        val devices = view.devices ?: DevicesUi()
+        val canManage = DevicesPolicy.canManage(view.accountAccess?.projection?.registration)
+        if (!canManage || !DevicesPolicy.canSendDelete(devices, request.requestId)) return
+        val accountRef = view.accountAccess?.projection?.account?.accountRef
+        val pending = DevicesPolicy.beginDelete(devices, request.requestId, request.deviceId, attempt, accountRef)
+        publish(view.copy(devices = pending))
+        val sent = native?.trySend(org.json.JSONObject().put("type", "device_delete")
+            .put("device_id", request.deviceId)
+            .put("idempotency_key", request.idempotencyKey)
+            .put("client_request_id", request.requestId)) == true
+        if (!sent) {
+            publish(view.copy(devices = DevicesPolicy.releaseDelete(pending, request.requestId, "TRANSPORT")))
+            if (devicesGate.onResult(attempt)) stopAttempt(null)
         }
     }
 
@@ -2111,6 +2197,7 @@ class SessionService : Service() {
         sleepResumeRequested = false
         recoveryNativeStopped = false
         val child = native
+        android.util.Log.w("WDTT/Teardown", "stage=clear_native site=sleep child=" + (child != null))
         native = null
         activeRuntimeEpoch = 0
         gate.cancel()
@@ -2284,6 +2371,7 @@ class SessionService : Service() {
         // Either a bounded retry starts, or the physical path is gone and the same node must be
         // resumed automatically once a usable network returns (awaitingNetwork).
         val child = native
+        android.util.Log.w("WDTT/Teardown", "stage=clear_native site=recovery_terminal child=" + (child != null))
         native = null
         if (attempt == null || gate.active == attempt) gate.cancel()
         readinessProbe?.close()
@@ -2340,6 +2428,7 @@ class SessionService : Service() {
         cancelScheduledRecovery()
         recoveryNativeStopped = false
         val child = native
+        android.util.Log.w("WDTT/Teardown", "stage=clear_native site=hold child=" + (child != null))
         native = null
         activeRuntimeEpoch = 0
         gate.cancel()
@@ -2426,14 +2515,19 @@ class SessionService : Service() {
     private fun stopTrafficTick() = main.removeCallbacks(trafficTick)
 
     private fun stopAttempt(code: String?) {
+        android.util.Log.w("WDTT/Teardown", "stage=stop_enter child=" + (native != null))
         trialGate.reset()
         purchaseGate.reset()
+        devicesGate.reset()
         // Transport teardown fences the old native stream: any outstanding purchase request
         // is dropped here, and its late callbacks are excluded by the attempt gate.
         purchaseFlight.reset()
         // Attempt teardown: no pending create result may correlate into a dead attempt.
         paymentCreates.clear()
-        if (!stopping.compareAndSet(false, true)) return
+        if (!stopping.compareAndSet(false, true)) {
+            android.util.Log.w("WDTT/Teardown", "stage=stop_cas_fail")
+            return
+        }
         connectOnCatalog = null
         invalidateHoldFailover()
         // Reset the per-attempt state and fence all older callbacks; a stale stop of a foreign
@@ -2477,12 +2571,15 @@ class SessionService : Service() {
         // Exactly one teardown thread per Service; not an actor item and not behind its backlog.
         Thread({
             val child = native; native = null
-            runCatching { child?.stop(ChildStopReason.TEARDOWN, stopPhase) }
+            android.util.Log.w("WDTT/Teardown", "stage=teardown_thread child=" + (child != null))
+            val stopped = runCatching { child?.stop(ChildStopReason.TEARDOWN, stopPhase) }.getOrNull() ?: (child == null)
+            android.util.Log.w("WDTT/Teardown", "stage=teardown_child stopped=" + stopped)
             main.post {
                 networkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
                 networkCallback = null
             }
             vpnWorker.execute {
+                android.util.Log.w("WDTT/Teardown", "stage=vpn_worker_enter")
                 val currentBackend = backend
                 val oldBackend = rollbackBackend
                 val cleanCurrent = runCatching { currentBackend?.setState(tunnel, Tunnel.State.DOWN, null) }.isSuccess
@@ -2512,6 +2609,7 @@ class SessionService : Service() {
                 // Keep the last verified catalog/selection for the next Connect.
                 publish(SessionRetention.onStop(view, if (code == null && clean) "Idle" else "Error",
                     if (clean) code else "CLEANUP_FAILED"))
+                android.util.Log.w("WDTT/Teardown", "stage=teardown_complete")
                 main.post { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
             }
             vpnWorker.shutdown()

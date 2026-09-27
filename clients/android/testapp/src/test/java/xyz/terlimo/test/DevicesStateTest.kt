@@ -139,6 +139,33 @@ class DevicesStateTest {
         assertFalse(DevicesPolicy.canBind(loaded(row("a", true), limit = 0)))
     }
 
+    @Test fun coldDeleteKeepsItsOwnRequestAndRejectsForeignSingleFlight() {
+        // The cold flow publishes nothing before the send, so the first own request is sendable.
+        val empty = DevicesPolicy.reset()
+        assertTrue(DevicesPolicy.canSendDelete(empty, "devdel-1"))
+        assertTrue(DevicesPolicy.canSendList(empty, "devlist-1"))
+        // The service records the own request exactly at the send; it stays reusable for that id…
+        val own = DevicesPolicy.beginDelete(empty, "devdel-1", "dev-1", attempt, account)
+        assertTrue(DevicesPolicy.canSendDelete(own, "devdel-1"))
+        // …while a foreign in-flight request is never overwritten or doubled.
+        assertFalse(DevicesPolicy.canSendDelete(own, "devdel-2"))
+        val ownList = DevicesPolicy.beginList(empty, "devlist-1", attempt, account)
+        assertTrue(DevicesPolicy.canSendList(ownList, "devlist-1"))
+        assertFalse(DevicesPolicy.canSendList(ownList, "devlist-2"))
+    }
+
+    @Test fun refusalClearsOnlyTheOwnedRequestAndKeepsUiHonest() {
+        val own = DevicesPolicy.beginDelete(DevicesPolicy.reset(), "devdel-1", "dev-1", attempt, account)
+        val released = DevicesPolicy.releaseDelete(own, "devdel-1", "DEVICE_MANAGEMENT_FORBIDDEN")
+        assertFalse(released.deleteInFlight)
+        assertEquals("DEVICE_MANAGEMENT_FORBIDDEN", released.error)
+        assertEquals("Управление устройствами откроется после подтверждения Telegram.",
+            DevicesPolicy.errorText(released.error))
+        // A foreign release cannot touch the own pending request.
+        val foreign = DevicesPolicy.releaseDelete(own, "devdel-9", "TRANSPORT")
+        assertEquals(own, foreign)
+    }
+
     @Test fun deleteStateTextMatchesCanonicalOutcomes() {
         assertTrue(DevicesPolicy.deleteStateText(DeviceDeleteResult(
             "r", "pending", "op", true, "pending", 600))!!.contains("ещё выполняется"))

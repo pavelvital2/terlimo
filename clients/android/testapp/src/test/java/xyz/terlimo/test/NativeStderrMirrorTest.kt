@@ -246,6 +246,23 @@ class NativeStderrMirrorTest {
             "vkstage:CACHE_HIT:0:5:1790356109000:0"), emitted)
     }
 
+    @Test fun serviceErrorCodesAreBoundedAndUnknownCollapsesToOther() {
+        val mirror = NativeStderrMirror()
+        assertEquals("svcstage:SERVICE_ERROR_SERVICE_BAD_PATH",
+            mirror.accept("svcstage: SERVICE_ERROR_SERVICE_BAD_PATH", 0))
+        assertEquals("svcstage:SERVICE_ERROR_SERVICE_PATH_DENIED",
+            mirror.accept("svcstage: SERVICE_ERROR_SERVICE_PATH_DENIED", 0))
+        assertEquals("svcstage:SERVICE_ERROR_SERVICE_BUSY",
+            mirror.accept("svcstage: SERVICE_ERROR_SERVICE_BUSY", 0))
+        assertEquals("svcstage:SERVICE_ERROR_SERVICE_UNAVAILABLE",
+            mirror.accept("svcstage: SERVICE_ERROR_SERVICE_UNAVAILABLE", 0))
+        assertEquals("svcstage:SERVICE_ERROR_SERVICE_SEED_BINDING",
+            mirror.accept("svcstage: SERVICE_ERROR_SERVICE_SEED_BINDING", 0))
+        assertEquals("svcstage:SERVICE_ERROR_OTHER",
+            mirror.accept("svcstage: SERVICE_ERROR_OTHER", 0))
+        assertNull(mirror.accept("svcstage: SERVICE_ERROR_RAW_UNKNOWN", 0))
+    }
+
     @Test fun serviceStagesAreFixedAndUseBoundedStageBudget() {
         val mirror = NativeStderrMirror(maxStagePerWindow = 2, maxStageTotal = 2)
         assertEquals("svcstage:ESTABLISH_BEGIN", mirror.accept("svcstage: ESTABLISH_BEGIN", 0))
@@ -255,6 +272,17 @@ class NativeStderrMirrorTest {
         assertNull(NativeStderrCodes.code("svcstage: ESTABLISH_BEGIN peer=secret"))
         assertNull(NativeStderrCodes.code("svcstage: ESTABLISH_BEGIN 123"))
         assertEquals("onboarding:ONBOARDING_FAILED", mirror.accept("onboarding: ONBOARDING_FAILED", 0))
+    }
+
+    @Test fun serviceLocalRejectReasonsStayFixedTokens() {
+        val mirror = NativeStderrMirror()
+        listOf("REJECT_METHOD", "REJECT_ORIGIN", "REJECT_PATH", "REJECT_HEADERS",
+            "REJECT_BODY", "REJECT_SEED", "REJECT_FRAME").forEach {
+            assertEquals("svcstage:$it", mirror.accept("svcstage: $it", 0))
+        }
+        assertNull(NativeStderrCodes.code("svcstage: REJECT_"))
+        assertNull(NativeStderrCodes.code("svcstage: REJECT_UNKNOWN"))
+        assertNull(NativeStderrCodes.code("svcstage: REJECT_PATH secret=https://x"))
     }
 
     @Test fun establishProgressAndPendingMarkerSurviveNormalStartupBudget() {

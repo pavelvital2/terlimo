@@ -108,7 +108,7 @@ func TestDeviceClientMethodsAndHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{BaseURL: server.URL, HTTP: server.Client(), Tokens: StaticToken("bearer-1")}
+	client := &Client{BaseURL: server.URL + "/api/mobile/v1", HTTP: server.Client(), Tokens: StaticToken("bearer-1")}
 	list, apiError, err := client.GetDevices(context.Background())
 	if err != nil || apiError != nil || len(list.Devices) != 2 {
 		t.Fatalf("GetDevices: %v %v %+v", err, apiError, list)
@@ -138,7 +138,7 @@ func TestDeviceClientForwardsBoundedErrorCode(t *testing.T) {
 		_, _ = w.Write([]byte(`{"request_id":"0123456789abcdef0123456789abcdef","server_time":"2026-09-27T10:00:00Z","schema_version":"1.0","status":"error","code":"DEVICE_REMOVED","retryable":false,"retry_after_ms":null,"message_key":null,"details":{}}`))
 	}))
 	defer server.Close()
-	client := &Client{BaseURL: server.URL, HTTP: server.Client(), Tokens: StaticToken("bearer-1")}
+	client := &Client{BaseURL: server.URL + "/api/mobile/v1", HTTP: server.Client(), Tokens: StaticToken("bearer-1")}
 	if _, apiError, err := client.GetDevices(context.Background()); err != nil || apiError == nil || apiError.Code != "DEVICE_REMOVED" {
 		t.Fatalf("expected DEVICE_REMOVED, got err=%v apiError=%+v", err, apiError)
 	}

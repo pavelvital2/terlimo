@@ -81,7 +81,7 @@ var accessApplicationStates = map[string]bool{
 
 // GetDevices performs GET /api/mobile/v1/devices (Bearer session:read).
 func (c *Client) GetDevices(ctx context.Context) (DevicesResponse, *ErrorResponse, error) {
-	raw, status, err := c.request(ctx, http.MethodGet, "/api/mobile/v1/devices", nil, "")
+	raw, status, err := c.request(ctx, http.MethodGet, "/devices", nil, "")
 	if err != nil {
 		return DevicesResponse{}, nil, err
 	}
@@ -105,7 +105,7 @@ func (c *Client) DeleteDevice(ctx context.Context, deviceID, idempotencyKey stri
 	if !ValidDevicePathID(deviceID) {
 		return DeviceDeleteResponse{}, nil, fmt.Errorf("device id invalid")
 	}
-	raw, status, err := c.request(ctx, http.MethodDelete, "/api/mobile/v1/devices/"+deviceID,
+	raw, status, err := c.request(ctx, http.MethodDelete, "/devices/"+deviceID,
 		nil, idempotencyKey)
 	if err != nil {
 		return DeviceDeleteResponse{}, nil, err
@@ -127,10 +127,10 @@ func (c *Client) DeleteDevice(ctx context.Context, deviceID, idempotencyKey stri
 // DecodeDevicesStrict validates a GET /devices 200 body exactly.
 func DecodeDevicesStrict(raw []byte) (DevicesResponse, error) {
 	var body struct {
-		RequestID     string  `json:"request_id"`
-		ServerTime    string  `json:"server_time"`
-		SchemaVersion string  `json:"schema_version"`
-		Status        string  `json:"status"`
+		RequestID     string `json:"request_id"`
+		ServerTime    string `json:"server_time"`
+		SchemaVersion string `json:"schema_version"`
+		Status        string `json:"status"`
 		Devices       []struct {
 			DeviceID  string  `json:"device_id"`
 			Name      *string `json:"name"`
@@ -203,14 +203,14 @@ func DecodeDevicesStrict(raw []byte) (DevicesResponse, error) {
 // DecodeDeviceDeleteStrict validates a DELETE /devices/{id} 200 body exactly.
 func DecodeDeviceDeleteStrict(raw []byte) (DeviceDeleteResponse, error) {
 	var body struct {
-		RequestID                  string  `json:"request_id"`
-		ServerTime                 string  `json:"server_time"`
-		SchemaVersion              string  `json:"schema_version"`
-		Status                     string  `json:"status"`
-		OperationID                string  `json:"operation_id"`
-		SlotReleased               *bool   `json:"slot_released"`
-		AccessApplicationState     string  `json:"access_application_state"`
-		ResidualAccessLeaseSeconds *int    `json:"residual_access_lease_seconds"`
+		RequestID                  string `json:"request_id"`
+		ServerTime                 string `json:"server_time"`
+		SchemaVersion              string `json:"schema_version"`
+		Status                     string `json:"status"`
+		OperationID                string `json:"operation_id"`
+		SlotReleased               *bool  `json:"slot_released"`
+		AccessApplicationState     string `json:"access_application_state"`
+		ResidualAccessLeaseSeconds *int   `json:"residual_access_lease_seconds"`
 	}
 	if err := decodeStrict(raw, &body); err != nil {
 		return DeviceDeleteResponse{}, fmt.Errorf("device delete decode: %w", err)

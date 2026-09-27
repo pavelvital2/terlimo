@@ -164,17 +164,28 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	}
 	path := req.URL.EscapedPath()
 	query := req.URL.RawQuery
-	if path == "" || len(path)+len(query) > maxPathQuery ||
-		strings.ContainsAny(path, "\\?#%") || strings.Contains(path, "..") || strings.Contains(path, "//") {
-		d.stage("REJECT_PATH")
+	if path == "" || len(path)+len(query) > maxPathQuery {
+		d.stage("REJECT_PATH_EMPTY_OR_LONG")
+		return nil, ErrPathRejected
+	}
+	if strings.ContainsAny(path, "\\?#%") {
+		d.stage("REJECT_PATH_CHARS")
+		return nil, ErrPathRejected
+	}
+	if strings.Contains(path, "..") {
+		d.stage("REJECT_PATH_DOTS")
+		return nil, ErrPathRejected
+	}
+	if strings.Contains(path, "//") {
+		d.stage("REJECT_PATH_DOUBLESLASH")
 		return nil, ErrPathRejected
 	}
 	if strings.ContainsAny(query, "\r\n") {
-		d.stage("REJECT_PATH")
+		d.stage("REJECT_PATH_QUERY")
 		return nil, ErrPathRejected
 	}
 	if !methodAllowed(req.Method, path) {
-		d.stage("REJECT_PATH")
+		d.stage("REJECT_PATH_NOT_ALLOWED")
 		return nil, ErrPathRejected
 	}
 	headers, err := requestHeaders(req)
@@ -209,6 +220,7 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	}
 	payload, err := json.Marshal(frame)
 	if err != nil || len(payload) > wlwire.ServiceMaxFrame {
+		d.stage("REJECT_FRAME")
 		return nil, ErrRequestRejected
 	}
 	// Self-check the emitted frame against the same bounded contract the service
@@ -231,6 +243,9 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	if serviceErr != nil {
+		// Machine-readable bounded peer code (strict allowlist, unknown collapses to OTHER);
+		// the generic stage stays for compatibility with existing diagnostics.
+		d.stage(serviceErrorStage(serviceErr.Code))
 		d.stage("SERVICE_ERROR")
 		_ = d.Channel.Close()
 		return nil, serviceErr
@@ -247,6 +262,29 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 		ContentLength: int64(len(reply.body)),
 		Request:       req,
 	}, nil
+}
+
+// serviceErrorCodeTokens is the strict bounded set of peer service error codes that may be
+// surfaced as a stage token. Any other code (including future/unknown ones) collapses to OTHER,
+// so no raw frame, header, token or URL can ever reach the diagnostics mirror.
+var serviceErrorCodeTokens = map[string]bool{
+	"SERVICE_BAD_FRAME":    true,
+	"SERVICE_BAD_METHOD":   true,
+	"SERVICE_BAD_PATH":     true,
+	"SERVICE_PATH_DENIED":  true,
+	"SERVICE_BAD_HEADERS":  true,
+	"SERVICE_BUSY":         true,
+	"SERVICE_UNAVAILABLE":  true,
+	"SERVICE_SEED_STALE":   true,
+	"SERVICE_SEED_BINDING": true,
+	"SERVICE_BAD_RESPONSE": true,
+}
+
+func serviceErrorStage(code string) string {
+	if serviceErrorCodeTokens[code] {
+		return "SERVICE_ERROR_" + code
+	}
+	return "SERVICE_ERROR_OTHER"
 }
 
 // requestClassForPath maps an allowlisted mobile path to a fixed trace class. It never

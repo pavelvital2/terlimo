@@ -694,7 +694,11 @@ class MainActivity : Activity() {
     private fun renderDevices(state: ViewState) {
         val devices = state.devices
         val canManage = DevicesPolicy.canManage(state.accountAccess?.projection?.registration)
-        devicesRefreshButton.visibility = if (canManage) View.VISIBLE else View.GONE
+        // Before the first confirmed projection in this service lifetime the proof is unknown,
+        // not absent: the explicit refresh may start the bounded cold attempt and the fresh
+        // /me decides (a non-registered answer is surfaced honestly, never guessed).
+        devicesRefreshButton.visibility =
+            if (canManage || state.accountAccess == null) View.VISIBLE else View.GONE
         devicesCount.text = DevicesPolicy.countLine(devices).orEmpty()
         devicesCount.visibility = if (devicesCount.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         devicesBlock.removeAllViews()

@@ -501,3 +501,35 @@ func TestAnnouncementsPathIDBoundaryParity(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceErrorStageCarriesBoundedPeerCode(t *testing.T) {
+	fixture := newFixtureEstablisher(t, func(frame requestFrame, id wlwire.ID) fixtureResponse {
+		switch frame.Path {
+		case "/api/mobile/v1/me":
+			return fixtureResponse{body: errorJSON(t, id, "SERVICE_BAD_PATH", false)}
+		default:
+			return fixtureResponse{body: errorJSON(t, id, "SERVICE_FUTURE_UNKNOWN", false)}
+		}
+	})
+	doer := fixtureDoer(t, fixture)
+	var stages []string
+	doer.Observe = func(stage string) { stages = append(stages, stage) }
+
+	request, _ := newTestRequest("GET", testOrigin+"/api/mobile/v1/me", nil)
+	if _, err := doer.Do(request); err == nil {
+		t.Fatal("expected the peer error to be returned")
+	}
+	joined := strings.Join(stages, ",")
+	if !strings.Contains(joined, "SERVICE_ERROR_SERVICE_BAD_PATH") || !strings.Contains(joined, "SERVICE_ERROR") {
+		t.Fatalf("bounded known code stage missing: %v", stages)
+	}
+
+	stages = nil
+	request, _ = newTestRequest("GET", testOrigin+"/api/mobile/v1/gateways", nil)
+	if _, err := doer.Do(request); err == nil {
+		t.Fatal("expected the peer error to be returned")
+	}
+	if !strings.Contains(strings.Join(stages, ","), "SERVICE_ERROR_OTHER") {
+		t.Fatalf("unknown code must collapse to OTHER: %v", stages)
+	}
+}
