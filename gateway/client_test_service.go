@@ -195,7 +195,7 @@ func servicePathAllowed(method, path string) bool {
 		"/api/mobile/v1/trial/activate":
 		return method == "POST"
 	case "/api/mobile/v1/me", "/api/mobile/v1/gateways", "/api/mobile/v1/plans",
-		"/api/mobile/v1/usage":
+		"/api/mobile/v1/usage", "/api/mobile/v1/devices":
 		return method == "GET"
 	case "/api/mobile/v1/quotes", "/api/mobile/v1/payments":
 		return method == "POST"
@@ -207,6 +207,13 @@ func servicePathAllowed(method, path string) bool {
 	const payments = "/api/mobile/v1/payments/"
 	if method == "GET" && strings.HasPrefix(path, payments) {
 		return serviceOperationID.MatchString(path[len(payments):])
+	}
+	// Device removal is the only non-GET operation class: DELETE with a strict operation-style
+	// UUID and nothing else (no trailing slash, suffix, query or path escape; the caller
+	// sanitizes those before this gate).
+	const devices = "/api/mobile/v1/devices/"
+	if method == "DELETE" && strings.HasPrefix(path, devices) {
+		return serviceOperationID.MatchString(strings.TrimPrefix(path, devices))
 	}
 	return false
 }
@@ -242,7 +249,7 @@ func serviceValidateRequest(body []byte, id wlwire.ID) (serviceRequest, string) 
 	if !serviceRequestID.MatchString(req.RequestID) || req.RequestID != hex.EncodeToString(id[:]) {
 		return req, "SERVICE_BAD_FRAME"
 	}
-	if req.Method != "GET" && req.Method != "POST" {
+	if req.Method != "GET" && req.Method != "POST" && req.Method != "DELETE" {
 		return req, "SERVICE_BAD_METHOD"
 	}
 	if req.Path == "" || len(req.Path)+len(req.Query) > serviceMaxPathQuery {

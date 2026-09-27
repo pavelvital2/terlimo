@@ -909,3 +909,86 @@ func TestServiceTracePathUsageGate(t *testing.T) {
 		t.Fatal("only GET usage may be traced")
 	}
 }
+
+func TestServicePathAllowlistDevices(t *testing.T) {
+	allowed := []struct{ method, path string }{
+		{"GET", "/api/mobile/v1/devices"},
+		{"DELETE", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef"},
+		{"DELETE", "/api/mobile/v1/devices/01234567-89AB-CDEF-0123-456789ABCDEF"},
+	}
+	for _, c := range allowed {
+		if !servicePathAllowed(c.method, c.path) {
+			t.Fatalf("expected allowed: %s %s", c.method, c.path)
+		}
+	}
+	denied := []struct{ method, path string }{
+		{"POST", "/api/mobile/v1/devices"},
+		{"PUT", "/api/mobile/v1/devices"},
+		{"GET", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef"},
+		{"DELETE", "/api/mobile/v1/devices"},
+		{"DELETE", "/api/mobile/v1/devices/"},
+		{"DELETE", "/api/mobile/v1/devices/not-a-uuid"},
+		{"DELETE", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcde"},
+		{"DELETE", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef/extra"},
+		{"DELETE", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef/"},
+		{"DELETE", "/api/mobile/v1/devices/../me"},
+		{"DELETE", "/api/mobile/v1/me"},
+		{"DELETE", "/api/mobile/v1/devicesx/01234567-89ab-cdef-0123-456789abcdef"},
+		{"DELETE", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef/../me"},
+	}
+	for _, c := range denied {
+		if servicePathAllowed(c.method, c.path) {
+			t.Fatalf("expected denied: %s %s", c.method, c.path)
+		}
+	}
+	// The existing /me boundary and GET devices stay method-exact.
+	if servicePathAllowed("POST", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef") {
+		t.Fatal("POST on device id must be denied")
+	}
+}
+
+func TestServiceValidateRequestDevices(t *testing.T) {
+	var id wlwire.ID
+	id[0] = 7
+	headers := map[string]string{"Authorization": "Bearer synthetic-token", "Idempotency-Key": "idem-1"}
+	uuid := "01234567-89ab-cdef-0123-456789abcdef"
+	allowed := []struct{ method, path string }{
+		{"GET", "/api/mobile/v1/devices"},
+		{"DELETE", "/api/mobile/v1/devices/" + uuid},
+	}
+	for _, c := range allowed {
+		if _, code := serviceValidateRequest(serviceRequestBody(t, id, c.method, c.path, headers, nil), id); code != "" {
+			t.Fatalf("valid %s %s frame rejected with %q", c.method, c.path, code)
+		}
+	}
+	denied := []struct{ method, path, want string }{
+		{"POST", "/api/mobile/v1/devices", "SERVICE_PATH_DENIED"},
+		{"GET", "/api/mobile/v1/devices/" + uuid, "SERVICE_PATH_DENIED"},
+		{"DELETE", "/api/mobile/v1/devices", "SERVICE_PATH_DENIED"},
+		{"DELETE", "/api/mobile/v1/devices/not-a-uuid", "SERVICE_PATH_DENIED"},
+		{"DELETE", "/api/mobile/v1/devices/" + uuid + "/", "SERVICE_PATH_DENIED"},
+		{"DELETE", "/api/mobile/v1/devices/" + uuid + "/extra", "SERVICE_PATH_DENIED"},
+		{"DELETE", "/api/mobile/v1/devices/../me", "SERVICE_BAD_PATH"},
+		{"DELETE", "/api/mobile/v1/me", "SERVICE_PATH_DENIED"},
+		{"PUT", "/api/mobile/v1/devices/" + uuid, "SERVICE_BAD_METHOD"},
+	}
+	for _, c := range denied {
+		if _, code := serviceValidateRequest(serviceRequestBody(t, id, c.method, c.path, headers, nil), id); code != c.want {
+			t.Fatalf("%s %s code=%q want %q", c.method, c.path, code, c.want)
+		}
+	}
+	// Existing operations keep their exact framing and method gates.
+	regression := []struct{ method, path string }{
+		{"POST", "/api/mobile/v1/auth/challenge"},
+		{"POST", "/api/mobile/v1/auth/session"},
+		{"GET", "/api/mobile/v1/me"},
+		{"GET", "/api/mobile/v1/gateways"},
+		{"GET", "/api/mobile/v1/usage"},
+		{"POST", "/api/mobile/v1/access/sync"},
+	}
+	for _, c := range regression {
+		if _, code := serviceValidateRequest(serviceRequestBody(t, id, c.method, c.path, nil, nil), id); code != "" {
+			t.Fatalf("regression %s %s rejected with %q", c.method, c.path, code)
+		}
+	}
+}
