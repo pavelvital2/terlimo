@@ -67,3 +67,7 @@ Android devices GET accepted 2026-09-27 21:28Z: source9bb9ab3241a90bfe5d708d3a49
 ## 2026-09-28 ordinary device deletion acceptance
 
 Android 9bb9ab3 / APK 6b261597fe0dc879fb14bedc4b5b31c97b521fbed8f8adf22bc80d3f980c167e, gateway 2619c86, backend f887575: one explicit noncurrent TEST device DELETE returned successfully, list slots changed 2/2 to 1/2, current device preserved. Server confirmed explicit gateway revoke with generation/readback before grant expiry. Ordinary deletion accepted; UI still contains a stale summary counter and historical pending text, correction assigned. Full-slot replacement after fresh Telegram login remains unaccepted. No product source changes in this checkpoint.
+
+## 2026-09-28 device UI reconciliation source
+
+Android source 3eca4d5263d881a511abc761d96307a2abcbaf0f, tree c8a9ef9a3092e84e92eea506c8448778a80c70fe, based on 9bb9ab3. Four-file correction a4fc4b6c6e3227976d60064048f723e09c098c39d1cf6e15c284cf0b6240a59d reviewed: matching account/attempt devices-list slot count overrides stale summary; pending deletion uses historical acknowledgement without claiming gateway completion. Focused test receipt: Gradle success, DevicesState14, ColdGate7, ColdSequence2, LifecycleSource2, SubscriptionDeviceText6 passed as reported. Build/install/UI verification assigned; installed accepted APK remains 6b261597 pending that receipt. Gateway2619c86/backendf887575 unchanged.

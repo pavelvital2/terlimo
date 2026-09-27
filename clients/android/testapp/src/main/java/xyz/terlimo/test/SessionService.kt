@@ -25,7 +25,8 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
-internal data class ViewState(val phase: String = "Idle", val nodes: List<NodeLabel> = emptyList(), val error: String? = null,
+internal data class ViewState(val phase: String = "Idle", val attempt: String? = null,
+    val nodes: List<NodeLabel> = emptyList(), val error: String? = null,
     val summary: CatalogSummary? = null, val selectedNodeId: String = "", val pendingNodeId: String? = null,
     val pings: Map<String, NodePingState> = emptyMap(), val pingAll: PingAllState = PingAllState(),
     val traffic: TrafficSnapshot = TrafficSnapshot(),
@@ -811,6 +812,7 @@ class SessionService : Service() {
             activeRuntimeEpoch = 0
             rollbackRuntimeEpoch = 0
             gate.start(attempt)
+            publish(view.copy(attempt = attempt))
             // S3-B: a tap without a live attempt starts this bounded service-only attempt and
             // arms a finite window for the fresh confirmed /me before activation is sent.
             if (trialGate.onAttemptStarted(attempt)) {
@@ -2202,7 +2204,7 @@ class SessionService : Service() {
         activeRuntimeEpoch = 0
         gate.cancel()
         readinessProbe?.close(); readinessProbe = null
-        publish(view.copy(phase = "SleepPaused", wakeRecovery = null, channels = null, error = null))
+        publish(view.copy(phase = "SleepPaused", attempt = null, wakeRecovery = null, channels = null, error = null))
         val stopPhase = view.phase
         Thread({
             runCatching { child?.stop(ChildStopReason.SLEEP_PAUSE, stopPhase) }
@@ -2404,7 +2406,7 @@ class SessionService : Service() {
      */
     private fun awaitRecoveryNetwork(current: NetworkRecoveryState) {
         networkRecovery = PhysicalNetworkRecovery.await(current)
-        publish(view.copy(phase = "Reconnecting", wakeRecovery = null, channels = null, error = null))
+        publish(view.copy(phase = "Reconnecting", attempt = null, wakeRecovery = null, channels = null, error = null))
     }
     private fun holdKillSwitch(code: String) {
         if (stopping.get()) {
@@ -2434,7 +2436,7 @@ class SessionService : Service() {
         gate.cancel()
         readinessProbe?.close()
         readinessProbe = null
-        publish(view.copy(phase = "KillSwitch", wakeRecovery = null, channels = null, pendingNodeId = null, pendingSwitchId = null,
+        publish(view.copy(phase = "KillSwitch", attempt = null, wakeRecovery = null, channels = null, pendingNodeId = null, pendingSwitchId = null,
             pendingSwitchRevision = null, error = code,
             accountAccess = view.accountAccess?.copy(current = false)))
         val stopPhase = view.phase
@@ -2566,7 +2568,7 @@ class SessionService : Service() {
         expiresElapsed = 0
         leaseAlarms.close()
         readinessProbe?.close()
-        publish(view.copy(phase = "Stopping", wakeRecovery = null, channels = null, error = code))
+        publish(view.copy(phase = "Stopping", attempt = null, wakeRecovery = null, channels = null, error = code))
         val stopPhase = view.phase
         // Exactly one teardown thread per Service; not an actor item and not behind its backlog.
         Thread({

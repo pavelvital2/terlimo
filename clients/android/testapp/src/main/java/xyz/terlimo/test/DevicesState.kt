@@ -14,6 +14,9 @@ internal data class DevicesUi(
     val listRequestId: String? = null,
     val listAttempt: String? = null,
     val listAccountRef: String? = null,
+    // Identity of the attempt/account whose accepted list produced the current rows/slots.
+    val loadedAttempt: String? = null,
+    val loadedAccountRef: String? = null,
     // Single-flight delete: host-owned request id, target device, and its attempt/account.
     val pendingRequestId: String? = null,
     val pendingDeviceId: String? = null,
@@ -95,6 +98,8 @@ internal object DevicesPolicy {
             slotsUsed = list.slotsUsed,
             devices = list.devices,
             listRequestId = null, listAttempt = null, listAccountRef = null,
+            loadedAttempt = attempt,
+            loadedAccountRef = accountRef,
             error = null,
         )
     }
@@ -146,17 +151,35 @@ internal object DevicesPolicy {
 
     fun reset(): DevicesUi = DevicesUi()
 
-    /** The one durable delete outcome line; pending/applied/rejected are stated honestly. */
+    /**
+     * The one durable delete outcome line. A pending/not_requested receipt never claims the
+     * gateway-side revoke was applied: the list does not carry that evidence. Only an
+     * authoritative applied result states it; a confirmed slot release is reported separately.
+     */
     fun deleteStateText(result: DeviceDeleteResult?): String? = when (result?.accessApplicationState) {
         null -> null
         "applied" -> "Устройство удалено. Доступ по нему отозван."
-        "pending" -> "Удаление принято сервером и ещё выполняется."
+        "pending" ->
+            if (result.slotReleased) "Запрос на удаление принят сервером.\nСлот освобождён."
+            else "Запрос на удаление принят сервером."
         "retryable_failure" -> "Сервер не смог применить удаление и повторит попытку."
         "rejected" -> "Сервер отклонил удаление устройства."
-        "not_requested" ->
-            if (result.slotReleased) "Устройство удалено. Слот освобождён."
-            else "Удаление принято сервером."
+        "not_requested" -> if (result.slotReleased) "Слот освобождён." else null
         else -> null
+    }
+
+    /**
+     * The subscription-usage line for the same account and attempt: the correlated devices
+     * list wins over the older /me projection, whose slots may predate an accepted change.
+     * A foreign/attempt-mismatched cache is never used; the caller keeps its own fallback.
+     */
+    fun reconciledDeviceLine(devices: DevicesUi?, activeAttempt: String?, accountRef: String?,
+        currentActive: Boolean, fallback: String?): String? {
+        val list = devices ?: return fallback
+        if (!list.loaded || list.loadedAttempt == null || list.loadedAttempt != activeAttempt) return fallback
+        if (!currentActive || list.loadedAccountRef != accountRef) return fallback
+        if (list.deviceLimit <= 0) return fallback
+        return "Устройства: ${list.slotsUsed} из ${list.deviceLimit}"
     }
 
     fun countLine(ui: DevicesUi?): String? =

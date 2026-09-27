@@ -1028,7 +1028,14 @@ class MainActivity : Activity() {
             SubscriptionTermText.term(it, state.purchase, java.time.ZoneId.systemDefault())
         }.orEmpty()
         subscriptionTerm.visibility = if (subscriptionTerm.text.isNullOrEmpty()) View.GONE else View.VISIBLE
-        subscriptionDevices.text = SubscriptionDeviceText.line(state.accountAccess).orEmpty()
+        subscriptionDevices.text = DevicesPolicy.reconciledDeviceLine(
+            state.devices,
+            state.attempt,
+            state.accountAccess?.projection?.account?.accountRef,
+            state.accountAccess?.current == true &&
+                state.accountAccess?.projection?.entitlement?.status == "active",
+            SubscriptionDeviceText.line(state.accountAccess),
+        ).orEmpty()
         subscriptionDevices.visibility = if (subscriptionDevices.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         subscriptionPlan.text = SubscriptionPlanText.line(state.accountAccess?.projection).orEmpty()
         subscriptionPlan.visibility = if (subscriptionPlan.text.isNullOrEmpty()) View.GONE else View.VISIBLE

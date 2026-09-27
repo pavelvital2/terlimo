@@ -167,13 +167,42 @@ class DevicesStateTest {
     }
 
     @Test fun deleteStateTextMatchesCanonicalOutcomes() {
-        assertTrue(DevicesPolicy.deleteStateText(DeviceDeleteResult(
-            "r", "pending", "op", true, "pending", 600))!!.contains("ещё выполняется"))
+        val pending = DevicesPolicy.deleteStateText(DeviceDeleteResult(
+            "r", "pending", "op", false, "pending", 600))!!
+        assertTrue(pending.contains("Запрос на удаление принят сервером."))
+        assertFalse(pending.contains("ещё"))
+        assertFalse(pending.contains("applied", ignoreCase = true))
+        assertEquals("Запрос на удаление принят сервером.\nСлот освобождён.",
+            DevicesPolicy.deleteStateText(DeviceDeleteResult(
+                "r", "pending", "op", true, "pending", 600)))
         assertEquals("Устройство удалено. Доступ по нему отозван.",
             DevicesPolicy.deleteStateText(deleteApplied("r", "applied")))
-        assertEquals("Устройство удалено. Слот освобождён.",
+        assertEquals("Слот освобождён.",
             DevicesPolicy.deleteStateText(DeviceDeleteResult("r", "ok", "op", true, "not_requested", null)))
+        assertNull(DevicesPolicy.deleteStateText(DeviceDeleteResult("r", "ok", "op", false, "not_requested", null)))
         assertTrue(DevicesPolicy.deleteStateText(DeviceDeleteResult(
             "r", "ok", "op", false, "rejected", null))!!.contains("отклонил"))
+        assertTrue(DevicesPolicy.deleteStateText(DeviceDeleteResult(
+            "r", "ok", "op", false, "retryable_failure", null))!!.contains("повторит"))
+    }
+
+    @Test fun correlatedListSlotsWinOverOlderMeAndForeignCacheIsExcluded() {
+        val fallback = "Устройства: 2 из 2"
+        val first = DevicesPolicy.applyList(
+            DevicesPolicy.beginList(null, "d1", attempt, account), "d1", attempt, account,
+            DevicesList(listOf(row("a", true), row("b", false)), 2, 2, "7"))
+        assertEquals("Устройства: 2 из 2",
+            DevicesPolicy.reconciledDeviceLine(first, attempt, account, true, fallback))
+        // The accepted delete + reconcile list moves the same account/attempt to 1 из 2.
+        val second = DevicesPolicy.applyList(
+            DevicesPolicy.beginList(first, "d2", attempt, account), "d2", attempt, account,
+            DevicesList(listOf(row("a", true)), 2, 1, "8"))
+        assertEquals("Устройства: 1 из 2",
+            DevicesPolicy.reconciledDeviceLine(second, attempt, account, true, fallback))
+        // Foreign attempt/account and a non-current projection fall back to the /me line.
+        assertEquals(fallback, DevicesPolicy.reconciledDeviceLine(second, "att-2", account, true, fallback))
+        assertEquals(fallback, DevicesPolicy.reconciledDeviceLine(second, attempt, "acct-B", true, fallback))
+        assertEquals(fallback, DevicesPolicy.reconciledDeviceLine(second, attempt, account, false, fallback))
+        assertEquals(fallback, DevicesPolicy.reconciledDeviceLine(null, attempt, account, true, fallback))
     }
 }
