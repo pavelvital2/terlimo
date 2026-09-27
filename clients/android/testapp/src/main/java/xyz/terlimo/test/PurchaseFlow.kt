@@ -145,6 +145,16 @@ internal object PurchaseFlow {
     fun paymentGetResult(current: PurchaseState?, payment: PaymentStatusView): PurchaseState =
         paymentResult(current, payment)
 
+    /**
+     * A server-confirmed paid payment whose entitlement is not applied yet: the order is paid
+     * but binding has not happened, so a fresh /me cannot confirm it. The client must not offer
+     * another payment and must offer the mandatory Telegram registration instead (S5 §3.2C).
+     */
+    fun paidAwaitingBinding(state: PurchaseState?): Boolean {
+        val base = state ?: return false
+        return base.payment?.paymentStatus == "paid" && base.phase != CONFIRMED
+    }
+
     /** A correlated payment_create result: the payment state plus the ack of the sent create. */
     fun paymentCreateResult(
         current: PurchaseState?, payment: PaymentStatusView, ack: PaymentCreateAck,

@@ -181,7 +181,9 @@ internal object PaymentsText {
                 ).joinToString(" ")
             }
             PurchaseFlow.AWAITING_CONFIRMATION ->
-                "Оплата получена. Ожидаем подтверждение подписки по серверу…"
+                if (PurchaseFlow.paidAwaitingBinding(state) && registration?.state != "registered")
+                    "Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить доступ."
+                else "Оплата получена. Ожидаем подтверждение подписки по серверу…"
             PurchaseFlow.CONFIRMED -> "Оплата подтверждена сервером. Подписка обновлена."
             else -> if (offered) CHECK_AVAILABILITY_TEXT else PaymentsText.UNAVAILABLE_TEXT
         }

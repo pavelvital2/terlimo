@@ -15,11 +15,17 @@ internal data class RegistrationState(
     val error: String? = null,
 )
 
-internal object RegistrationUi {    /** The registration action is offered only while the confirmed hour is active. */
+internal object RegistrationUi {    /**
+     * The registration action is offered while the confirmed hour is active, and also — with
+     * the parked paid order — after the hour expired: an already-paid order that still needs
+     * Telegram binding must be able to start the existing link/confirm flow (S5 §3.2C). It is
+     * never offered once the server reports the account registered.
+     */
     fun registerVisible(state: ViewState): Boolean {
         val projection = state.accountAccess?.projection ?: return false
-        if (projection.grant.dataAccess != "onboarding_hour") return false
-        return projection.registration.state != "registered"
+        if (projection.registration.state == "registered") return false
+        if (PurchaseFlow.paidAwaitingBinding(state.purchase)) return true
+        return projection.grant.dataAccess == "onboarding_hour"
     }
 
     fun buttonText(state: ViewState): String {
@@ -33,8 +39,10 @@ internal object RegistrationUi {    /** The registration action is offered only 
 
     /** Descriptive status only: no active "get trial" action is created before the endpoint. */
     fun statusText(state: ViewState): String? {
-        val registration = state.registration ?: return null
-        if (registration.error != null) {
+        val registration = state.registration
+        // A real registration error/retry stays visible above the paid call: the user must see
+        // why the flow failed, not a generic instruction (S5 §3.2C).
+        if (registration?.error != null) {
             return when (registration.error) {
                 "REGISTRATION_DISABLED" -> "Регистрация временно недоступна."
                 "REGISTRATION_ALREADY_DONE" -> "Регистрация уже подтверждена."
@@ -42,14 +50,21 @@ internal object RegistrationUi {    /** The registration action is offered only 
                 else -> "Не удалось начать регистрацию. Повторите позже."
             }
         }
+        // A paid order awaiting binding: the user must register in Telegram so the parked
+        // payment can be applied, even if the hour expired (S5 §3.2C).
+        if (PurchaseFlow.paidAwaitingBinding(state.purchase) &&
+            state.accountAccess?.projection?.registration?.state != "registered") {
+            return "Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить оплаченный доступ."
+        }
+        val status = registration ?: return null
         return when {
-            registration.state == "pending" -> "Завершите регистрацию в Telegram."
-            registration.state != "registered" -> null
-            registration.trialReason == "hour_expired" ->
+            status.state == "pending" -> "Завершите регистрацию в Telegram."
+            status.state != "registered" -> null
+            status.trialReason == "hour_expired" ->
                 "Регистрация подтверждена, но час истёк: пробный доступ недоступен."
-            registration.trialReason == "trial_already_used" ->
+            status.trialReason == "trial_already_used" ->
                 "Регистрация подтверждена. Пробный доступ уже использован."
-            registration.trialAvailable ->
+            status.trialAvailable ->
                 "Регистрация подтверждена. Пробный доступ на 7 дней будет доступен позже."
             else -> "Регистрация подтверждена."
         }

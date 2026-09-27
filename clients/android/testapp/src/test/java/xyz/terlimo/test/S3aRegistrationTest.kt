@@ -124,4 +124,45 @@ class S3aRegistrationTest {
         assertEquals("Регистрация временно недоступна.", RegistrationUi.statusText(disabled))
         assertEquals("Повторить регистрацию в Telegram", RegistrationUi.buttonText(disabled))
     }
+
+    private fun paidPayment() = PaymentStatusView(
+        paymentId = "pay-1", paymentStatus = "paid", checkoutReference = "https://pay.example/s/1",
+        creditedEntitlementRevision = null, accessApplicationState = "pending")
+
+    @Test
+    fun `a parked paid order offers mandatory registration after the hour expired`() {
+        val expired = projection(dataAccess = "none",
+            registration = AccountAccessProjection.Registration("none", false, false, null, true))
+        val base = state(expired)
+        assertFalse(RegistrationUi.registerVisible(base))
+        val paid = base.copy(purchase = PurchaseFlow.paymentResult(
+            PurchaseFlow.plansLoaded(null, "5", emptyList()), paidPayment()))
+        assertTrue(PurchaseFlow.paidAwaitingBinding(paid.purchase))
+        assertTrue(RegistrationUi.registerVisible(paid))
+        assertEquals("Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить оплаченный доступ.",
+            RegistrationUi.statusText(paid))
+        assertEquals("Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить доступ.",
+            PaymentsText.purchaseStatus(paid.purchase, expired.registration, java.time.ZoneId.of("UTC")))
+        // Once registered the action is gone even with a paid order.
+        val registered = paid.copy(accountAccess = AccountAccessSnapshot(
+            expired.copy(registration = AccountAccessProjection.Registration("registered", false, false, null, true)),
+            0L, AccountAccessChain()))
+        assertFalse(RegistrationUi.registerVisible(registered))
+        // Once the entitlement is confirmed (no longer awaiting binding) the paid branch is off.
+        val confirmed = paid.copy(purchase = paid.purchase!!.copy(phase = PurchaseFlow.CONFIRMED))
+        assertFalse(PurchaseFlow.paidAwaitingBinding(confirmed.purchase))
+        assertFalse(RegistrationUi.registerVisible(confirmed))
+    }
+
+    @Test
+    fun `an explicit registration error stays visible above the paid call`() {
+        val expired = projection(dataAccess = "none",
+            registration = AccountAccessProjection.Registration("none", false, false, null, true))
+        val paid = state(expired).copy(
+            purchase = PurchaseFlow.paymentResult(
+                PurchaseFlow.plansLoaded(null, "5", emptyList()), paidPayment()),
+            registration = RegistrationState(error = "ACCESS_DENIED"))
+        assertEquals("Регистрация недоступна для этой установки.", RegistrationUi.statusText(paid))
+        assertTrue(RegistrationUi.registerVisible(paid))
+    }
 }

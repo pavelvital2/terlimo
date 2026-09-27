@@ -229,4 +229,15 @@ class PurchaseFlowTest {
         assertTrue(PurchaseFlow.selectablePlans(listOf(plan(duration = "days:7"))).isEmpty())
         assertTrue(PurchaseFlow.selectablePlans(listOf(plan(methods = emptyList()))).isEmpty())
     }
+
+    @Test
+    fun paidOrderAwaitingBindingIsNotConfirmedAndBlocksNewPayment() {
+        val paid = PaymentStatusView("pay-1", "paid", "https://pay.example/s/1", null, "pending")
+        val state = PurchaseFlow.paymentResult(PurchaseFlow.plansLoaded(null, "5", emptyList()), paid)
+        assertTrue(PurchaseFlow.paidAwaitingBinding(state))
+        assertFalse(PurchaseFlow.paidAwaitingBinding(state.copy(phase = PurchaseFlow.CONFIRMED)))
+        assertFalse(PurchaseFlow.paidAwaitingBinding(PurchaseFlow.paymentResult(
+            state, PaymentStatusView("pay-1", "pending", null, null, "not_requested"))))
+        assertFalse(PurchaseFlow.paidAwaitingBinding(null))
+    }
 }

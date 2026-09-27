@@ -1125,9 +1125,15 @@ class MainActivity : Activity() {
             purchaseQuoteLine.text = quote?.let {
                 "Предложение: " + PaymentsText.quoteLine(it, java.time.ZoneId.systemDefault())
             }.orEmpty()
-            purchaseQuoteLine.visibility = if (quote == null) View.GONE else View.VISIBLE
-            purchaseQuoteButton.visibility = if (quote == null) View.VISIBLE else View.GONE
-            purchasePayButton.visibility = if (quote == null) View.GONE else View.VISIBLE
+            // A paid order awaiting binding must not offer a second payment: the parked order
+            // is already created and only Telegram registration can apply it (S5 §3.2C).
+            val bindingPaid = PurchaseFlow.paidAwaitingBinding(state.purchase)
+            purchaseQuoteLine.visibility =
+                if (PurchaseVisibility.quoteLineVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
+            purchaseQuoteButton.visibility =
+                if (PurchaseVisibility.quoteButtonVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
+            purchasePayButton.visibility =
+                if (PurchaseVisibility.payVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
 
             val payment = state.purchase?.payment
             // A create/attempt failure (the existing error/unavailable purchase phase) drops
