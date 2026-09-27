@@ -152,34 +152,44 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 			d.stage("LOCAL_REJECTED")
 		}
 	}()
-	if req.Method != http.MethodGet && req.Method != http.MethodPost {
+	// Bounded, secret-free local rejection reasons (uppercase tokens only) so a local
+	// refusal is diagnosable on-device without any URL/header value/bearer.
+	if req.Method != http.MethodGet && req.Method != http.MethodPost && req.Method != http.MethodDelete {
+		d.stage("REJECT_METHOD")
 		return nil, ErrRequestRejected
 	}
 	if req.URL.User != nil || req.URL.Opaque != "" || req.URL.Fragment != "" || !sameOrigin(d.Base, req.URL) {
+		d.stage("REJECT_ORIGIN")
 		return nil, ErrOriginRejected
 	}
 	path := req.URL.EscapedPath()
 	query := req.URL.RawQuery
 	if path == "" || len(path)+len(query) > maxPathQuery ||
 		strings.ContainsAny(path, "\\?#%") || strings.Contains(path, "..") || strings.Contains(path, "//") {
+		d.stage("REJECT_PATH")
 		return nil, ErrPathRejected
 	}
 	if strings.ContainsAny(query, "\r\n") {
+		d.stage("REJECT_PATH")
 		return nil, ErrPathRejected
 	}
-	if !pathAllowed(req.Method, path) {
+	if !methodAllowed(req.Method, path) {
+		d.stage("REJECT_PATH")
 		return nil, ErrPathRejected
 	}
 	headers, err := requestHeaders(req)
 	if err != nil {
+		d.stage("REJECT_HEADERS")
 		return nil, err
 	}
 	raw, err := readBody(req)
 	if err != nil {
+		d.stage("REJECT_BODY")
 		return nil, err
 	}
 	seed, _, ok := d.Seeds.Current()
 	if !ok {
+		d.stage("REJECT_SEED")
 		return nil, ErrSeedMissing
 	}
 	id, err := newServiceID()
@@ -204,6 +214,7 @@ func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	// Self-check the emitted frame against the same bounded contract the service
 	// validator applies, so a locally invalid request never reaches the peer.
 	if _, err := validateRequest(payload, id); err != nil {
+		d.stage("REJECT_FRAME")
 		return nil, err
 	}
 	dispatched = true
@@ -338,6 +349,21 @@ const mobileAnnouncementsPrefix = "/api/mobile/v1/announcements/"
 // mobileDevicesPrefix bounds the §§18–19 device-delete dynamic path.
 const mobileDevicesPrefix = "/api/mobile/v1/devices/"
 
+// methodAllowed is the single method/path gate shared by Doer.Do and validateRequest.
+// GET/POST follow the fixed allowlist; DELETE is permitted ONLY for the bounded
+// /api/mobile/v1/devices/{id} device path (never a generic method expansion).
+func methodAllowed(method, path string) bool {
+	switch method {
+	case http.MethodGet, http.MethodPost:
+		return pathAllowed(method, path)
+	case http.MethodDelete:
+		return strings.HasPrefix(path, mobileDevicesPrefix) &&
+			validDevicePathID(path[len(mobileDevicesPrefix):])
+	default:
+		return false
+	}
+}
+
 // validDevicePathID bounds the /devices/{id} segment exactly like a payment id: one
 // unreserved 1..128-char segment, no dot-dot and no path tricks.
 func validDevicePathID(id string) bool {
@@ -441,9 +467,6 @@ func validateRequest(raw []byte, id wlwire.ID) (requestFrame, error) {
 	if !requestIDPattern.MatchString(frame.RequestID) || frame.RequestID != hex.EncodeToString(id[:]) {
 		return frame, ErrRequestRejected
 	}
-	if frame.Method != http.MethodGet && frame.Method != http.MethodPost {
-		return frame, ErrRequestRejected
-	}
 	if frame.Path == "" || len(frame.Path)+len(frame.Query) > maxPathQuery {
 		return frame, ErrPathRejected
 	}
@@ -453,7 +476,7 @@ func validateRequest(raw []byte, id wlwire.ID) (requestFrame, error) {
 	if strings.ContainsAny(frame.Query, "\r\n") {
 		return frame, ErrPathRejected
 	}
-	if !pathAllowed(frame.Method, frame.Path) {
+	if !methodAllowed(frame.Method, frame.Path) {
 		return frame, ErrPathRejected
 	}
 	if !validRequestHeaders(frame.Headers) {
