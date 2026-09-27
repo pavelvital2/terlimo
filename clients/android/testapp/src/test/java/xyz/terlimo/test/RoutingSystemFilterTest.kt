@@ -56,7 +56,7 @@ class RoutingSystemFilterTest {
     }
 
     @Test fun visibleFilterSwitchAndSaveOutsideScroll() {
-        assertTrue(src.contains("\"Показывать системные приложения\""))
+        assertTrue(src.contains("\"Показать системные приложения\""))
         val bottom = src.substringAfter("val bottomBar").substringBefore("root.addView(bottomBar)")
         assertTrue(bottom.contains("\"Сохранить\""))
         val scroll = src.substringAfter("root.addView(ScrollView(this)").substringBefore("val bottomBar")
@@ -72,7 +72,7 @@ class RoutingSystemFilterTest {
     @Test fun touchTargetsAtLeast48dp() {
         val save = src.substringAfter("\"Сохранить\"").substringBefore("setOnClickListener")
         assertTrue(save.contains("minimumHeight = dp(48)"))
-        val switch = src.substringAfter("\"Показывать системные приложения\"")
+        val switch = src.substringAfter("\"Показать системные приложения\"")
             .substringBefore("setOnCheckedChangeListener")
         assertTrue(switch.contains("minHeight = dp(48)"))
     }
@@ -97,5 +97,46 @@ class RoutingSystemFilterTest {
         assertFalse(contentBlock.contains("\"Главная\""))
         assertFalse(contentBlock.contains("\"Сохранить\""))
         assertTrue(src.contains("root.addView(homeBar)"))
+    }
+
+    @Test fun searchMatchesLabelOrPackageAndOnlyFiltersRendering() {
+        assertTrue(RoutingSystemFilter.matchesDisplay("Сбербанк", "ru.sberbankmobile", ""))
+        assertTrue(RoutingSystemFilter.matchesDisplay("Сбербанк", "ru.sberbankmobile", "сбер"))
+        assertTrue(RoutingSystemFilter.matchesDisplay("Сбербанк", "ru.sberbankmobile", "SBERBANK"))
+        assertFalse(RoutingSystemFilter.matchesDisplay("Сбербанк", "ru.sberbankmobile", "tinkoff"))
+        val render = src.substringAfter("private fun renderAppList()").substringBefore("private fun applyQuickExclusions()")
+        assertTrue(render.contains("RoutingSystemFilter.matchesDisplay(label, packageName, query)"))
+        assertFalse(render.contains("checked.clear()"))
+    }
+
+    private val hintSrc = String(
+        Files.readAllBytes(Paths.get("src/main/java/xyz/terlimo/test/RoutingModeHint.kt")), Charsets.UTF_8)
+
+    @Test fun requiredModeLabelsSearchAndDefaultHiddenSystem() {
+        listOf(
+            "Все через VPN", "Выбранные через VPN", "Выбранные мимо VPN",
+            "Выбрать приложения из белого списка", "Показать системные приложения", "Поиск приложений",
+        ).forEach { assertTrue("missing UI text: $it", src.contains(it)) }
+        // System rows are hidden by default until the explicit switch is turned on.
+        assertTrue(src.contains("private var showSystem = false"))
+    }
+
+    @Test fun singleDynamicHintFollowsEachModeIncludingInitialLoad() {
+        // The single hint text for every mode.
+        assertEquals(RoutingModeHint.ALL, RoutingModeHint.text(AppRoutingMode.DISABLED))
+        assertEquals(RoutingModeHint.INCLUDE, RoutingModeHint.text(AppRoutingMode.INCLUDE_ONLY))
+        assertEquals(RoutingModeHint.EXCLUDE, RoutingModeHint.text(AppRoutingMode.EXCLUDE))
+        for (text in listOf(RoutingModeHint.ALL, RoutingModeHint.INCLUDE, RoutingModeHint.EXCLUDE)) {
+            assertTrue("missing hint text: $text", hintSrc.contains(text))
+        }
+        // Exactly one hint view, wired to the mode on both the initial render and every change.
+        assertEquals(1, Regex(Regex.escape("content.addView(modeHint)")).findAll(src).count())
+        assertFalse(src.contains("content.addView(hint(\"Весь трафик"))
+        assertTrue(src.contains("setOnCheckedChangeListener { _, id -> modeHint.text = RoutingModeHint.text(modeForChecked(id)) }"))
+        assertTrue(src.contains("modeHint.text = RoutingModeHint.text(mode)"))
+        // Initial render uses the saved mode (not a hard-coded hint).
+        val render = src.substringAfter("private fun renderCurrent()").substringBefore("private fun renderAppList()")
+        assertTrue(render.contains("current?.routing?.apps?.mode ?: AppRoutingMode.DISABLED"))
+        assertTrue(render.contains("modeHint.text = RoutingModeHint.text(mode)"))
     }
 }

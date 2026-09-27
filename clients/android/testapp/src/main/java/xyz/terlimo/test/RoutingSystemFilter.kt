@@ -13,6 +13,17 @@ import android.content.pm.ApplicationInfo
 internal object RoutingSystemFilter {
     fun isVisible(isSystem: Boolean, showSystem: Boolean): Boolean = showSystem || !isSystem
 
+    /**
+     * Display-only search match: an empty query matches every row; otherwise the label or the
+     * package name must contain the query (case-insensitive). It only filters rendering and
+     * never touches the persisted selection.
+     */
+    fun matchesDisplay(label: String, packageName: String, query: String): Boolean {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return true
+        return label.lowercase().contains(q) || packageName.lowercase().contains(q)
+    }
+
     /** Robust system-app classification: preinstalled or updated-system app. */
     fun isSystem(flags: Int): Boolean =
         (flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||

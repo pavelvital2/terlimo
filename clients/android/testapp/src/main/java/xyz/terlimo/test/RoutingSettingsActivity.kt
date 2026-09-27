@@ -19,7 +19,9 @@ class RoutingSettingsActivity : Activity() {
     private lateinit var appList: LinearLayout
     private val checked = linkedSetOf<String>()
     private var loaded: RoutingSettingsDocument? = null
-    private var showSystem = true
+    private var showSystem = false
+    private var query = ""
+    private lateinit var modeHint: TextView
     private var installed: Map<String, ApplicationInfo> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,12 +43,28 @@ class RoutingSettingsActivity : Activity() {
             setOnClickListener { startActivity(android.content.Intent(this@RoutingSettingsActivity, RetentionSettingsActivity::class.java)) }
         })
         root.addView(Switch(this).apply {
-            text = "Показывать системные приложения"
-            contentDescription = "Фильтр списка: показывать системные приложения"
+            text = "Показать системные приложения"
+            contentDescription = "Фильтр списка: показать системные приложения"
             isChecked = showSystem
             minHeight = dp(48)
             setPadding(dp(32), 0, dp(32), 0)
             setOnCheckedChangeListener { _, value -> showSystem = value; renderAppList() }
+        })
+        // Display-only search, outside the scrolling list: it filters rows and never mutates
+        // the persisted selection, so a hidden checked app stays saved.
+        root.addView(EditText(this).apply {
+            hint = "Поиск приложений"
+            contentDescription = "Поиск приложений по названию или пакету"
+            minHeight = dp(48)
+            isSingleLine = true
+            setPadding(dp(32), 0, dp(32), 0)
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    query = s?.toString().orEmpty(); renderAppList()
+                }
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            })
         })
 
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(32), 0, dp(32), dp(16)) }
@@ -54,14 +72,18 @@ class RoutingSettingsActivity : Activity() {
         content.addView(TextView(this).apply { text = "Приложения"; textSize = 18f })
         appMode = RadioGroup(this).apply {
             orientation = RadioGroup.VERTICAL
-            addView(radio(APP_DISABLED, "Отключено — весь трафик через VPN"))
-            addView(radio(APP_EXCLUDE, "Чёрный список — выбранные приложения напрямую"))
-            addView(radio(APP_INCLUDE, "Белый список — только выбранные приложения через VPN"))
+            addView(radio(APP_DISABLED, "Все через VPN"))
+            addView(radio(APP_INCLUDE, "Выбранные через VPN"))
+            addView(radio(APP_EXCLUDE, "Выбранные мимо VPN"))
+            // Exactly one instruction, kept in sync with the selected mode.
+            setOnCheckedChangeListener { _, id -> modeHint.text = RoutingModeHint.text(modeForChecked(id)) }
         }
         content.addView(appMode)
+        modeHint = hint(RoutingModeHint.ALL)
+        content.addView(modeHint)
         content.addView(Button(this).apply {
-            text = "Быстро выбрать банки и платежи"
-            contentDescription = "Найти установленные банковские и платежные приложения"
+            text = "Выбрать приложения из белого списка"
+            contentDescription = "Отметить установленные приложения из подготовленного списка"
             minHeight = dp(48)
             setOnClickListener { applyQuickExclusions() }
         })
@@ -144,13 +166,28 @@ class RoutingSettingsActivity : Activity() {
 
     private fun radio(id: Int, label: String) = RadioButton(this).apply { this.id = id; text = label; minHeight = dp(48) }
 
+    private fun modeForChecked(id: Int): AppRoutingMode = when (id) {
+        APP_INCLUDE -> AppRoutingMode.INCLUDE_ONLY
+        APP_EXCLUDE -> AppRoutingMode.EXCLUDE
+        else -> AppRoutingMode.DISABLED
+    }
+
+    private fun hint(text: String) = TextView(this).apply {
+        this.text = text; textSize = 13f
+        setTextColor(TerlimoCatalogBrandTokens.MUTED_TEXT.toInt())
+        setPadding(dp(32), 0, dp(32), dp(4))
+    }
+
     private fun renderCurrent() {
         val current = loaded
-        appMode.check(when (current?.routing?.apps?.mode ?: AppRoutingMode.DISABLED) {
+        val mode = current?.routing?.apps?.mode ?: AppRoutingMode.DISABLED
+        appMode.check(when (mode) {
             AppRoutingMode.DISABLED -> APP_DISABLED
             AppRoutingMode.EXCLUDE -> APP_EXCLUDE
             AppRoutingMode.INCLUDE_ONLY -> APP_INCLUDE
         })
+        // Initial render must show the hint of the saved mode, not a stale/default one.
+        modeHint.text = RoutingModeHint.text(mode)
         renderAppList()
     }
 
@@ -167,9 +204,11 @@ class RoutingSettingsActivity : Activity() {
             val info = installed[packageName]
             val system = info?.let { RoutingSystemFilter.isSystem(it.flags) } == true
             if (!RoutingSystemFilter.isVisible(system, showSystem)) return@forEach
+            val label = info?.loadLabel(packageManager)?.toString().orEmpty()
+            if (!RoutingSystemFilter.matchesDisplay(label, packageName, query)) return@forEach
             appList.addView(CheckBox(this).apply {
                 tag = packageName
-                text = when { info == null -> "$packageName · не установлено"; system -> "${info.loadLabel(packageManager)} · системное"; else -> info.loadLabel(packageManager) }
+                text = when { info == null -> "$packageName · не установлено"; system -> "$label · системное"; else -> label }
                 isChecked = packageName in checked
                 minHeight = dp(48)
                 setOnCheckedChangeListener { _, yes -> if (yes) checked += packageName else checked -= packageName }

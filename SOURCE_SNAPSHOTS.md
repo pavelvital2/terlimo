@@ -39,3 +39,7 @@ Accepted Android source `af5f7ebf58fe1ada4066601fe4246fd86d98e47a`, tree `35ac4a
 ## Card payment method parity — 2026-09-27
 
 Accepted backend source `95e270a30902267319e8c7223380e4d99b52cc26`, tree `6020057c706d17bc21257c2dfde761e914452372`, base554151b. Full patch SHA256 `0f30750fd92b9b84c3e96838c84dbc71f445cc24c38eafc7cefd1e575447475b`. Public card aliases provider international; numeric provider method remains configurable. Production read-only source/config confirms current override11. Migration0032 extends quote methods; rollback refuses existing card quotes without deleting them. Root reviewed initial and correction patches; executor reports64 affected tests passed. TEST rollout pending, provider disabled; no real invoice/payment acceptance.
+
+## Routing editor — 2026-09-27
+
+Accepted Android source `0ebb0230fc03eada48ab4b60f56cb932e95b588a`, tree `dece6bcfb22946e909961618c9ebae57696f5e2a`, based on af5f7eb. Integrated reviewed patches SHA256 `620a3be4d48b7cc91f61ff8b1c461235327e1b7de1b1bc3ad408c0f6ddaa2af0` and `c3c860798001ac515fe6808cb34267679cdae8ed418e4b93c2bffdab75c7a14e`. Search filters display without clearing selection, system apps hidden by default, scenario mode labels and one dynamic instruction follow saved/current mode. Existing whitelist additions and routing policy retained. Executor reports initial 26 focused passes and correction RoutingSystemFilterTest 12/12; root reviewed both patches. APK/UI acceptance pending. No native/server changes.
