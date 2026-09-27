@@ -22,7 +22,7 @@ class StubProvider:
     def capabilities(self):
         return {"checkout": True, "qr": False}
 
-    async def create_payment(self, *, amount, currency, months, order_ref, description):
+    async def create_payment(self, *, amount, currency, months, order_ref, description, method=None):
         self.calls += 1
         return ProviderPayment(provider_payment_id=f"tx-{order_ref}", pay_url=f"https://pay/{order_ref}", qr=None, variant="sbp")
 
@@ -81,7 +81,8 @@ async def test_provider_off_fails_closed_without_ledger_write(migrated_url, sett
         qid = await _quote(client, token)
         r = await client.post(f"{MOBILE}/payments", headers=_hdr(token, "pay-off-000000000001"), json={"quote_id": qid})
         assert r.status == 503, await r.text()
-        assert (await r.json())["code"] == "PAYMENT_PROVIDER_UNAVAILABLE"
+        # S5 frozen Android wire code for an unavailable merchant path (provider OFF).
+        assert (await r.json())["code"] == "SERVICE_UNAVAILABLE"
         c = await _connect(migrated_url)
         try:
             assert await c.fetchval("SELECT count(*) FROM payment_orders") == 0

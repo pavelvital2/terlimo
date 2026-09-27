@@ -94,7 +94,8 @@ def _quote_view(row: Any) -> dict[str, Any]:
     }
 
 
-def _payment_view(payment: dict[str, Any], *, credited_revision: int | None, needs_grant: bool) -> dict[str, Any]:
+def _payment_view(payment: dict[str, Any], *, credited_revision: int | None, needs_grant: bool,
+                  require_checkout: bool = False) -> dict[str, Any]:
     status = payment["status"]
     # A canceled order may be shown as failed only if no entitlement was credited.
     if status == "canceled" and payment["applied"]:
@@ -103,6 +104,14 @@ def _payment_view(payment: dict[str, Any], *, credited_revision: int | None, nee
                   "canceled": "failed", "expired": "expired"}
     if status not in status_map:
         raise ApiError("PAYMENT_STATE_INVALID", http=409)
+    if require_checkout and status == "pending" and not payment.get("pay_url"):
+        # A freshly created pending order without a provider checkout URL is not a usable
+        # success; the durable order keeps the provider identity for reconciliation.
+        raise ApiError("PAYMENT_CHECKOUT_UNAVAILABLE", http=503, retryable=False,
+                       details={"reason": "no_checkout_url"})
+    # Public PaymentResponse is frozen for the strict Android parser (5 keys). The selected
+    # method and amount are NOT part of it: they live in the quote response and the internal
+    # order snapshot (payment_orders), so the wire shape is unchanged.
     return {
         "payment_id": payment["order_id"],
         "payment_status": status_map[status],
@@ -210,15 +219,24 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                 # same-key replay, exact installation-bound quote proof, no second provider
                 # create). With the provider disabled create_order fails closed BEFORE any
                 # ledger write or provider call (PAYMENT_PROVIDER_UNAVAILABLE).
-                result = await create_order(
-                    connection,
-                    settings,
-                    app[PAYMENT_PROVIDER_KEY],
-                    installation_id=context.installation_id,
-                    months=int(row["months"]),
-                    idempotency_key=key,
-                    quote_id=str(quote_id),
-                )
+                if row["method"] not in _methods(settings):
+                    raise ApiError("METHOD_UNAVAILABLE", http=403)
+                try:
+                    result = await create_order(
+                        connection,
+                        settings,
+                        app[PAYMENT_PROVIDER_KEY],
+                        installation_id=context.installation_id,
+                        months=int(row["months"]),
+                        idempotency_key=key,
+                        quote_id=str(quote_id),
+                        method=row["method"],
+                    )
+                except ApiError as error:
+                    if error.code == "PAYMENT_PROVIDER_UNAVAILABLE":
+                        # S5 frozen wire code for an unavailable merchant path.
+                        raise ApiError("SERVICE_UNAVAILABLE", http=503, retryable=True) from error
+                    raise
                 full = await connection.fetchrow(
                     "SELECT credited_entitlement_revision, needs_grant FROM payment_orders WHERE id=$1",
                     uuid.UUID(result["payment"]["order_id"]),
@@ -227,6 +245,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                 result["payment"],
                 credited_revision=full["credited_entitlement_revision"] if full else None,
                 needs_grant=bool(full["needs_grant"]) if full else False,
+                require_checkout=True,
             ))
         except AuthError as error:
             return _error_response(fallback, ApiError(error.code, http=error.http, retryable=error.retryable))

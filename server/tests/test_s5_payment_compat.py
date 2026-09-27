@@ -57,7 +57,7 @@ async def test_public_plans_and_owner_bound_immutable_quote(migrated_url, settin
 
 
 async def test_payment_create_off_never_mints_order_and_status_is_owner_only(migrated_url, settings_factory):
-    client, _settings, database = await _app(settings_factory, migrated_url)
+    client, _settings, database = await _app(settings_factory, migrated_url, disable_provider=True)
     try:
         pop, token = await _session_token(client)
         _other_pop, other_token = await _session_token(client)

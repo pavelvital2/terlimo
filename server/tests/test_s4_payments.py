@@ -39,19 +39,22 @@ GATEWAY_KEY = "terlimo-035-node"
 
 
 class FakePlategaProvider:
-    def __init__(self, *, qr: str | None = None):
+    def __init__(self, *, qr: str | None = None, pay_url: str | None = "https://pay.test/"):
         self._qr = qr
+        self._pay_url = pay_url
         self.status_view: dict | None = None
+        self.create_calls: list[dict] = []
 
     def capabilities(self) -> dict[str, bool]:
         return {"checkout": True, "qr": self._qr is not None}
 
-    async def create_payment(self, *, amount, currency, months, order_ref, description):
+    async def create_payment(self, *, amount, currency, months, order_ref, description, method=None):
+        self.create_calls.append({"method": method, "order_ref": order_ref, "amount": amount})
         return ProviderPayment(
             provider_payment_id=f"tx-{order_ref}",
-            pay_url=f"https://pay.test/{order_ref}",
+            pay_url=(f"{self._pay_url}{order_ref}" if self._pay_url else None),
             qr=self._qr,
-            variant="sbp",
+            variant=method or "sbp",
         )
 
     async def get_status(self, provider_payment_id):
@@ -80,11 +83,11 @@ def _settings(settings_factory, url, **overrides):
     return settings_factory(url, **base)
 
 
-async def _app(settings_factory, migrated_url, provider=None, **overrides):
+async def _app(settings_factory, migrated_url, provider=None, disable_provider=False, **overrides):
     settings = _settings(settings_factory, migrated_url, **overrides)
     database = Database(settings)
     app = create_app(settings, database)
-    app[PAYMENT_PROVIDER_KEY] = provider if provider is not None else FakePlategaProvider()
+    app[PAYMENT_PROVIDER_KEY] = None if disable_provider else (provider if provider is not None else FakePlategaProvider())
     client = TestClient(TestServer(app))
     await client.start_server()
     return client, settings, database
@@ -622,11 +625,14 @@ class _FakeResp:
 class _FakeSession:
     def __init__(self, status, payload):
         self._resp = _FakeResp(status, payload)
+        self.last_json = None
 
     def post(self, *a, **k):
+        self.last_json = k.get("json")
         return self._resp
 
     def get(self, *a, **k):
+        self.last_json = k.get("json")
         return self._resp
 
 

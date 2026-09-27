@@ -15,14 +15,12 @@ Design boundaries:
 
 from __future__ import annotations
 
-import uuid
-
 import calendar
-import hashlib
 import hmac
 import json
 import logging
 import math
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -83,6 +81,13 @@ class ProviderUnknown(ApiError):
         super().__init__("PAYMENT_PROVIDER_UNKNOWN", http=503, retryable=False)
 
 
+class ProviderMethodUnavailable(ApiError):
+    """The selected method is not offered by the configured merchant path (no provider call)."""
+
+    def __init__(self) -> None:
+        super().__init__("METHOD_UNAVAILABLE", http=403, retryable=False)
+
+
 def _add_months(moment: datetime, months: int) -> datetime:
     year = moment.year + (moment.month - 1 + months) // 12
     month = (moment.month - 1 + months) % 12 + 1
@@ -113,7 +118,9 @@ PLAN_SNAPSHOTS: dict[int, dict[str, Any]] = {
 }
 
 
-def _plan_from_quote(quote: asyncpg.Record, settings: Settings, months: int) -> dict[str, Any]:
+def _plan_from_quote(
+    quote: asyncpg.Record, settings: Settings, months: int, method: str | None = None
+) -> dict[str, Any]:
     """Plan snapshot sourced ONLY from a durable, installation-bound, unexpired quote that
     exactly matches the order parameters. Raises ORDER_CONFLICT on any mismatch."""
     base = PLAN_SNAPSHOTS[months]
@@ -125,6 +132,7 @@ def _plan_from_quote(quote: asyncpg.Record, settings: Settings, months: int) -> 
         or int(quote["amount_minor"]) != payment_amount(settings, months) * 100
         or quote["currency"] != settings.payment_currency
         or quote["tariff_key"] != settings.payment_tariff_key
+        or (method is not None and quote["method"] != method)
     ):
         raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "quote_mismatch"})
     if quote["expires_at"] <= datetime.now(UTC):
@@ -164,7 +172,8 @@ class PaymentProvider(Protocol):
     def capabilities(self) -> dict[str, bool]: ...
 
     async def create_payment(
-        self, *, amount: int, currency: str, months: int, order_ref: str, description: str
+        self, *, amount: int, currency: str, months: int, order_ref: str, description: str,
+        method: str | None = None,
     ) -> ProviderPayment: ...
 
     async def get_status(self, provider_payment_id: str) -> dict[str, Any] | None: ...
@@ -200,11 +209,18 @@ class PlategaHttpProvider:
         }
 
     async def create_payment(
-        self, *, amount: int, currency: str, months: int, order_ref: str, description: str
+        self, *, amount: int, currency: str, months: int, order_ref: str, description: str,
+        method: str | None = None,
     ) -> ProviderPayment:
         methods = [m.strip().lower() for m in self._settings.platega_methods.split(",") if m.strip()]
         id_map = _method_id_map(self._settings)
-        single_method = methods[0] if len(methods) == 1 and methods[0] in id_map else None
+        requested = method.strip().lower() if isinstance(method, str) and method.strip() else None
+        if requested is not None and (requested not in methods or requested not in id_map):
+            # Fail before any provider call: no invoice can exist for an unmapped method.
+            raise ProviderMethodUnavailable()
+        single_method = requested if requested is not None else (
+            methods[0] if len(methods) == 1 and methods[0] in id_map else None
+        )
         path = "/transaction/process" if single_method else "/v2/transaction/process"
         body: dict[str, Any] = {
             "paymentDetails": {"amount": float(amount), "currency": currency},
@@ -242,7 +258,7 @@ class PlategaHttpProvider:
             provider_payment_id=str(provider_id),
             pay_url=str(pay_url) if pay_url else None,
             qr=None,
-            variant=",".join(methods) or None,
+            variant=(requested or ",".join(methods)) or None,
         )
 
     async def get_status(self, provider_payment_id: str) -> dict[str, Any] | None:
@@ -298,6 +314,18 @@ def _quote_view(settings: Settings, months: int) -> dict[str, Any]:
     }
 
 
+def _order_method(order: asyncpg.Record) -> str | None:
+    raw = order["quote"]
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = None
+    if isinstance(raw, dict) and isinstance(raw.get("method"), str):
+        return raw["method"]
+    return None
+
+
 def _order_duration(order: asyncpg.Record) -> dict[str, Any]:
     raw = order["quote"]
     if isinstance(raw, str):
@@ -334,6 +362,7 @@ def _order_view(order: asyncpg.Record) -> dict[str, Any]:
         "duration": _order_duration(order),
         "tariff_key": order["tariff_key"],
         "provider": order["provider"],
+        "method": _order_method(order),
         "pay_url": order["provider_payment_url"],
         "qr": order["provider_qr"],
         "applied": order["applied_entitlement_id"] is not None,
@@ -361,12 +390,19 @@ async def create_order(
     months: int,
     idempotency_key: str | None,
     quote_id: str | None = None,
+    method: str | None = None,
 ) -> dict[str, Any]:
     if months not in SUPPORTED_MONTHS:
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "unsupported_period"})
     amount = payment_amount(settings, months)
     if amount is None:
         raise ApiError("PAYMENT_PRICE_UNAVAILABLE", http=503, retryable=False)
+    requested_method = method.strip().lower() if isinstance(method, str) and method.strip() else None
+    if requested_method is not None:
+        configured = [m.strip().lower() for m in settings.platega_methods.split(",") if m.strip()]
+        if requested_method not in configured:
+            # Fail before any ledger write or provider call: an unmapped method cannot invoice.
+            raise ProviderMethodUnavailable()
     if provider is None:
         raise ApiError("PAYMENT_PROVIDER_UNAVAILABLE", http=503, retryable=True)
     # A client-supplied nonempty idempotency key is mandatory: a server-generated random key
@@ -375,6 +411,9 @@ async def create_order(
     if not key or len(key) > 128:
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "idempotency_key_required"})
     quote = _quote_view(settings, months)
+    if requested_method is not None:
+        # Server-side method snapshot for this order; never a client-supplied dict.
+        quote["method"] = requested_method
     source_quote_id = None
     if quote_id is not None:
         try:
@@ -409,6 +448,8 @@ async def create_order(
             requested_quote = str(source_quote_id) if source_quote_id is not None else None
             if existing_quote != requested_quote:
                 raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "quote_changed"})
+            if _order_method(existing) != requested_method:
+                raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "method_changed"})
             if existing["provider_create_state"] == "unknown":
                 # A previous provider create timed out: the outcome is unknown and no second
                 # invoice may be created until identity reconciliation resolves it.
@@ -446,7 +487,7 @@ async def create_order(
                     source_quote_id,
                     installation_id,
                 )
-                quote["plan"] = _plan_from_quote(proof, settings, months)
+                quote["plan"] = _plan_from_quote(proof, settings, months, requested_method)
             try:
                 order_id = await connection.fetchval(
                     """
@@ -481,6 +522,7 @@ async def create_order(
                 months=months,
                 order_ref=str(order_id),
                 description=f"TERLIMO {months}m",
+                method=requested_method,
             )
         except Exception:
             # Any failure (non-2xx/timeout/malformed body/DB error after the provider call) may
@@ -625,8 +667,6 @@ async def apply_paid_entitlement(
         # Automatic paid access: enqueue the normal grant/outbox path for the bound account so a
         # paid webhook does not depend on a later client access.sync. Gateway unavailability is
         # handled by the existing outbox retries.
-        from .gateway_control import ensure_grant
-        from .onboarding_hour import select_gateway
 
         # Automatic paid access via the normal grant/outbox path; if no ready gateway or the
         # enqueue fails, needs_grant stays true and reconciliation retries without any client
