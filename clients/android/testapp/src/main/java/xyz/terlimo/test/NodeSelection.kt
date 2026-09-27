@@ -59,7 +59,9 @@ internal object NodeSelection {
                 val name = entry.opt("name").also { check(it is String) { "CATALOG_INVALID" } } as String
                 val country = entry.opt("country_code").also { check(it is String) { "CATALOG_INVALID" } } as String
                 check(id.isNotEmpty() && seen.add(id)) { "CATALOG_INVALID" }
-                check(country.isEmpty() || country.length == 2) { "CATALOG_INVALID" }
+                // Same bound as the accepted native/wire contract (country_code <= 8) and the
+                // browse decoder: an optional public code, never an ISO-2-only assumption.
+                check(country.length <= 8) { "CATALOG_INVALID" }
                 add(NodeLabel(id, name.take(100), country.uppercase()))
             }
         }

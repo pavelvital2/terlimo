@@ -46,10 +46,21 @@ class NodeSelectionTest {
     @Test fun countryIsPublicDisplayMetadataButMustKeepWireShape() {
         val event = JSONObject("""{"nodes":[{"node_id":"a","name":"A","country_code":""}],"selected_node_id":""}""")
         assertEquals("", NodeSelection.parseCatalog(event).nodes.single().countryCode)
+        // Missing key or a non-string value is still malformed; the accepted native bound is
+        // country_code length <= 8, so a short public code no longer fails the whole catalog.
         for (invalid in listOf(
             """{"nodes":[{"node_id":"a","name":"A"}],"selected_node_id":""}""",
-            """{"nodes":[{"node_id":"a","name":"A","country_code":"R"}],"selected_node_id":""}""",
         )) assertThrows(IllegalStateException::class.java) { NodeSelection.parseCatalog(JSONObject(invalid)) }
+    }
+
+    @Test fun countryCodeLengthFollowsTheNativeWireBound() {
+        fun parse(code: String) = NodeSelection.parseCatalog(JSONObject(
+            """{"nodes":[{"node_id":"a","name":"A","country_code":"$code"}],"selected_node_id":"a"}""")).nodes.single().countryCode
+        assertEquals("", parse(""))
+        assertEquals("RU", parse("ru"))
+        assertEquals("RUS", parse("RUS"))
+        assertEquals("ABCDEFGH", parse("ABCDEFGH"))
+        assertThrows(IllegalStateException::class.java) { parse("ABCDEFGHI") }
     }
 
     private fun ids(count: Int): List<String> =
@@ -115,11 +126,18 @@ class NodeSelectionTest {
             {"node_id":"a","name":"C","country_code":""}],"selected_node_id":"a"}""")
         assertThrows(IllegalStateException::class.java) { NodeSelection.parseCatalog(duplicate) }
 
-        val badCountry = JSONObject("""{"nodes":[
+        // A 3-char public code is accepted (native country_code <= 8); only > 8 is malformed.
+        val threeCharCountry = JSONObject("""{"nodes":[
             {"node_id":"a","name":"A","country_code":""},
             {"node_id":"b","name":"B","country_code":"RUS"},
             {"node_id":"c","name":"C","country_code":""}],"selected_node_id":"a"}""")
-        assertThrows(IllegalStateException::class.java) { NodeSelection.parseCatalog(badCountry) }
+        assertEquals("RUS", NodeSelection.parseCatalog(threeCharCountry).nodes[1].countryCode)
+
+        val tooLongCountry = JSONObject("""{"nodes":[
+            {"node_id":"a","name":"A","country_code":""},
+            {"node_id":"b","name":"B","country_code":"ABCDEFGHI"},
+            {"node_id":"c","name":"C","country_code":""}],"selected_node_id":"a"}""")
+        assertThrows(IllegalStateException::class.java) { NodeSelection.parseCatalog(tooLongCountry) }
 
         val missingName = JSONObject("""{"nodes":[
             {"node_id":"a","name":"A","country_code":""},

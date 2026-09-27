@@ -19,6 +19,16 @@ class CatalogCacheTest {
         assertEquals("12", decoded?.revision)
     }
 
+    @Test fun codecAcceptsWireValidCountryCodesUpToEight() {
+        val codes = listOf(NodeLabel("a", "A", ""), NodeLabel("b", "B", "RU"),
+            NodeLabel("c", "C", "RUS"), NodeLabel("d", "D", "ABCDEFGH"))
+        val decoded = CatalogCacheCodec.decode(CatalogCacheCodec.encode(RetainedCatalog(codes, "c", "12")))
+        assertEquals(codes, decoded?.nodes)
+        assertEquals("c", decoded?.selectedNodeId)
+        assertNull(CatalogCacheCodec.decode(
+            "version\t1\nrevision\t1\nselected\ta\nnode\ta\tA\tABCDEFGHI\n"))
+    }
+
     @Test fun codecRejectsMalformedUnknownOversizedAndDuplicateInput() {
         assertNull(CatalogCacheCodec.decode(""))
         assertNull(CatalogCacheCodec.decode("version\t1\nrevision\t1\nselected\ta\n")) // no nodes

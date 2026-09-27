@@ -19,3 +19,7 @@ Reviewed explicit browser-open policy, single-flight purchase correlation, truth
 ## Expired-hour paid registration UI — 2026-09-27
 
 Accepted Android source `c4e8a1532518368ccdce0895628bdc1d5042d0c3`, tree `3549a74cf60389539378d08671b5706510270cdf`, based on build `d06dac1`. Patch SHA-256 `8c777a33b61f6c5f25e964184e397a484cfd2eabb8ed379901388774f87e79c3`. Offers Telegram registration for paid orders awaiting binding after hour expiry; hides additional quote/payment controls in that state, preserves normal purchase visibility and registration error messages. Executor reports 30 focused tests passed; root reviewed all eight changed files. Source acceptance only; updated APK/phone state validation pending. Backend parked-payment binding is already implemented in `554151b`; real payment-provider E2E remains unverified.
+
+## Catalog country length compatibility — 2026-09-27
+
+Android source `1961d089b58f7997f6fed85702adead28e87f462`, tree `91223e4d926d0a0a7db1a610cc681b62df8bbaac`, patch SHA-256 `1752b8c029dddf6afdae78af381942750d4430fd495310ab0497cf03cfc0da84`. Credential parser and retained-cache decoder now accept country-code lengths up to eight; existing cache uppercase validation remains. Root reviewed all four changed files; executor reports NodeSelectionTest/CatalogCacheTest 32/32 passed. No new phone or large-catalog test. APK deployment pending.

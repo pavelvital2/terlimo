@@ -104,7 +104,9 @@ internal object CatalogCacheCodec {
             if (it.size != 4) return null
             val id = it[1]; val name = it[2]; val country = it[3]
             if (id.isEmpty() || name.isEmpty() || id.length > 200 || name.length > 100) return null
-            if (country.isNotEmpty() && (country.length != 2 || country.any { c -> !c.isUpperCase() })) return null
+            // Same optional public-code bound as the accepted native/wire contract: <= 8,
+            // display-uppercased; only a longer or non-uppercase value is malformed.
+            if (country.length > 8 || country.any { c -> !c.isUpperCase() }) return null
             NodeLabel(id, name, country)
         }
         if (nodes.isEmpty()) return null
