@@ -53,6 +53,7 @@ _OPERATION_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 def service_path_allowed(method: str, path: str) -> bool:
     """Exact existing mobile API operations only; no arbitrary URL/host/CONNECT/redirect."""
     fixed = {
+        "/api/mobile/v1/devices": "GET",
         "/api/mobile/v1/auth/challenge": "POST",
         "/api/mobile/v1/installations": "POST",
         "/api/mobile/v1/auth/session": "POST",
@@ -75,6 +76,9 @@ def service_path_allowed(method: str, path: str) -> bool:
     payment_prefix = "/api/mobile/v1/payments/"
     if method == "GET" and path.startswith(payment_prefix):
         return bool(_OPERATION_ID.match(path[len(payment_prefix) :]))
+    device_prefix = "/api/mobile/v1/devices/"
+    if method == "DELETE" and path.startswith(device_prefix):
+        return bool(_OPERATION_ID.match(path[len(device_prefix) :]))
     return False
 
 
@@ -141,7 +145,7 @@ def _parse_service_request(raw: bytes) -> dict[str, Any]:
     if not isinstance(request_id, str) or _REQUEST_ID.fullmatch(request_id) is None:
         raise EvidenceTransportError("SERVICE_BAD_FRAME", http=400)
     method, path, query = payload["method"], payload["path"], payload["query"]
-    if method not in ("GET", "POST"):
+    if method not in ("GET", "POST", "DELETE"):
         raise EvidenceTransportError("SERVICE_BAD_METHOD", http=400)
     if not isinstance(path, str) or not isinstance(query, str):
         raise EvidenceTransportError("SERVICE_BAD_PATH", http=400)

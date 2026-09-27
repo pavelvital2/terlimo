@@ -653,3 +653,93 @@ def test_service_path_allowlist_usage_route():
     assert not service_path_allowed("GET", "/api/mobile/v1/usage?window=30")
     assert not service_path_allowed("GET", "/api/mobile/v1/usage/../me")
     assert not service_path_allowed("GET", "/api/mobile/internal/usage")
+
+
+def test_service_path_allowlist_devices_class():
+    # Android 54ecabc DEVICES class: exactly two operations, bearer + Idempotency-Key forwarded.
+    assert service_path_allowed("GET", "/api/mobile/v1/devices")
+    assert service_path_allowed("DELETE", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef")
+    assert not service_path_allowed("POST", "/api/mobile/v1/devices")
+    assert not service_path_allowed("GET", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef")
+    assert not service_path_allowed("DELETE", "/api/mobile/v1/devices")
+    assert not service_path_allowed("DELETE", "/api/mobile/v1/devices/not-a-uuid")
+    assert not service_path_allowed("DELETE", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef/extra")
+    assert not service_path_allowed("DELETE", "/api/mobile/v1/devices/../me")
+    assert not service_path_allowed("DELETE", "/api/mobile/v1/me")
+    assert not service_path_allowed("PUT", "/api/mobile/v1/devices/01234567-89ab-cdef-0123-456789abcdef")
+
+
+async def test_service_endpoint_devices_class_forwarding_and_gates(migrated_url, settings_factory, tmp_path):
+    material = _Material(tmp_path)
+    await _seed_gateway(migrated_url, key=GATEWAY_KEY)
+    seen: dict = {}
+
+    async def echo(request: web.Request) -> web.Response:
+        seen.update(
+            {
+                "method": request.method,
+                "path": request.path,
+                "auth": request.headers.get("Authorization"),
+                "idem": request.headers.get("Idempotency-Key"),
+            }
+        )
+        return web.json_response({"status": "ok"})
+
+    upstream = web.Application()
+    upstream.router.add_get("/api/mobile/v1/devices", echo)
+    upstream.router.add_delete("/api/mobile/v1/devices/{device_id}", echo)
+    runner, api_port = await _start_site(upstream, 0, None)
+    settings = await _service_settings(settings_factory, migrated_url, material, api_port=api_port)
+    database = Database(settings)
+    await database.ensure_ready()
+    listener = EvidenceListener(settings, database)
+    await listener.start()
+    client = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=material.node_context()))
+    try:
+        device_id = "01234567-89ab-cdef-0123-456789abcdef"
+        headers = {
+            "Authorization": "Bearer synthetic-token",
+            "Idempotency-Key": f"idem-{uuid.uuid4().hex}",
+            "Content-Type": "application/json",
+        }
+        _status, body = await _post(
+            client, listener.port, _service_request("GET", "/api/mobile/v1/devices", headers=headers)
+        )
+        assert body["status"] == 200
+        assert seen == {
+            "method": "GET",
+            "path": "/api/mobile/v1/devices",
+            "auth": "Bearer synthetic-token",
+            "idem": headers["Idempotency-Key"],
+        }
+        _status, body = await _post(
+            client,
+            listener.port,
+            _service_request("DELETE", f"/api/mobile/v1/devices/{device_id}", headers=headers),
+        )
+        assert body["status"] == 200
+        assert seen["method"] == "DELETE" and seen["path"] == f"/api/mobile/v1/devices/{device_id}"
+        assert seen["auth"] == "Bearer synthetic-token" and seen["idem"] == headers["Idempotency-Key"]
+
+        before = dict(seen)
+        for payload in (
+            _service_request("POST", "/api/mobile/v1/devices", headers=headers),
+            _service_request("GET", f"/api/mobile/v1/devices/{device_id}", headers=headers),
+            _service_request("DELETE", "/api/mobile/v1/devices", headers=headers),
+            _service_request("DELETE", "/api/mobile/v1/devices/not-a-uuid", headers=headers),
+            _service_request("DELETE", f"/api/mobile/v1/devices/{device_id}/extra", headers=headers),
+            _service_request("DELETE", "/api/mobile/v1/me", headers=headers),
+        ):
+            _status, body = await _post(client, listener.port, payload)
+            assert body["error"]["code"] == "SERVICE_PATH_DENIED", body
+        _status, body = await _post(
+            client, listener.port, _service_request("PATCH", f"/api/mobile/v1/devices/{device_id}")
+        )
+        assert body["error"]["code"] == "SERVICE_BAD_METHOD"
+        # only these two endpoint/method pairs reached the upstream at all
+        assert seen == before
+    finally:
+        await client.close()
+        await listener.stop()
+        await runner.cleanup()
+        await database.close()

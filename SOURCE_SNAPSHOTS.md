@@ -47,3 +47,6 @@ Accepted Android source `0ebb0230fc03eada48ab4b60f56cb932e95b588a`, tree `dece6b
 ## Devices source — 2026-09-27
 
 Accepted backend `21878c78fde61217ea6fda5da06d944bc654a2b1`, tree `b9b97ec1661a1122bed002e29888e6bc7f038a7f`, from95e270a. Full patch SHA256 `97ed830c71f9dab3e507ba06f4676c0bf870f2e4aed829437b8beb9adae6534e`. Account device management, full-slot Telegram proof without data access, generation-fenced removal/rebinding, canonical devices DTO, metadata migration0033. Root reviewed successive corrections; executor reports21device tests and52related checks passed in final iteration. Gateway readback test uses wire-faithful fake, not live gateway acceptance. Five existing active-plan test failures remain reported on base; not a green full suite. Required additive canonical errors schema patch preserved in server/docs/contracts/devices-errors-schema.patch (external contracts repo separate). TEST rollout and Android integration pending.
+
+
+2026-09-27: server service-channel source accepted 318ff77d30fda1a941f7f87e68d52616a0e94fdc / tree 5da4edb3b49138e50c05b3263aa420435c43848b, parent21878c7. Exact GET devices and DELETE devices/{uuid}; unchanged header forwarding. Patch SHA256021051f3db7f083f218d72befb23ab28614745282794fdd0324f58a6d499de66. Executor reports16focused relay tests passed; root reviewed diff. Live application and phone acceptance pending.
