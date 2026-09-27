@@ -71,3 +71,7 @@ Android 9bb9ab3 / APK 6b261597fe0dc879fb14bedc4b5b31c97b521fbed8f8adf22bc80d3f98
 ## 2026-09-28 device UI reconciliation source
 
 Android source 3eca4d5263d881a511abc761d96307a2abcbaf0f, tree c8a9ef9a3092e84e92eea506c8448778a80c70fe, based on 9bb9ab3. Four-file correction a4fc4b6c6e3227976d60064048f723e09c098c39d1cf6e15c284cf0b6240a59d reviewed: matching account/attempt devices-list slot count overrides stale summary; pending deletion uses historical acknowledgement without claiming gateway completion. Focused test receipt: Gradle success, DevicesState14, ColdGate7, ColdSequence2, LifecycleSource2, SubscriptionDeviceText6 passed as reported. Build/install/UI verification assigned; installed accepted APK remains 6b261597 pending that receipt. Gateway2619c86/backendf887575 unchanged.
+
+## 2026-09-28 installed UI checkpoint
+
+Android3eca4d5 / APK920a4fcc03b1881dc3a95842916d90cc6c803289c249264d7e2c0a877b643925 installed in user0 with matching readback; prior APK6b261597 retained. SEND_NOW list refresh rendered both counters1/2 and preserved current device; explicit disconnect clean per receipt. Root inspected UI XML. Cold START_SERVICE refresh stopped before devices response; cause not yet established, diagnosis assigned. No new deletion executed; full-slot new-installation scenario remains open.
