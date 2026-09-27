@@ -63,3 +63,7 @@ Backend source checkpoint f8875757223d3610f428414cc4436afb0257f65b/tree433026ff0
 
 
 Android devices GET accepted 2026-09-27 21:28Z: source9bb9ab3241a90bfe5d708d3a493cc98c439599f6/tree0fd91e574385304cb500d9ef2e432f8aa8d389df, APK6b261597fe0dc879fb14bedc4b5b31c97b521fbed8f8adf22bc80d3f980c167e. Ordinary SEND_NOW refresh produced current Android row; root correlated API GET /devices 200 at21:28:55.342UTC. Explicit disconnect clean, no force-stop. Compatible gateway2619c86 active and APIf887575 reloaded at21:22:26UTC, service probes matchingrequestid/readiness24of24. DELETE/revoke/fullslot replacement and cold-start branch remain outside this acceptance. Latest focused Kotlin/Go tests passed by receipt; earlier bdb1ef8 Kotlin claim was withdrawn and repaired in8d313f1. Source only, no overlay/APK copied.
+
+## 2026-09-28 ordinary device deletion acceptance
+
+Android 9bb9ab3 / APK 6b261597fe0dc879fb14bedc4b5b31c97b521fbed8f8adf22bc80d3f980c167e, gateway 2619c86, backend f887575: one explicit noncurrent TEST device DELETE returned successfully, list slots changed 2/2 to 1/2, current device preserved. Server confirmed explicit gateway revoke with generation/readback before grant expiry. Ordinary deletion accepted; UI still contains a stale summary counter and historical pending text, correction assigned. Full-slot replacement after fresh Telegram login remains unaccepted. No product source changes in this checkpoint.
