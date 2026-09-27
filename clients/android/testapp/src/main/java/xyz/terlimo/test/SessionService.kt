@@ -31,7 +31,8 @@ internal data class ViewState(val phase: String = "Idle", val nodes: List<NodeLa
     val traffic: TrafficSnapshot = TrafficSnapshot(),
     val serverUsage: ServerUsage? = null, val serverUsageUnavailable: Boolean = false, val catalogRevision: String = "",
     val pendingSwitchId: String? = null, val pendingSwitchRevision: String? = null,
-    val wakeRecovery: WakeRecoveryStatus? = null, val accountAccess: AccountAccessSnapshot? = null,
+    val wakeRecovery: WakeRecoveryStatus? = null, val channels: ChannelsStatus? = null,
+    val accountAccess: AccountAccessSnapshot? = null,
     // Display-only browse list of the owner-contract catalog before access plus its host-local
     // preference. Never an admission snapshot; never the verified nodes/selection above. The
     // display mode separates that fresh browse display from the retained verified credentials.
@@ -86,7 +87,7 @@ class SessionService : Service() {
             val attempt = gate.active ?: return
             val sleeping = !getSystemService(PowerManager::class.java).isInteractive
             val revision = lifecycleRevision.incrementAndGet()
-            publishActive(attempt, view.copy(wakeRecovery = null))
+            publishActive(attempt, view.copy(wakeRecovery = null, channels = null))
             submitControl {
                 if (gate.active == attempt && !stopping.get())
                     send(JSONObject().put("type", if (sleeping) "device_sleep" else "device_wake")
@@ -370,7 +371,7 @@ class SessionService : Service() {
         } else null
         val base = listOfNotNull(UserStatusText.phase(state.phase),
             NotificationText.serverLabel(state.nodes.singleOrNull { it.id == state.selectedNodeId }?.name),
-            state.wakeRecovery?.text,
+            ChannelsDisplay.line(state.phase == "Connected", state.channels, state.wakeRecovery?.text),
             AccountAccessPolicy.notificationLine(state.accountAccess, SystemClock.elapsedRealtime()),
             usageSegment).joinToString(" · ")
         val traffic = state.traffic
@@ -514,7 +515,7 @@ class SessionService : Service() {
                         activeRuntimeEpoch = 0
                         val switchId = UUID.randomUUID().toString()
                         val revision = view.catalogRevision
-                        publish(view.copy(wakeRecovery = null, pendingNodeId = id, pendingSwitchId = switchId,
+                        publish(view.copy(wakeRecovery = null, channels = null, pendingNodeId = id, pendingSwitchId = switchId,
                             pendingSwitchRevision = revision, error = null))
                         SwitchDiagnostics.log("queued")
                         submitControl {
@@ -888,6 +889,14 @@ class SessionService : Service() {
                         getSystemService(PowerManager::class.java).isInteractive, stopping.get())
                     if (status != current.wakeRecovery) publishActive(attempt, current.copy(wakeRecovery = status))
                 }
+                "channels_status" -> {
+                    val incoming = ChannelsStatusProjection.parse(event) ?: return
+                    val current = view
+                    val status = ChannelsStatusProjection.accept(current.channels, incoming,
+                        gate.active, attempt, activeRuntimeEpoch, lifecycleRevision.get(),
+                        getSystemService(PowerManager::class.java).isInteractive, stopping.get())
+                    if (status != current.channels) publishActive(attempt, current.copy(channels = status))
+                }
                 "diagnostic" -> {
                     retainManagedDiagnostic(event, false)
                 }
@@ -1241,7 +1250,7 @@ class SessionService : Service() {
                                 }
                                 activeRuntimeEpoch = rollbackRuntimeEpoch
                                 rollbackRuntimeEpoch = 0
-                                publishActive(attempt, view.copy(wakeRecovery = null, pendingNodeId = null, pendingSwitchId = null,
+                                publishActive(attempt, view.copy(wakeRecovery = null, channels = null, pendingNodeId = null, pendingSwitchId = null,
                                     pendingSwitchRevision = null, error = code))
                             }
                         }
@@ -1589,7 +1598,7 @@ class SessionService : Service() {
         check(selectedProbe.probeUrl == event.getString("probe_url") &&
             selectedProbe.expectedExitIp == event.getString("expected_exit_ip")) { "PROBE_NOT_PROVISIONED" }
         val probeUrl = URL(selectedProbe.probeUrl)
-        publishActive(attempt, view.copy(phase = if (switching) "SwitchingServer" else "ConfiguringVPN", wakeRecovery = null, error = null))
+        publishActive(attempt, view.copy(phase = if (switching) "SwitchingServer" else "ConfiguringVPN", wakeRecovery = null, channels = null, error = null))
         vpnWorker.execute {
             var failedCode = "VPN_APPLY_FAILED"
             var evidence = ReadinessEvidence()
@@ -1975,7 +1984,7 @@ class SessionService : Service() {
         activeRuntimeEpoch = 0
         gate.cancel()
         readinessProbe?.close(); readinessProbe = null
-        publish(view.copy(phase = "SleepPaused", wakeRecovery = null, error = null))
+        publish(view.copy(phase = "SleepPaused", wakeRecovery = null, channels = null, error = null))
         val stopPhase = view.phase
         Thread({
             runCatching { child?.stop(ChildStopReason.SLEEP_PAUSE, stopPhase) }
@@ -2069,7 +2078,7 @@ class SessionService : Service() {
         readinessProbe?.close()
         readinessProbe = null
         physical = null
-        publish(view.copy(phase = "Reconnecting", wakeRecovery = null, pendingNodeId = null, pendingSwitchId = null,
+        publish(view.copy(phase = "Reconnecting", wakeRecovery = null, channels = null, pendingNodeId = null, pendingSwitchId = null,
             pendingSwitchRevision = null, selectedNodeId = nodeId, error = null))
         val stopPhase = view.phase
         Thread({
@@ -2176,7 +2185,7 @@ class SessionService : Service() {
      */
     private fun awaitRecoveryNetwork(current: NetworkRecoveryState) {
         networkRecovery = PhysicalNetworkRecovery.await(current)
-        publish(view.copy(phase = "Reconnecting", wakeRecovery = null, error = null))
+        publish(view.copy(phase = "Reconnecting", wakeRecovery = null, channels = null, error = null))
     }
     private fun holdKillSwitch(code: String) {
         if (stopping.get()) {
@@ -2205,7 +2214,7 @@ class SessionService : Service() {
         gate.cancel()
         readinessProbe?.close()
         readinessProbe = null
-        publish(view.copy(phase = "KillSwitch", wakeRecovery = null, pendingNodeId = null, pendingSwitchId = null,
+        publish(view.copy(phase = "KillSwitch", wakeRecovery = null, channels = null, pendingNodeId = null, pendingSwitchId = null,
             pendingSwitchRevision = null, error = code,
             accountAccess = view.accountAccess?.copy(current = false)))
         val stopPhase = view.phase
@@ -2332,7 +2341,7 @@ class SessionService : Service() {
         expiresElapsed = 0
         leaseAlarms.close()
         readinessProbe?.close()
-        publish(view.copy(phase = "Stopping", wakeRecovery = null, error = code))
+        publish(view.copy(phase = "Stopping", wakeRecovery = null, channels = null, error = code))
         val stopPhase = view.phase
         // Exactly one teardown thread per Service; not an actor item and not behind its backlog.
         Thread({

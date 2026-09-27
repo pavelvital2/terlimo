@@ -120,7 +120,7 @@ internal class OrbitHomeHeader(
         val accent = if (connected) TerlimoCatalogBrandTokens.ACCENT.toInt() else TerlimoCatalogBrandTokens.DIVIDER.toInt()
         power.background = powerBackground(accent, connected)
         power.setColorFilter(if (connected) TerlimoCatalogBrandTokens.ACCENT.toInt() else TerlimoCatalogBrandTokens.MUTED_TEXT.toInt())
-        quality.setMetricValue(state.wakeRecovery?.text ?: when {
+        quality.setMetricValue(ChannelsDisplay.line(connected, state.channels, state.wakeRecovery?.text) ?: when {
             state.phase == "SleepPaused" -> "Трафик заблокирован"
             blocked -> "Трафик заблокирован"
             connected -> "Подключено"

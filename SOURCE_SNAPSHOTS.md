@@ -27,3 +27,7 @@ Android source `1961d089b58f7997f6fed85702adead28e87f462`, tree `91223e4d926d0a0
 ## Notification traffic at zero — 2026-09-27
 
 Android source `19961c5a244e8fe34f4511bb69e074a68e8b219f`, tree `b5ce44885f9ffce4e8d02ef0882fb06b5db945cb`; patch SHA-256 `27b7d95a6db9d81c53405d1cb873ce627086db7ee09db281793d01c44b42b4b8`. Connected notification now includes incoming/outgoing totals even at zero. Root reviewed three-file diff; executor reports NotificationTextTest 2 and OnboardingHourSourceTest 6 passed. Workers/stream telemetry remains unresolved; this is partial source acceptance, not full notification acceptance. New APK pending. Previous country source1961d08 installed APK `4d18b0e6055e4486b907cab9a07438be9d5d5361ec13cd82e4da2572190beeff`, built/installed artifact hashes independently matched.
+
+## Channel counts in quality and notification — 2026-09-27
+
+Accepted source `ea7110be997f32dd5affe5df0e9019d562f00673`, tree `94dc539b7b60bedef590d79eeb7e0d4271acef57`, based on19961c5. Patch SHA256 `3af5847931dfc7670d667cf775734f57f1f8c64caa83f0c998ab1d5d71ace12b`. Local native bridge carries registered active channels versus configured maximum, fenced by attempt/runtime/lifecycle. Shared display preserves existing wake-ready priority; ordinary lifecycle revision0 is accepted. Sender uses runtime cancellation and1s timeout. Root reviewed original and correction diffs and inspected Kotlin XML7/7 PASS; executor reports focused Go lifecycle/dispatcher tests passed. Device/build validation pending. No server/network protocol change.

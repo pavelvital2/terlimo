@@ -1558,6 +1558,11 @@ type managedTunnelRuntime struct {
 // switch orchestration is exercised without a transport.
 var managedTunnelStart = startManagedTunnel
 
+func channelsStatusMessage(runtimeEpoch, lifecycleRevision, generation uint64, active, target int) bridgeMessage {
+	return bridgeMessage{"type": "channels_status", "runtime_epoch": runtimeEpoch, "lifecycle_revision": lifecycleRevision,
+		"generation": generation, "active": active, "target": target}
+}
+
 func startManagedTunnel(ctx context.Context, plan managedTunnelPlan) (managedTunnelRuntime, error) {
 	configCh := make(chan string, 1)
 	var stopWorkers context.CancelFunc
@@ -2079,6 +2084,9 @@ func (c *managedController) vpn(parent context.Context, parentCancel context.Can
 					return reportErr
 				}
 			}
+			reportCtx, reportCancel := context.WithTimeout(ctx, time.Second)
+			_ = c.bridge.sendContext(reportCtx, channelsStatusMessage(runtimeEpoch, lifecycle.Revision, wake.generation, disp.ActiveWorkers(), n))
+			reportCancel()
 			cat := c.store.Snapshot()
 			if cat == nil {
 				return errors.New("BAD_CATALOG")

@@ -265,6 +265,20 @@ func workerEligibleForWakeGeneration(worker *WorkerSlot, generation uint64, devi
 	return worker != nil && (generation == 0 || deviceSleeping || worker.WakeVerifiedGeneration.Load() >= generation)
 }
 
+func (d *Dispatcher) ActiveWorkers() int {
+	workers := d.workers.Load()
+	if workers == nil {
+		return 0
+	}
+	active := 0
+	for _, worker := range *workers {
+		if worker != nil {
+			active++
+		}
+	}
+	return active
+}
+
 func (d *Dispatcher) wakeStatus(generation uint64) (ready int, total int) {
 	workers := d.workers.Load()
 	if workers == nil {
