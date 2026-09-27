@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 
 import asyncpg
-
 from test_auth_flow import _challenge, _session
 from test_s4_payments import _app, _auth, _bind, _installation_id, _session_token
+
 from terlimo_backend.s5_payments import PAYMENTS_PATH, PLANS_PATH, QUOTES_PATH
 
 
@@ -27,8 +27,8 @@ async def test_public_plans_and_owner_bound_immutable_quote(migrated_url, settin
             ("days:30", 20000), ("months:3", 48000), ("months:6", 84000)
         ]
         assert [p["title"] for p in plans["plans"]] == ["30 дней", "3 месяца", "6 месяцев"]
-        assert all(p["base_device_limit"] == 2 and p["methods"] == ["sbp", "crypto"] for p in plans["plans"])
-        assert all("card" not in p["methods"] for p in plans["plans"])
+        # "card" is the public alias of the configured provider "international" method.
+        assert all(p["base_device_limit"] == 2 and p["methods"] == ["sbp", "card", "crypto"] for p in plans["plans"])
 
         first, token = await _session_token(client)
         _second, other_token = await _session_token(client)
@@ -46,8 +46,12 @@ async def test_public_plans_and_owner_bound_immutable_quote(migrated_url, settin
         assert (await replay.json())["quote_id"] == quote["quote_id"]
         changed = await client.post(QUOTES_PATH, headers=headers, json={**body, "method": "crypto"})
         assert changed.status == 409 and (await changed.json())["code"] == "IDEMPOTENCY_CONFLICT"
-        unavailable = await client.post(QUOTES_PATH, headers={**_auth(token), "Idempotency-Key": _key()}, json={**body, "method": "card"})
+        # an unknown public method is still refused before any provider call
+        unavailable = await client.post(QUOTES_PATH, headers={**_auth(token), "Idempotency-Key": _key()}, json={**body, "method": "paypal"})
         assert unavailable.status == 403 and (await unavailable.json())["code"] == "METHOD_UNAVAILABLE"
+        # the app's card method is now offered and snapshots the public value "card"
+        card = await client.post(QUOTES_PATH, headers={**_auth(token), "Idempotency-Key": _key()}, json={**body, "method": "card"})
+        assert card.status == 200 and (await card.json())["method"] == "card"
         other = await client.post(QUOTES_PATH, headers={**_auth(other_token), "Idempotency-Key": key}, json=body)
         assert other.status == 200 and (await other.json())["quote_id"] != quote["quote_id"]
         assert first.key.fingerprint

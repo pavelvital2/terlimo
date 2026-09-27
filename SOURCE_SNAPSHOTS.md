@@ -35,3 +35,7 @@ Accepted source `ea7110be997f32dd5affe5df0e9019d562f00673`, tree `94dc539b7b60be
 ## Server-defined channel denominator — 2026-09-27
 
 Accepted Android source `af5f7ebf58fe1ada4066601fe4246fd86d98e47a`, tree `35ac4a63dc3951b77ccc398a9ac474cdfc221dbf`. Incremental patch SHA256 `c227b624d1322c7c86edb21b63e7d35d5b2c22549b086cc034fa8b60af2b5b92`. Shared quality/notification projection uses server-configured target rather than variable registered-slot total during wake. Missing target is shown without a denominator; no hardcoded36. Existing supported parser cap36 unchanged. Root reviewed four-file diff; executor reports ChannelsStatus8/WakeRecoveryProjection4 tests passed. Native unchanged; APK update pending.
+
+## Card payment method parity — 2026-09-27
+
+Accepted backend source `95e270a30902267319e8c7223380e4d99b52cc26`, tree `6020057c706d17bc21257c2dfde761e914452372`, base554151b. Full patch SHA256 `0f30750fd92b9b84c3e96838c84dbc71f445cc24c38eafc7cefd1e575447475b`. Public card aliases provider international; numeric provider method remains configurable. Production read-only source/config confirms current override11. Migration0032 extends quote methods; rollback refuses existing card quotes without deleting them. Root reviewed initial and correction patches; executor reports64 affected tests passed. TEST rollout pending, provider disabled; no real invoice/payment acceptance.

@@ -32,14 +32,25 @@ QUOTE_LIFETIME = timedelta(minutes=15)
 PLAN_MONTHS = {"terlimo-30d": (1, "days:30", "30 дней"),
                "terlimo-3m": (3, "months:3", "3 месяца"),
                "terlimo-6m": (6, "months:6", "6 месяцев")}
-S5_METHODS = ("sbp", "crypto")
+# Public S5 methods. "card" is the app's card button; it is an ALIAS of the Platega provider
+# method "international" (the donor bot exposes its card/MIR button through that variant). The
+# concrete paymentMethod id is NOT hardcoded here: it always comes from settings (runtime override
+# wins over the donor default). Only the PUBLIC method name differs; the provider method stays
+# "international".
+S5_METHODS = ("sbp", "card", "crypto")
+S5_METHOD_PROVIDER = {"sbp": "sbp", "card": "international", "crypto": "crypto"}
 _KEY = re.compile(r"^[^\r\n]{16,128}$")
 
 
 def _methods(settings: Settings) -> list[str]:
     configured = {item.strip().lower() for item in settings.platega_methods.split(",")}
-    # "international" is not proven to be the Android "card" method.
-    return [method for method in S5_METHODS if method in configured]
+    # Normalize the public alias the SAME way as the provider path does: a bare "card" env counts
+    # as its provider method "international", so plans -> quote -> create stay consistent.
+    normalized = set(configured)
+    for public, provider in S5_METHOD_PROVIDER.items():
+        if public in configured:
+            normalized.add(provider)
+    return [method for method in S5_METHODS if S5_METHOD_PROVIDER[method] in normalized]
 
 
 def _plans(settings: Settings) -> list[dict[str, Any]]:
@@ -230,7 +241,8 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                         months=int(row["months"]),
                         idempotency_key=key,
                         quote_id=str(quote_id),
-                        method=row["method"],
+                        method=S5_METHOD_PROVIDER.get(row["method"], row["method"]),
+                        public_method=row["method"],
                     )
                 except ApiError as error:
                     if error.code == "PAYMENT_PROVIDER_UNAVAILABLE":

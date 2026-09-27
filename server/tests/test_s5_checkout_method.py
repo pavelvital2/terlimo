@@ -166,3 +166,131 @@ async def test_platega_explicit_method_maps_ids_and_refuses_unmapped():
         await provider.create_payment(amount=200, currency="RUB", months=1, order_ref="o3",
                                       description="d", method="card")
     assert err.value.code == "METHOD_UNAVAILABLE" and provider._session.last_json is None
+
+
+async def test_international_method_id_comes_from_settings_override():
+    """The paymentMethod id is taken from settings (runtime override wins); never hardcoded."""
+    class Override11:  # root read production override INTERNATIONAL_METHOD=11
+        platega_methods = "sbp,international,crypto"
+        platega_method_ids = "sbp:2,international:11,crypto:13"
+        platega_merchant_id = "m"
+        platega_secret = "s"
+        platega_base_url = "https://app.platega.io"
+        platega_return_url = "https://return.test"
+        platega_failed_url = "https://failed.test"
+        platega_http_timeout_seconds = 5
+
+    class OtherId:
+        platega_methods = "international"
+        platega_method_ids = "international:12"
+        platega_merchant_id = "m"
+        platega_secret = "s"
+        platega_base_url = "https://app.platega.io"
+        platega_return_url = "https://return.test"
+        platega_failed_url = "https://failed.test"
+        platega_http_timeout_seconds = 5
+
+    p11 = PlategaHttpProvider(Override11())
+    p11._session = _FakeSession(200, {"transactionId": "tx-11", "redirect": "https://pay/11"})
+    await p11.create_payment(amount=200, currency="RUB", months=1, order_ref="o11", description="d", method="international")
+    assert p11._session.last_json["paymentMethod"] == 11
+
+    p12 = PlategaHttpProvider(OtherId())
+    p12._session = _FakeSession(200, {"transactionId": "tx-12", "redirect": "https://pay/12"})
+    await p12.create_payment(amount=200, currency="RUB", months=1, order_ref="o12", description="d", method="international")
+    assert p12._session.last_json["paymentMethod"] == 12
+
+
+async def test_card_only_env_is_consistent_plans_quote_create(migrated_url, settings_factory):
+    """A bare "card" env (with its provider id) is normalized the same way across plans/quote/create."""
+    class CapturingProvider(FakePlategaProvider):
+        def __init__(self):
+            super().__init__()
+            self.provider_methods: list[str | None] = []
+            self.payload_ids: list[int | None] = []
+
+        async def create_payment(self, *, amount, currency, months, order_ref, description, method=None):
+            self.provider_methods.append(method)
+            return await super().create_payment(amount=amount, currency=currency, months=months,
+                                                order_ref=order_ref, description=description, method=method)
+
+    provider = CapturingProvider()
+    client, _settings_obj, database = await _app(
+        settings_factory, migrated_url, provider=provider,
+        platega_methods="card", platega_method_ids="card:11",
+    )
+    try:
+        _pop, token = await _session_token(client)
+        plan = (await (await client.get(PLANS_PATH)).json())["plans"][0]
+        assert plan["methods"] == ["card"]
+        quote = await (await _quote(client, token, plan["plan_id"], method="card")).json()
+        assert quote["method"] == "card"
+        created = await _create(client, token, quote["quote_id"])
+        assert created.status == 200, await created.text()
+        assert provider.provider_methods == ["international"]
+    finally:
+        await database.close()
+        await client.close()
+
+
+async def test_card_create_replays_same_key_and_conflicts_on_method_change(migrated_url, settings_factory):
+    provider = FakePlategaProvider()
+    client, _settings_obj, database = await _app(settings_factory, migrated_url, provider=provider)
+    try:
+        _pop, token = await _session_token(client)
+        plan = (await (await client.get(PLANS_PATH)).json())["plans"][0]
+        quote = await (await _quote(client, token, plan["plan_id"], method="card")).json()
+        key = _key()
+        first = await _create(client, token, quote["quote_id"], key=key)
+        assert first.status == 200
+        first_body = await first.json()
+        replay = await _create(client, token, quote["quote_id"], key=key)
+        assert replay.status == 200 and (await replay.json())["payment_id"] == first_body["payment_id"]
+        assert len([c for c in provider.create_calls if c["method"] == "international"]) == 1
+        # a different public method under the same idempotency key is a method conflict, no new call
+        sbp_quote = await (await _quote(client, token, plan["plan_id"], method="sbp")).json()
+        conflict = await _create(client, token, sbp_quote["quote_id"], key=key)
+        assert conflict.status == 409 and (await conflict.json())["code"] == "ORDER_CONFLICT"
+        assert len(provider.create_calls) == 1
+    finally:
+        await database.close()
+        await client.close()
+
+
+async def test_card_method_aliases_international_provider_without_wire_change(migrated_url, settings_factory):
+    """The app's "card" button routes to the Platega provider method "international"; the concrete
+    paymentMethod id comes from settings, while the public quote snapshot keeps "card"."""
+    provider = FakePlategaProvider()
+    client, _settings_obj, database = await _app(settings_factory, migrated_url, provider=provider)
+    try:
+        _pop, token = await _session_token(client)
+        plan = (await (await client.get(PLANS_PATH)).json())["plans"][0]
+        assert "card" in plan["methods"]
+        quote = await (await _quote(client, token, plan["plan_id"], method="card")).json()
+        assert quote["method"] == "card"
+        created = await _create(client, token, quote["quote_id"])
+        assert created.status == 200, await created.text()
+        body = await created.json()
+        assert set(body) == {
+            "request_id", "server_time", "schema_version", "status",
+            "payment_id", "payment_status", "checkout_reference",
+            "credited_entitlement_revision", "access_application_state",
+        }
+        # provider receives the provider method "international", not the public alias
+        assert provider.create_calls == [
+            {"method": "international", "order_ref": body["payment_id"], "amount": 200}
+        ]
+        connection = await asyncpg.connect(migrated_url)
+        try:
+            row_quote = await connection.fetchval(
+                "SELECT quote FROM payment_orders WHERE id=$1", uuid.UUID(body["payment_id"])
+            )
+            snapshot = row_quote
+            while isinstance(snapshot, str):
+                snapshot = json.loads(snapshot)
+            assert snapshot["method"] == "card"
+        finally:
+            await connection.close()
+    finally:
+        await database.close()
+        await client.close()

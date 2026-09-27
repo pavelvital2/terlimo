@@ -70,6 +70,9 @@ def _method_id_map(settings: Settings) -> dict[str, int]:
             continue
         if name and value > 0:
             mapping[name] = value
+    # Public alias: a bare "card" id entry also provides the provider method "international".
+    if "card" in mapping and "international" not in mapping:
+        mapping["international"] = mapping["card"]
     return mapping or dict(PLATEGA_METHOD_IDS)
 
 
@@ -213,6 +216,9 @@ class PlategaHttpProvider:
         method: str | None = None,
     ) -> ProviderPayment:
         methods = [m.strip().lower() for m in self._settings.platega_methods.split(",") if m.strip()]
+        # Alias-aware: a bare "card" env also enables the provider method "international".
+        if "card" in methods and "international" not in methods:
+            methods.append("international")
         id_map = _method_id_map(self._settings)
         requested = method.strip().lower() if isinstance(method, str) and method.strip() else None
         if requested is not None and (requested not in methods or requested not in id_map):
@@ -391,6 +397,7 @@ async def create_order(
     idempotency_key: str | None,
     quote_id: str | None = None,
     method: str | None = None,
+    public_method: str | None = None,
 ) -> dict[str, Any]:
     if months not in SUPPORTED_MONTHS:
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "unsupported_period"})
@@ -398,8 +405,19 @@ async def create_order(
     if amount is None:
         raise ApiError("PAYMENT_PRICE_UNAVAILABLE", http=503, retryable=False)
     requested_method = method.strip().lower() if isinstance(method, str) and method.strip() else None
+    # The PUBLIC method (e.g. the app's "card") may alias a provider method ("international").
+    # Validation/provider selection use the provider name; the order/quote snapshot keeps the
+    # public name so the client contract and replay comparison stay stable.
+    requested_public = (
+        public_method.strip().lower() if isinstance(public_method, str) and public_method.strip()
+        else requested_method
+    )
     if requested_method is not None:
-        configured = [m.strip().lower() for m in settings.platega_methods.split(",") if m.strip()]
+        # Alias-aware configured set, identical to the plans/quote path: a bare "card" env also
+        # enables its provider method "international".
+        configured = {m.strip().lower() for m in settings.platega_methods.split(",") if m.strip()}
+        if "card" in configured:
+            configured.add("international")
         if requested_method not in configured:
             # Fail before any ledger write or provider call: an unmapped method cannot invoice.
             raise ProviderMethodUnavailable()
@@ -411,9 +429,9 @@ async def create_order(
     if not key or len(key) > 128:
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "idempotency_key_required"})
     quote = _quote_view(settings, months)
-    if requested_method is not None:
+    if requested_public is not None:
         # Server-side method snapshot for this order; never a client-supplied dict.
-        quote["method"] = requested_method
+        quote["method"] = requested_public
     source_quote_id = None
     if quote_id is not None:
         try:
@@ -448,7 +466,7 @@ async def create_order(
             requested_quote = str(source_quote_id) if source_quote_id is not None else None
             if existing_quote != requested_quote:
                 raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "quote_changed"})
-            if _order_method(existing) != requested_method:
+            if _order_method(existing) != requested_public:
                 raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "method_changed"})
             if existing["provider_create_state"] == "unknown":
                 # A previous provider create timed out: the outcome is unknown and no second
@@ -487,7 +505,7 @@ async def create_order(
                     source_quote_id,
                     installation_id,
                 )
-                quote["plan"] = _plan_from_quote(proof, settings, months, requested_method)
+                quote["plan"] = _plan_from_quote(proof, settings, months, requested_public)
             try:
                 order_id = await connection.fetchval(
                     """
