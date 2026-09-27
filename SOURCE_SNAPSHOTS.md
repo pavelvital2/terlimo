@@ -50,3 +50,5 @@ Accepted backend `21878c78fde61217ea6fda5da06d944bc654a2b1`, tree `b9b97ec1661a1
 
 
 2026-09-27: server service-channel source accepted 318ff77d30fda1a941f7f87e68d52616a0e94fdc / tree 5da4edb3b49138e50c05b3263aa420435c43848b, parent21878c7. Exact GET devices and DELETE devices/{uuid}; unchanged header forwarding. Patch SHA256021051f3db7f083f218d72befb23ab28614745282794fdd0324f58a6d499de66. Executor reports16focused relay tests passed; root reviewed diff. Live application and phone acceptance pending.
+
+2026-09-27 Android source accepted9dc932e7ac7ffc5dd8ef5cd1a4100842d652fbd7/tree46335312d0ca28f900c84c4cc2b40af48b09fd95, base0ebb023. Devices list/delete canonical DTO, request correlation and stop sideeffect gate. FullpatchSHAa6b996657bcd776be975c77cac0d5b8fae4410693357269a543f0c68fbf74cce. FocusedKotlin11+4PASS/compile0; previous unchangedGo tests/build PASS. Root reviewed correction. Compatible server318ff77/schema0033. APK/phone devices acceptance pending; operation polling not implemented.

@@ -264,6 +264,8 @@ func requestClassForPath(path string) string {
 		return "PAYMENTS"
 	case "/api/mobile/v1/announcements":
 		return "ANNOUNCEMENTS"
+	case "/api/mobile/v1/devices":
+		return "DEVICES"
 	default:
 		if strings.HasPrefix(path, mobilePaymentsPrefix) {
 			if strings.HasSuffix(path, "/checkout-session") {
@@ -273,6 +275,9 @@ func requestClassForPath(path string) string {
 		}
 		if strings.HasPrefix(path, mobileAnnouncementsPrefix) && strings.HasSuffix(path, "/read") {
 			return "ANNOUNCEMENT_READ"
+		}
+		if strings.HasPrefix(path, mobileDevicesPrefix) {
+			return "DEVICES"
 		}
 		return "OTHER"
 	}
@@ -289,8 +294,12 @@ func pathAllowed(method, path string) bool {
 		"/api/mobile/v1/trial/activate", "/api/mobile/v1/quotes", "/api/mobile/v1/payments":
 		return method == http.MethodPost
 	case "/api/mobile/v1/me", "/api/mobile/v1/gateways", "/api/mobile/v1/plans", "/api/mobile/v1/usage",
-		"/api/mobile/v1/announcements":
+		"/api/mobile/v1/announcements", "/api/mobile/v1/devices":
 		return method == http.MethodGet
+	}
+	// §18–19 device deletion: exactly one bounded opaque device id segment and DELETE only.
+	if strings.HasPrefix(path, mobileDevicesPrefix) {
+		return method == http.MethodDelete && validDevicePathID(path[len(mobileDevicesPrefix):])
 	}
 	// Announcement read-marker dynamic path: exactly one bounded opaque id segment and the
 	// fixed "/read" suffix. The host sends the idempotency key as the required header.
@@ -325,6 +334,18 @@ const mobilePaymentsPrefix = "/api/mobile/v1/payments/"
 
 // mobileAnnouncementsPrefix bounds the §11 read-marker dynamic path.
 const mobileAnnouncementsPrefix = "/api/mobile/v1/announcements/"
+
+// mobileDevicesPrefix bounds the §§18–19 device-delete dynamic path.
+const mobileDevicesPrefix = "/api/mobile/v1/devices/"
+
+// validDevicePathID bounds the /devices/{id} segment exactly like a payment id: one
+// unreserved 1..128-char segment, no dot-dot and no path tricks.
+func validDevicePathID(id string) bool {
+	if id == "" || id == "." || id == ".." || strings.Contains(id, "..") {
+		return false
+	}
+	return paymentPathIDPattern.MatchString(id)
+}
 
 var paymentPathIDPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{1,128}$`)
 

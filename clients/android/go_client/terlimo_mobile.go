@@ -553,6 +553,10 @@ func (m *managedMobile) run(ctx context.Context, bridge *managedBridge) {
 				m.handleAnnouncementsList(ctx)
 			case request := <-bridge.announcementRead:
 				m.handleAnnouncementRead(ctx, request)
+			case listRequestID := <-bridge.devices:
+				m.handleDevicesList(ctx, listRequestID)
+			case del := <-bridge.deviceDelete:
+				m.handleDeviceDelete(ctx, del)
 			case <-bridge.refreshManual:
 				// One bounded runner cycle on the active attempt; the same cycle the
 				// periodic/refresh seam uses. No new timer and no VPN change.

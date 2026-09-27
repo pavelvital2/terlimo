@@ -147,6 +147,8 @@ type managedBridge struct {
 	usage            chan struct{}
 	announcements    chan struct{}
 	announcementRead chan managedAnnouncementRead
+	devices          chan string
+	deviceDelete     chan managedDeviceDelete
 	refreshManual    chan struct{}
 	manualRefresh    func()
 	manualReceipts   int
@@ -159,6 +161,21 @@ type managedBridge struct {
 type managedAnnouncementRead struct {
 	AnnouncementID string
 	IdempotencyKey string
+}
+
+// managedDeviceDelete is one bounded §18–19 device deletion carried on the bridge: the
+// device id and the host-owned Idempotency-Key, both validated here before any request.
+type managedDeviceDelete struct {
+	DeviceID       string
+	IdempotencyKey string
+	// RequestID is the host-owned correlation id echoed back on success/error so the host
+	// can match a result to the exact delete intent (the wire carries no such identity).
+	RequestID string
+}
+
+// validDeviceBridgeRequestID bounds the host-owned correlation id.
+func validDeviceBridgeRequestID(value string) bool {
+	return value == "" || (len(value) <= 128 && !containsCRLF(value))
 }
 
 // explicitSelection reports whether the selection currently being consumed arrived
@@ -201,7 +218,7 @@ func (b *managedBridge) nextRuntimeEpoch() uint64 {
 }
 
 func newManagedBridge(out io.Writer, attempt string, cancel context.CancelFunc) *managedBridge {
-	return &managedBridge{attempt: attempt, out: out, writeSlot: make(chan struct{}, 1), waiters: make(map[string]chan bridgeMessage), selection: make(chan string, 1), explicit: make(chan string, 1), switchNode: make(chan managedSwitch, 1), preference: make(chan string, 1), probe: make(chan managedProbeRequest, 1), probeStop: make(chan struct{}, 1), wake: make(chan string, 1), registration: make(chan string, 1), payments: make(chan bridgeMessage, 1), usage: make(chan struct{}, 1), announcements: make(chan struct{}, 1), announcementRead: make(chan managedAnnouncementRead, 1), refreshManual: make(chan struct{}, 1), cancel: cancel}
+	return &managedBridge{attempt: attempt, out: out, writeSlot: make(chan struct{}, 1), waiters: make(map[string]chan bridgeMessage), selection: make(chan string, 1), explicit: make(chan string, 1), switchNode: make(chan managedSwitch, 1), preference: make(chan string, 1), probe: make(chan managedProbeRequest, 1), probeStop: make(chan struct{}, 1), wake: make(chan string, 1), registration: make(chan string, 1), payments: make(chan bridgeMessage, 1), usage: make(chan struct{}, 1), announcements: make(chan struct{}, 1), announcementRead: make(chan managedAnnouncementRead, 1), devices: make(chan string, 1), deviceDelete: make(chan managedDeviceDelete, 1), refreshManual: make(chan struct{}, 1), cancel: cancel}
 }
 
 func (b *managedBridge) lifecycleSnapshot() managedLifecycle {
@@ -415,6 +432,42 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 				case b.announcementRead <- read:
 				default:
 					_ = b.send(bridgeMessage{"type": announcementsEventRead, "state": "error", "code": "BUSY"})
+				}
+			}
+		case devicesActionList:
+			// §18–19 device list read. The host-owned correlation id is echoed back so a
+			// late list can never apply to a different read/account. Coalesced while pending.
+			requestID := m.string("client_request_id")
+			if !validDeviceBridgeRequestID(requestID) {
+				_ = b.send(bridgeMessage{"type": devicesEventList, "state": "error",
+					"code": "INVALID_REQUEST", "client_request_id": requestID})
+			} else {
+				select {
+				case b.devices <- requestID:
+				default:
+					_ = b.send(bridgeMessage{"type": devicesEventList, "state": "error",
+						"code": "BUSY", "client_request_id": requestID})
+				}
+			}
+		case devicesActionDelete:
+			// §§18–19 explicit single-device deletion: a bounded device id and the
+			// host-owned Idempotency-Key, validated before any request. Never repeated
+			// blindly; a malformed field fails closed with a bounded code.
+			del := managedDeviceDelete{
+				DeviceID:       m.string("device_id"),
+				IdempotencyKey: m.string("idempotency_key"),
+				RequestID:      m.string("client_request_id"),
+			}
+			if !validDeviceBridgeID(del.DeviceID) || !validDeviceBridgeKey(del.IdempotencyKey) ||
+				!validDeviceBridgeRequestID(del.RequestID) {
+				_ = b.send(bridgeMessage{"type": devicesEventDelete, "state": "error",
+					"code": "INVALID_REQUEST", "client_request_id": del.RequestID})
+			} else {
+				select {
+				case b.deviceDelete <- del:
+				default:
+					_ = b.send(bridgeMessage{"type": devicesEventDelete, "state": "error",
+						"code": "BUSY", "client_request_id": del.RequestID})
 				}
 			}
 		case "refresh_manual":

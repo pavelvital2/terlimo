@@ -34,6 +34,9 @@ class MainActivity : Activity() {
     private lateinit var subscriptionTerm: TextView
     private lateinit var subscriptionDevices: TextView
     private lateinit var subscriptionPlan: TextView
+    private lateinit var devicesBlock: LinearLayout
+    private lateinit var devicesRefreshButton: Button
+    private lateinit var devicesCount: TextView
     private lateinit var purchasePlansButton: Button
     private lateinit var purchasePlanSpinner: Spinner
     private lateinit var purchaseMethodSpinner: Spinner
@@ -255,6 +258,19 @@ class MainActivity : Activity() {
         subscriptionPanel.addView(subscriptionDevices)
         subscriptionPlan = TextView(this).apply { setPadding(0, 0, 0, 8); visibility = View.GONE }
         subscriptionPanel.addView(subscriptionPlan)
+        // §§18–19 connected devices on the existing subscription surface.
+        devicesRefreshButton = Button(this).apply {
+            text = "Обновить устройства"; visibility = View.GONE; minHeight = dp(48)
+            setOnClickListener {
+                startForegroundService(Intent(this@MainActivity, SessionService::class.java)
+                    .setAction("devices_refresh"))
+            }
+        }
+        subscriptionPanel.addView(devicesRefreshButton)
+        devicesCount = TextView(this).apply { setPadding(0, 0, 0, 8); visibility = View.GONE }
+        subscriptionPanel.addView(devicesCount)
+        devicesBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        subscriptionPanel.addView(devicesBlock)
         // S5 purchase/renewal lives on this existing "Подписка" surface; no second tab.
         subscriptionPanel.addView(TextView(this).apply { text = "Оплата и продление"; textSize = 18f })
         purchasePlansButton = Button(this).apply {
@@ -670,6 +686,68 @@ class MainActivity : Activity() {
      * messages are hidden, unread after local acks drives the red dot, and an unreadable
      * announcement id is shown without a false "read" affordance.
      */
+    /**
+     * §§18–19 connected devices: server-owned list, one explicit delete of a chosen non-current
+     * device, the freed-slot bind action reusing the existing registration link, and the honest
+     * "subscription unavailable for this device" state after the current device is removed.
+     */
+    private fun renderDevices(state: ViewState) {
+        val devices = state.devices
+        val canManage = DevicesPolicy.canManage(state.accountAccess?.projection?.registration)
+        devicesRefreshButton.visibility = if (canManage) View.VISIBLE else View.GONE
+        devicesCount.text = DevicesPolicy.countLine(devices).orEmpty()
+        devicesCount.visibility = if (devicesCount.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        devicesBlock.removeAllViews()
+        if (DevicesPolicy.currentUnavailable(devices)) {
+            devicesBlock.addView(TextView(this).apply { text = "Для этого устройства подписка недоступна." })
+        }
+        DevicesPolicy.errorText(devices?.error)?.let {
+            devicesBlock.addView(TextView(this).apply { text = it })
+        }
+        DevicesPolicy.deleteStateText(devices?.lastDelete)?.let {
+            devicesBlock.addView(TextView(this).apply { text = it })
+        }
+        val deleteInFlight = devices?.deleteInFlight == true
+        devices?.devices.orEmpty().forEach { row ->
+            val parts = listOfNotNull(
+                row.name ?: "Устройство",
+                row.platform,
+                if (row.isCurrent) "Это устройство" else null,
+                if (row.status == "revoked") "отозвано" else null,
+            )
+            val rowView = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(4), 0, dp(4))
+            }
+            rowView.addView(TextView(this).apply {
+                text = parts.joinToString(" · ")
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            if (!row.isCurrent && row.status == "active") {
+                val pending = deleteInFlight && devices?.pendingDeviceId == row.deviceId
+                rowView.addView(Button(this).apply {
+                    text = if (pending) "Удаляем…" else "Удалить"
+                    minHeight = dp(48)
+                    isEnabled = !deleteInFlight
+                    setOnClickListener {
+                        startForegroundService(Intent(this@MainActivity, SessionService::class.java)
+                            .setAction("device_delete").putExtra("device_id", row.deviceId))
+                    }
+                })
+            }
+            devicesBlock.addView(rowView)
+        }
+        if (canManage && DevicesPolicy.canBind(devices)) {
+            devicesBlock.addView(Button(this).apply {
+                text = "Привязать это устройство"; minHeight = dp(48)
+                setOnClickListener {
+                    startForegroundService(Intent(this@MainActivity, SessionService::class.java)
+                        .setAction("telegram_register"))
+                }
+            })
+        }
+    }
+
     private fun renderAnnouncements(state: ViewState) {
         val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         val now = System.currentTimeMillis()
@@ -950,6 +1028,7 @@ class MainActivity : Activity() {
         subscriptionDevices.visibility = if (subscriptionDevices.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         subscriptionPlan.text = SubscriptionPlanText.line(state.accountAccess?.projection).orEmpty()
         subscriptionPlan.visibility = if (subscriptionPlan.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        renderDevices(state)
         renderPurchase(state)
         val idle = state.phase == "Idle" || state.phase == "Error"
         importButton.isEnabled = idle

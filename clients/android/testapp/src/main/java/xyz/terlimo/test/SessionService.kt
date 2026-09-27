@@ -47,7 +47,9 @@ internal data class ViewState(val phase: String = "Idle", val nodes: List<NodeLa
     // never an entitlement write: confirmation follows the fresh /me projection alone).
     val purchase: PurchaseState? = null,
     // S5 §11 one-way announcements display state (server-owned; host owns read-marker keys).
-    val announcements: AnnouncementsUi = AnnouncementsUi())
+    val announcements: AnnouncementsUi = AnnouncementsUi(),
+    // §§18–19 connected-devices display state (server-owned; read/delete only).
+    val devices: DevicesUi? = null)
 internal data class CaptchaPrompt(val attempt: String, val id: String, val url: String, val deadlineElapsed: Long, val complete: (String) -> Unit)
 
 class SessionService : Service() {
@@ -450,6 +452,46 @@ class SessionService : Service() {
                 }
             }
             "announcements_request" -> requestAnnouncements()
+            "devices_refresh" -> {
+                // Read-only refresh, offered only after a confirmed Telegram proof.
+                val attempt = gate.active
+                if (!stopping.get() && attempt != null &&
+                    DevicesPolicy.canManage(view.accountAccess?.projection?.registration)) {
+                    requestDevicesList(attempt)
+                } else if (!stopping.get()) {
+                    publish(view.copy(devices = (view.devices ?: DevicesUi())
+                        .copy(error = "DEVICE_MANAGEMENT_FORBIDDEN")))
+                }
+            }
+            "device_delete" -> {
+                // Exactly one explicitly chosen device; the host owns both the Idempotency-Key
+                // and the correlation id and never repeats the DELETE blindly. Single-flight is
+                // enforced here (serial service path), not only by a disabled button.
+                val attempt = gate.active
+                val deviceId = intent.getStringExtra("device_id").orEmpty()
+                val canManage = DevicesPolicy.canManage(view.accountAccess?.projection?.registration)
+                val devices = view.devices ?: DevicesUi()
+                when {
+                    stopping.get() || attempt == null || deviceId.isEmpty() || !canManage -> Unit
+                    devices.deleteInFlight -> Unit
+                    else -> {
+                        val requestId = "devdel-" + java.util.UUID.randomUUID()
+                        val accountRef = view.accountAccess?.projection?.account?.accountRef
+                        val pending = DevicesPolicy.beginDelete(devices, requestId, deviceId, attempt, accountRef)
+                        publish(view.copy(devices = pending))
+                        // Truthful write result: trySend is false for a null/closing native and
+                        // never throws; a false release must not auto-replay the DELETE.
+                        val sent = native?.trySend(org.json.JSONObject().put("type", "device_delete")
+                            .put("device_id", deviceId)
+                            .put("idempotency_key", "terlimo-device-" + java.util.UUID.randomUUID())
+                            .put("client_request_id", requestId)) == true
+                        if (!sent) {
+                            publish(view.copy(devices =
+                                DevicesPolicy.releaseDelete(pending, requestId, "TRANSPORT")))
+                        }
+                    }
+                }
+            }
             "announcement_read" -> openAnnouncement(intent.getStringExtra("announcement_id").orEmpty())
             "onboarding_connect" -> {
                 // Pre-admission first connect: the separate explicit action issued by the
@@ -916,7 +958,15 @@ class SessionService : Service() {
                             // No payment status, redirect or checkout return writes access.
                             val previousPurchase = view.purchase
                             val nextPurchase = PurchaseFlow.onFreshMe(previousPurchase, updated.projection)
-                            publishActive(attempt, view.copy(accountAccess = updated,
+                            // A different account identity invalidates any device list and any
+                            // outstanding delete correlation: a late reply must not apply to a
+                            // different account. sessionGeneration is a reused counter and is
+                            // deliberately NOT used as the account fence.
+                            val accountChanged = view.accountAccess?.projection?.account?.accountRef !=
+                                updated.projection.account.accountRef
+                            publishActive(attempt, view.copy(
+                                devices = if (accountChanged) DevicesPolicy.reset() else view.devices,
+                                accountAccess = updated,
                                 registration = RegistrationState(
                                     state = registration.state,
                                     withinHour = registration.withinHour,
@@ -1010,6 +1060,73 @@ class SessionService : Service() {
                     } else if (token != null) {
                         val next = AnnouncementsPolicy.fail(view.announcements, token)
                         if (next != view.announcements) publishActive(attempt, view.copy(announcements = next))
+                    }
+                }
+                "devices_list_result", "device_delete_result" -> {
+                    val current = view.devices ?: DevicesUi()
+                    val accountRef = view.accountAccess?.projection?.account?.accountRef
+                    val rawRequestId = event.optString("client_request_id")
+                    val parsedEvent = runCatching { DevicesContract.parse(event) }.getOrNull()
+                    when (parsedEvent) {
+                        is DevicesEvent.List -> {
+                            // One correlated decision drives BOTH the publish and the stop: a
+                            // foreign/late list can never stop the attempt.
+                            val effect = DevicesPolicy.listEffect(
+                                current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.list)
+                            if (effect != DevicesListEffect.IGNORED) {
+                                val next = DevicesPolicy.applyList(
+                                    current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.list)
+                                publishActive(attempt, view.copy(devices = next))
+                                if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
+                            }
+                        }
+                        is DevicesEvent.Delete -> {
+                            if (DevicesPolicy.deleteCorrelated(
+                                    current, parsedEvent.result.clientRequestId, attempt, accountRef)) {
+                                publishActive(attempt, view.copy(devices =
+                                    DevicesPolicy.applyDelete(current, parsedEvent.result)))
+                                // Reconcile slots/rows from the server; never decrement twice.
+                                requestDevicesList(attempt)
+                            }
+                        }
+                        is DevicesEvent.Failure -> {
+                            if (parsedEvent.event == DevicesContract.EVENT_DELETE) {
+                                val effect = DevicesPolicy.deleteEffect(
+                                    current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.code)
+                                if (effect != DevicesListEffect.IGNORED) {
+                                    publishActive(attempt, view.copy(devices = DevicesPolicy.releaseDelete(
+                                        current, parsedEvent.clientRequestId, parsedEvent.code)))
+                                    if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
+                                }
+                            } else {
+                                // A list error clears only its own read token; any unrelated
+                                // delete in flight is preserved. The stop is part of the same
+                                // correlated decision (a foreign DEVICE_REMOVED never stops).
+                                val effect = DevicesPolicy.listFailureEffect(
+                                    current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.code)
+                                if (effect != DevicesListEffect.IGNORED) {
+                                    val next = DevicesPolicy.applyListFailure(
+                                        current, parsedEvent.clientRequestId, attempt, accountRef, parsedEvent.code)
+                                    publishActive(attempt, view.copy(devices = next))
+                                    if (effect == DevicesListEffect.ACCEPTED_STOP && !stopping.get()) stopAttempt("DEVICE_REMOVED")
+                                }
+                            }
+                        }
+                        null -> {
+                            // Malformed reply: correlate on the raw token before parse. Only the
+                            // matching delete is released; a malformed list never clears it.
+                            if (event.optString("type") == DevicesContract.EVENT_DELETE) {
+                                if (DevicesPolicy.deleteCorrelated(current, rawRequestId, attempt, accountRef)) {
+                                    publishActive(attempt, view.copy(devices =
+                                        DevicesPolicy.releaseDelete(current, rawRequestId, "DEVICES_INVALID")))
+                                }
+                            } else {
+                                val next = DevicesPolicy.applyListFailure(
+                                    current, rawRequestId, attempt, accountRef, "DEVICES_INVALID")
+                                if (next != current) publishActive(attempt, view.copy(devices = next))
+                            }
+                            android.util.Log.w("WDTT/Devices", "rejected")
+                        }
                     }
                 }
                 "telegram_registration" -> {
@@ -1330,6 +1447,20 @@ class SessionService : Service() {
      * operation is sent exactly once after the first accepted /me on it. No background
      * or resume path starts anything: only the explicit UI tap.
      */
+    /** One correlated devices list read (host-owned token + attempt/account scope). */
+    private fun requestDevicesList(attempt: String) {
+        val requestId = "devlist-" + java.util.UUID.randomUUID()
+        val accountRef = view.accountAccess?.projection?.account?.accountRef
+        val pending = DevicesPolicy.beginList(view.devices, requestId, attempt, accountRef)
+        publish(view.copy(devices = pending))
+        val sent = native?.trySend(org.json.JSONObject()
+            .put("type", "devices_list").put("client_request_id", requestId)) == true
+        if (!sent) {
+            publish(view.copy(devices = DevicesPolicy.applyListFailure(
+                pending, requestId, attempt, accountRef, "TRANSPORT")))
+        }
+    }
+
     private fun handlePurchaseOperation(operation: PurchaseOperation) {
         if (stopping.get()) return
         // Single-flight: while one purchase request is outstanding a queued duplicate is not
