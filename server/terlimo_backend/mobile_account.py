@@ -472,15 +472,19 @@ class AccountService:
                 hour=0, minute=0, second=0, microsecond=0
             )
             window_start = today_start - timedelta(days=29)
+            # Account-scope totals: the immutable historical owner recorded on every tick is the
+            # account that consumed the traffic. Deleting a device or rebinding it to another
+            # account never moves that history; unattributed (NULL) ticks are never backfilled
+            # by guessing a current binding.
             rows = await connection.fetch(
                 """
                 SELECT (observed_at AT TIME ZONE $2)::date AS day,
                        sum(rx_delta) AS rx, sum(tx_delta) AS tx
                 FROM usage_ticks
-                WHERE installation_id = $1 AND observed_at >= $3
+                WHERE account_id = $1 AND observed_at >= $3
                 GROUP BY day
                 """,
-                context.installation_id,
+                context.account_id,
                 REPORTING_TIMEZONE,
                 window_start.astimezone(UTC),
             )
@@ -488,19 +492,74 @@ class AccountService:
                 row["day"]: (int(row["rx"] or 0), int(row["tx"] or 0)) for row in rows
             }
 
-            coverage = await connection.fetchrow(
-                "SELECT segment_start, last_trusted_at FROM usage_coverage WHERE installation_id = $1",
-                context.installation_id,
+            # Contributors to the account proof: every installation this account has a binding
+            # row for (active, retired or reactivated) plus orphan tick owners. Coverage is only
+            # trusted when the installation history is unambiguous: usage_coverage is one
+            # mutable row per installation, so it may not be carried across accounts (a moved
+            # installation has rows for both accounts and taints completeness on both sides).
+            coverage_rows = await connection.fetch(
+                """
+                WITH owned AS (
+                    SELECT binding.installation_id,
+                           bool_or(binding.status = 'active') AS active,
+                           max(binding.revoked_at) FILTER (WHERE binding.status <> 'active')
+                               AS retired_at
+                    FROM account_bindings AS binding
+                    WHERE binding.account_id = $1
+                    GROUP BY binding.installation_id
+                    UNION
+                    SELECT DISTINCT tick.installation_id, false, NULL::timestamptz
+                    FROM usage_ticks AS tick
+                    WHERE tick.account_id = $1 AND tick.observed_at >= $2
+                      AND NOT EXISTS (
+                          SELECT 1 FROM account_bindings AS binding
+                          WHERE binding.installation_id = tick.installation_id
+                            AND binding.account_id = $1
+                      )
+                )
+                SELECT owned.installation_id, owned.active, owned.retired_at,
+                       (SELECT count(DISTINCT other.account_id)
+                          FROM account_bindings AS other
+                         WHERE other.installation_id = owned.installation_id) AS owner_count,
+                       EXISTS (
+                          SELECT 1 FROM account_bindings AS mine
+                          WHERE mine.installation_id = owned.installation_id
+                            AND mine.account_id = $1
+                       ) AS owned_here,
+                       EXISTS (
+                          SELECT 1 FROM usage_ticks AS late
+                          WHERE late.installation_id = owned.installation_id
+                            AND late.account_id = $1
+                            AND owned.retired_at IS NOT NULL
+                            AND late.observed_at >= owned.retired_at
+                       ) AS late_ticks,
+                       coverage.segment_start, coverage.last_trusted_at
+                FROM owned
+                LEFT JOIN usage_coverage AS coverage
+                  ON coverage.installation_id = owned.installation_id
+                """,
+                context.account_id,
+                window_start.astimezone(UTC),
             )
-        coverage_start = coverage["segment_start"] if coverage else None
-        last_trusted_at = coverage["last_trusted_at"] if coverage else None
-        fresh = bool(
-            last_trusted_at is not None
-            and last_trusted_at >= moment - timedelta(seconds=USAGE_FRESHNESS_SECONDS)
+        as_of = None
+        attributable = bool(coverage_rows) and all(
+            row["owner_count"] == 1 and row["owned_here"] for row in coverage_rows
         )
-        # Canonical contract usage.json: exactly today/7d/30d buckets, each complete only
-        # when the current contiguous trusted segment covers that whole window AND trusted
-        # observations are fresh. Stale or gapped history is never presented as complete.
+        active_rows = [row for row in coverage_rows if row["active"]]
+        if attributable and active_rows and all(
+            row["last_trusted_at"] is not None for row in active_rows
+        ):
+            as_of = min(row["last_trusted_at"] for row in active_rows)
+        starts = [row["segment_start"] for row in coverage_rows]
+        coverage_start = (
+            max(starts) if attributable and starts and all(start is not None for start in starts) else None
+        )
+        # Canonical contract usage.json: exactly today/7d/30d buckets. A bucket is complete
+        # only when every contributor is attributable, every active device has a trusted
+        # segment covering the window and a fresh sample, and every device retired inside the
+        # window proves its trusted segment reaches retirement (a stale tail is not covered).
+        # A missing, foreign-owned or ambiguous coverage row is never presented as complete;
+        # totals stay the immutable historical account history regardless of coverage.
         buckets: list[dict[str, Any]] = []
         for period, days in (("today", 1), ("7d", 7), ("30d", 30)):
             rx = tx = 0
@@ -510,11 +569,34 @@ class AccountService:
                 rx += bucket[0]
                 tx += bucket[1]
             period_start = today_start - timedelta(days=days - 1)
-            complete = bool(
-                coverage_start is not None
-                and coverage_start <= period_start.astimezone(UTC)
-                and fresh
-            )
+            complete = attributable
+            if complete:
+                for row in coverage_rows:
+                    segment_start = row["segment_start"]
+                    last_trusted = row["last_trusted_at"]
+                    if row["active"]:
+                        if (
+                            segment_start is None
+                            or segment_start > period_start.astimezone(UTC)
+                            or last_trusted is None
+                            or last_trusted
+                            < moment - timedelta(seconds=USAGE_FRESHNESS_SECONDS)
+                        ):
+                            complete = False
+                            break
+                    else:
+                        # A retired device inside (or crossing) the window has no final-tail
+                        # proof in the existing schema: a trusted sample before revoke cannot
+                        # bound the remaining account traffic, so the bucket stays incomplete.
+                        # The narrow provable case is a device retired strictly before the
+                        # window whose account history has no later ticks.
+                        if (
+                            row["retired_at"] is None
+                            or row["retired_at"] > period_start.astimezone(UTC)
+                            or row["late_ticks"]
+                        ):
+                            complete = False
+                            break
             buckets.append(
                 {
                     "period": period,
@@ -529,7 +611,7 @@ class AccountService:
             "schema_version": SCHEMA_VERSION,
             "status": "ok",
             "timezone": REPORTING_TIMEZONE,
-            "as_of": rfc3339(last_trusted_at) if last_trusted_at else None,
+            "as_of": rfc3339(as_of) if as_of else None,
             "coverage_start": rfc3339(coverage_start) if coverage_start else None,
             "buckets": buckets,
         }
