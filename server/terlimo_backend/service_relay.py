@@ -199,6 +199,24 @@ def _service_error_body(request_id: str, code: str, retryable: bool) -> dict[str
     return {"v": 1, "request_id": request_id, "error": {"code": code, "retryable": retryable}}
 
 
+def _request_id_from_raw(raw: bytes) -> str | None:
+    """Best-effort bounded echo of a well-formed ``request_id`` from a rejected frame.
+
+    Node-side reply validation requires the error frame to carry the same request_id as the
+    request; without it the peer rejects the transport error as SERVICE_BAD_RESPONSE and the
+    real reason code is lost. Only a strict 32-hex id from a duplicate-free JSON object is
+    echoed; anything else keeps the zero placeholder.
+    """
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+    except (ValueError, UnicodeError, EvidenceTransportError):
+        return None
+    candidate = value.get("request_id") if isinstance(value, dict) else None
+    if isinstance(candidate, str) and _REQUEST_ID.fullmatch(candidate):
+        return candidate
+    return None
+
+
 def _service_upstream_url(settings: Settings, path: str, query: str):
     """Fixed loopback target with a raw (pre-encoded) query, IPv6-safe."""
     from yarl import URL
@@ -290,12 +308,21 @@ def _service_handler(settings: Settings, database: Database):
             return web.json_response(_service_error_body("0" * 32, "SERVICE_BUSY", True), status=429)
         active[0] += 1
         request_id = "0" * 32
+        raw: bytes | None = None
         try:
             # The whole admitted handler shares the existing per-request service timeout
             # budget, so a slow/authenticated body cannot hold a slot forever.
             async with asyncio.timeout(settings.service_timeout_seconds):
                 raw = await _read_request_capped(request, SERVICE_MAX_FRAME)
-                parsed = _parse_service_request(raw)
+                try:
+                    parsed = _parse_service_request(raw)
+                except EvidenceTransportError:
+                    # Parse-stage rejections must still echo the frame's request id, otherwise
+                    # the node peer reports SERVICE_BAD_RESPONSE instead of the real code.
+                    recovered = _request_id_from_raw(raw)
+                    if recovered is not None:
+                        request_id = recovered
+                    raise
                 request_id = parsed["request_id"]
                 identities = _peer_identities(request.transport.get_extra_info("ssl_object"))
                 async with database.acquire() as connection:
@@ -304,6 +331,10 @@ def _service_handler(settings: Settings, database: Database):
         except EvidenceTransportError as error:
             return web.json_response(_service_error_body(request_id, error.code, False))
         except TimeoutError:
+            if raw is not None and request_id == "0" * 32:
+                recovered = _request_id_from_raw(raw)
+                if recovered is not None:
+                    request_id = recovered
             return web.json_response(_service_error_body(request_id, "SERVICE_UNAVAILABLE", True), status=503)
         finally:
             active[0] -= 1

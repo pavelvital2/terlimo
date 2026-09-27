@@ -57,3 +57,6 @@ Accepted backend `21878c78fde61217ea6fda5da06d944bc654a2b1`, tree `b9b97ec1661a1
 
 
 Gateway source checkpoint 2026-09-27 UTC: 2619c860809c4fa14c1e4c9c3277ea46e629545f, tree8176f6ad156385765bf6b7cfcfc3556a6872a5b9 (base59bf41c). Exact GET devices and DELETE devices UUID allowed in node validator; other routes unchanged. Focused Service tests passed per executor receipt; patch reviewed by project lead. Candidate binary e27efa76c196911e15700668395fe34f9e1eb1ba682f8b4ff3fa533acd9aeb99, Go1.26.5 (live predecessor Go1.26.4). TEST rollout assigned, not yet verified; phone devices acceptance remains open. Server318ff77 compatible.
+
+
+Backend source checkpoint f8875757223d3610f428414cc4436afb0257f65b/tree433026ff0203b1610944c8df4f5b59d29c282891, base318ff77. Echo validated request_id on service parse-stage rejection; preserves validation/caps. Root reviewed patch49c34ecb; executor reports 17 focused tests passing and reproducer failing before fix. Devices BAD_RESPONSE traced to stale API process rejecting devices and zero error request_id. API-only rollout assigned, pending runtime receipt; phone acceptance still open. Gateway2619c86 already active.

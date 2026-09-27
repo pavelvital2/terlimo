@@ -743,3 +743,73 @@ async def test_service_endpoint_devices_class_forwarding_and_gates(migrated_url,
         await listener.stop()
         await runner.cleanup()
         await database.close()
+
+
+async def test_service_error_frames_echo_request_id(migrated_url, settings_factory, tmp_path):
+    """Rejected frames must echo the frame request_id; otherwise the node peer reports
+    SERVICE_BAD_RESPONSE instead of the real reason code (devices cold-refresh defect)."""
+    import json as _json
+
+    material = _Material(tmp_path)
+    await _seed_gateway(migrated_url, key=GATEWAY_KEY)
+    app_settings = await _service_settings(settings_factory, migrated_url, material)
+    database = Database(app_settings)
+    await database.ensure_ready()
+    app = create_app(replace(app_settings, service_endpoint_enabled=False), database)
+    runner, api_port = await _start_site(app, 0, None)
+    service_settings = replace(app_settings, api_port=api_port)
+    listener = EvidenceListener(service_settings, database)
+    await listener.start()
+    client = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=material.node_context()))
+    try:
+        cases = [
+            ("GET", "/api/mobile/v1/private", None, "SERVICE_PATH_DENIED"),
+            ("GET", "/api/mobile/v1//me", None, "SERVICE_BAD_PATH"),
+            ("PATCH", "/api/mobile/v1/me", None, "SERVICE_BAD_METHOD"),
+            (
+                "GET",
+                "/api/mobile/v1/me",
+                {"X-Forwarded-Host": "evil"},
+                "SERVICE_BAD_HEADERS",
+            ),
+        ]
+        for method, path, headers, want in cases:
+            request_id = uuid.uuid4().hex
+            _status, body = await _post(
+                client,
+                listener.port,
+                _service_request(method, path, headers=headers, request_id=request_id),
+            )
+            assert body["error"]["code"] == want, (method, path, body)
+            assert body["request_id"] == request_id, (method, path, body["request_id"], request_id)
+
+        # frame-version rejection also echoes a well-formed id
+        request_id = uuid.uuid4().hex
+        bad_frame = _json.dumps(
+            {
+                "v": 2,
+                "op": "service.http",
+                "request_id": request_id,
+                "method": "GET",
+                "path": "/api/mobile/v1/me",
+                "query": "",
+                "headers": {},
+                "body_b64": "",
+            }
+        ).encode() + b"\n"
+        _status, body = await _post(client, listener.port, bad_frame)
+        assert body["error"]["code"] == "SERVICE_BAD_FRAME"
+        assert body["request_id"] == request_id
+
+        # a forwarded success keeps echoing the id as well
+        request_id = uuid.uuid4().hex
+        _status, body = await _post(
+            client, listener.port, _service_request("GET", "/api/mobile/v1/me", request_id=request_id)
+        )
+        assert body["v"] == 1 and body["status"] == 401
+        assert body["request_id"] == request_id
+    finally:
+        await client.close()
+        await listener.stop()
+        await runner.cleanup()
+        await database.close()
