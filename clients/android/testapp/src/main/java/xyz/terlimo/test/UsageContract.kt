@@ -156,6 +156,50 @@ internal object ServerUsageText {
             "30д ${bucketLine(usage.thirtyDay)} ($tail)"
     }
 
+    /**
+     * §20 account total traffic for the Subscription tab: the same server buckets, all
+     * devices, no per-device split and no local summing. A null coverage with nonzero
+     * historical totals is shown as partial history, never as "from scratch".
+     */
+    fun accountTraffic(usage: ServerUsage?, nowElapsedMs: Long, unavailable: Boolean): String {
+        if (usage == null) return if (unavailable) "Трафик аккаунта: нет данных" else "Трафик аккаунта: —"
+        fun line(label: String, bucket: UsageBucket): String {
+            val total = bucket.rxBytes + bucket.txBytes
+            return "$label: ${bucketLine(bucket)} · всего ${TrafficText.bytes(total)}"
+        }
+        val historical = listOf(usage.today, usage.sevenDay, usage.thirtyDay)
+            .any { it.rxBytes > 0 || it.txBytes > 0 }
+        val coverage = when {
+            usage.coverageStart != null -> "Покрытие с ${shortTime(usage.coverageStart)}"
+            historical -> "Покрытие: частичная история"
+            else -> "Покрытие: история ещё не собрана"
+        }
+        val suffix = buildList {
+            if (!usage.complete) add("неполно")
+            if (isStale(usage, nowElapsedMs)) add("устарело")
+        }
+        val tail = if (suffix.isEmpty()) coverage else "$coverage · ${suffix.joinToString(", ")}"
+        return "Трафик аккаунта (все устройства)\n" +
+            line("Сегодня", usage.today) + "\n" +
+            line("7 дней", usage.sevenDay) + "\n" +
+            line("30 дней", usage.thirtyDay) + "\n" +
+            serverTimeLine(usage.asOf) + "\n" + tail
+    }
+
+    /**
+     * §20 data time: the SERVER `as_of` of this snapshot, never the local fetch time.
+     * A null server time is stated as unknown; the totals themselves stay untouched.
+     */
+    fun serverTimeLine(asOf: String?): String {
+        val value = asOf ?: return "Время данных неизвестно"
+        val formatted = runCatching {
+            java.time.Instant.parse(value)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss", java.util.Locale.ROOT))
+        }.getOrNull() ?: return "Время данных неизвестно"
+        return "Данные на $formatted (Europe/Moscow)"
+    }
+
     private fun shortTime(utc: String): String = runCatching {
         val time = utc.substringAfter("T").take(5)
         String.format(Locale.ROOT, "%s UTC", time)

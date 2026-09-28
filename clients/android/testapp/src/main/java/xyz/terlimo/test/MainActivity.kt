@@ -34,6 +34,7 @@ class MainActivity : Activity() {
     private lateinit var subscription: TextView
     private lateinit var subscriptionTerm: TextView
     private lateinit var subscriptionDevices: TextView
+    private lateinit var subscriptionTraffic: TextView
     private lateinit var subscriptionPlan: TextView
     private lateinit var devicesBlock: LinearLayout
     private lateinit var devicesRefreshButton: Button
@@ -257,6 +258,8 @@ class MainActivity : Activity() {
         subscriptionPanel.addView(subscriptionTerm)
         subscriptionDevices = TextView(this).apply { setPadding(0, 0, 0, 8); visibility = View.GONE }
         subscriptionPanel.addView(subscriptionDevices)
+        subscriptionTraffic = TextView(this).apply { setPadding(0, 0, 0, 8); visibility = View.GONE }
+        subscriptionPanel.addView(subscriptionTraffic)
         subscriptionPlan = TextView(this).apply { setPadding(0, 0, 0, 8); visibility = View.GONE }
         subscriptionPanel.addView(subscriptionPlan)
         // §§18–19 connected devices on the existing subscription surface.
@@ -1038,6 +1041,10 @@ class MainActivity : Activity() {
             SubscriptionTermText.term(it, state.purchase, java.time.ZoneId.systemDefault())
         }.orEmpty()
         subscriptionTerm.visibility = if (subscriptionTerm.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        subscriptionTraffic.text = ServerUsageText.accountTraffic(
+            state.serverUsage, android.os.SystemClock.elapsedRealtime(), state.serverUsageUnavailable)
+        subscriptionTraffic.visibility =
+            if (subscriptionTraffic.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         subscriptionDevices.text = DevicesPolicy.reconciledDeviceLine(
             state.devices,
             state.attempt,
