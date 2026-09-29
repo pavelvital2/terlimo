@@ -117,9 +117,13 @@ internal class OrbitHomeHeader(
         val verifiedConnectable = NodeSelection.connectableNodeId(
             BrowseCatalogCodec.verifiedNodes(state), state.selectedNodeId)
         power.isEnabled = preAdmissionConnect || connected || connecting || blocked || verifiedConnectable != null
-        val accent = if (connected) TerlimoCatalogBrandTokens.ACCENT.toInt() else TerlimoCatalogBrandTokens.DIVIDER.toInt()
-        power.background = powerBackground(accent, connected)
-        power.setColorFilter(if (connected) TerlimoCatalogBrandTokens.ACCENT.toInt() else TerlimoCatalogBrandTokens.MUTED_TEXT.toInt())
+        val accent = when {
+            connected -> TerlimoCatalogBrandTokens.ACCENT.toInt()
+            blocked -> TerlimoCatalogBrandTokens.ERROR.toInt()
+            else -> TerlimoCatalogBrandTokens.DIVIDER.toInt()
+        }
+        power.background = powerBackground(accent, connected, blocked)
+        power.setColorFilter(if (connected || blocked) accent else TerlimoCatalogBrandTokens.MUTED_TEXT.toInt())
         quality.setMetricValue(ChannelsDisplay.line(connected, state.channels, state.wakeRecovery) ?: when {
             state.phase == "SleepPaused" -> "Трафик заблокирован"
             blocked -> "Трафик заблокирован"
@@ -159,7 +163,7 @@ internal class OrbitHomeHeader(
     private fun ring(stroke: Int, radius: Int, width: Int, fill: Int = 0xFF071016.toInt()) = GradientDrawable().apply {
         setColor(fill); cornerRadius = radius.toFloat(); setStroke(dp(width), stroke)
     }
-    private fun powerBackground(stroke: Int, connected: Boolean): LayerDrawable {
+    private fun powerBackground(stroke: Int, connected: Boolean, blocked: Boolean = false): LayerDrawable {
         fun circle(color: Int, width: Int, fill: Int = 0x00000000) = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(fill)
@@ -168,7 +172,7 @@ internal class OrbitHomeHeader(
         val glow = circle(if (connected) 0x3300FE7A else 0x18283945, if (connected) 7 else 4,
             TerlimoCatalogBrandTokens.BACKGROUND.toInt())
         val outer = circle(stroke, 1)
-        val inner = circle(if (connected) TerlimoCatalogBrandTokens.ACCENT.toInt() else 0xFF617075.toInt(), 1)
+        val inner = circle(if (connected || blocked) stroke else 0xFF617075.toInt(), 1)
         return LayerDrawable(arrayOf(glow, outer, inner)).apply {
             setLayerInset(1, dp(2), dp(2), dp(2), dp(2))
             setLayerInset(2, dp(5), dp(5), dp(5), dp(5))
