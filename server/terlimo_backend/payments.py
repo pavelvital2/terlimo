@@ -664,7 +664,7 @@ async def apply_paid_entitlement(
                     """,
                     existing["id"],
                     new_end,
-                    json.dumps(plan) if plan is not None else None,
+                    plan,
                 )
         else:
             plan = _order_plan(order)
@@ -681,7 +681,7 @@ async def apply_paid_entitlement(
                 paid_end(now, duration),
                 BASE_LIMIT,
                 f"platega:{order['provider_payment_id']}",
-                json.dumps(plan) if plan is not None else None,
+                plan,
             )
         entitlement_id = credited["id"]
         await connection.execute(
