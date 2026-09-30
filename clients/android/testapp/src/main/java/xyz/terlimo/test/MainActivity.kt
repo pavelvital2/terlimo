@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.res.ColorStateList
 import android.content.ClipboardManager
 import android.content.Intent
+import android.widget.CheckBox
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.net.Uri
@@ -79,6 +80,10 @@ class MainActivity : Activity() {
     private var preAdmissionConsentRequest = false
     private var consentDenied = false
     private var externalIntentConsumed = false
+    /** §26.2 launch token: one auto-connect per user open; consumed by Disconnect/Off/denial. */
+    /** §26.2 unified launch token: arm -> (optional consent) -> send, recreation-stable. */
+    private val autoConnectLaunch = AutoConnectLaunchToken()
+    private var autoConnectToggle: CheckBox? = null
     // S5 §11 announcements display (Help tab). Values are rendered from ViewState only.
     private lateinit var announcementsBadge: TextView
     private lateinit var announcementsDenied: TextView
@@ -139,6 +144,16 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NotificationPermission.REQUEST_CODE)
         }
         externalIntentConsumed = savedInstanceState?.getBoolean(STATE_EXTERNAL_INTENT_CONSUMED) == true
+        // §26.2 launch token: a fresh Activity (savedInstanceState == null) arms one token;
+        // recreation and consent returns restore the consumed/pending status and never revive it.
+        // §26.2: a genuine cold user launch arms one token; recreation, a consent return or
+        // an import/deeplink launch never does. The pending consent generation survives
+        // recreation exactly like the existing import/checkout markers.
+        autoConnectLaunch.restore(
+            savedInstanceState?.getLong(STATE_AUTOCONNECT_GENERATION, 0L) ?: 0L,
+            savedInstanceState?.getBoolean(STATE_AUTOCONNECT_CONSENT_PENDING, false) == true,
+        )
+        val autoConnectUserLaunch = savedInstanceState == null && isUserLaunchIntent(intent)
         restoreTarget = savedInstanceState?.getString(STATE_VISIBLE_TAB)?.let {
             runCatching { NavTarget.valueOf(it) }.getOrNull()
         }
@@ -415,6 +430,7 @@ class MainActivity : Activity() {
                     requestPreAdmissionConsent(state)
                 } else if (state.phase in setOf("Connected", "Starting", "BootstrapConnecting", "NodeAuthenticating", "ConfiguringVPN", "SwitchingServer", "WaitingUser", "Reconnecting", "SleepPaused", "KillSwitch")) {
                     PowerDiagnostics.line("onPower.branch", "value" to "cancel", "phase" to state.phase)
+                    cancelAutoConnectLaunch()
                     selectedForConsent = null
                     startService(Intent(this, SessionService::class.java).setAction("cancel"))
                 } else {
@@ -525,6 +541,7 @@ class MainActivity : Activity() {
             text = "Отменить / отключить"
             visibility = View.GONE
             setOnClickListener {
+                cancelAutoConnectLaunch()
                 selectedForConsent = null
                 startService(Intent(this@MainActivity, SessionService::class.java).setAction("cancel"))
             }
@@ -679,6 +696,26 @@ class MainActivity : Activity() {
             }
             addView(scheduleGroup)
             addView(scheduleStatus)
+            // §26.2: auto-connect to the last confirmed server on a user launch. Off by
+            // default and independent from the §26.5 schedule: turning the schedule off
+            // never cancels a pending explicit connect, and this switch never starts a job.
+            autoConnectToggle = CheckBox(this@MainActivity).apply {
+                text = "Подключаться автоматически к последнему серверу"
+                isChecked = AutoConnectPrefs.isEnabled(this@MainActivity)
+                minHeight = dp(48)
+                setOnCheckedChangeListener { _, checked ->
+                    AutoConnectPrefs.setEnabled(this@MainActivity, checked)
+                    // §26.2 Off invalidates the live token and drops any pending sequence in
+                    // the Service; it does not touch the independent §26.5 schedule.
+                    if (!checked) cancelAutoConnectLaunch()
+                }
+            }
+            addView(autoConnectToggle)
+            addView(TextView(this@MainActivity).apply {
+                text = "Подключение начнётся при следующем открытии приложения."
+                textSize = 13f
+                setTextColor(TerlimoCatalogBrandTokens.MUTED_TEXT.toInt())
+            })
         }
         val settingsSurface = ScrollView(this).apply {
             isFillViewport = true
@@ -770,6 +807,9 @@ class MainActivity : Activity() {
             addView(settingsSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
         savedInstanceState?.getString(STATE_LINK_TEXT)?.let { link.setText(it) }
+        // §26.2: the launch token is evaluated only after the screen exists, and only for a
+        // genuine user open (ACTION_MAIN/LAUNCHER), never for an import/deeplink or a return.
+        if (autoConnectUserLaunch) maybeAutoConnect()
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(TerlimoCatalogBrandTokens.BACKGROUND.toInt())
@@ -1070,6 +1110,54 @@ class MainActivity : Activity() {
         RetainedProjection.hydrate(SessionService.view,
             runCatching { installationStore.readCatalogCache() }.getOrNull())
 
+    /**
+     * §26.2 one launch attempt: guarded by the launch token, the master pref and the live
+     * phase (never while connected/connecting). Consent is requested here (Activity-only);
+     * the native command is sent by the Service, which re-validates the stored last server
+     * against the current account and shows an honest message when it is unusable.
+     */
+    /** A genuine user open (cold ACTION_MAIN or a launcher re-open), never an import/deeplink. */
+    private fun isUserLaunchIntent(incoming: Intent?): Boolean {
+        val action = incoming?.action
+        if (action != null && action != Intent.ACTION_MAIN) return false
+        return true
+    }
+
+    /**
+     * §26.2 one launch attempt. Arms a fresh token, requests the Activity-only consent if
+     * needed, then hands the token to the Service. The Service re-validates the preference,
+     * the token generation and the account scope before any choose/select.
+     */
+    private fun maybeAutoConnect() {
+        if (!AutoConnectPrefs.isEnabled(this) || autoConnectLaunch.started()) return
+        val generation = AutoConnectPrefs.armLaunch(this)
+        if (autoConnectLaunch.start(generation) == 0L) return
+        val consent = VpnService.prepare(this)
+        if (consent != null) {
+            autoConnectLaunch.needsConsent()
+            startActivityForResult(consent, REQUEST_AUTOCONNECT_CONSENT)
+        } else {
+            sendAutoConnect(generation)
+            autoConnectLaunch.sent()
+        }
+    }
+
+    private fun sendAutoConnect(generation: Long) {
+        startForegroundService(Intent(this, SessionService::class.java)
+            .setAction("autoconnect").putExtra(AutoConnectPrefs.EXTRA_GENERATION, generation))
+    }
+
+    /** Off / Disconnect / cancel / import: invalidate the token and drop any pending sequence.
+     * A cold Off toggle must not create the service or promote a foreground notification;
+     * the preference/token already block every queued send. */
+    private fun cancelAutoConnectLaunch() {
+        autoConnectLaunch.invalidate()
+        AutoConnectPrefs.invalidate(this)
+        if (SessionService.isRunning()) {
+            startService(Intent(this, SessionService::class.java).setAction("autoconnect_cancel"))
+        }
+    }
+
     private fun requestVpnConsentForCurrentSelection() {
         val state = projectedState()
         val nodeId = NodeSelection.connectableNodeId(
@@ -1133,15 +1221,25 @@ class MainActivity : Activity() {
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // Capture the real launch before handleIncomingIntent mutates an import/deeplink
+        // intent into ACTION_MAIN, so a deeplink can never arm an auto-connect token.
+        val launcherOpen = intent.action == Intent.ACTION_MAIN &&
+            (intent.categories?.contains(Intent.CATEGORY_LAUNCHER) == true)
         externalIntentConsumed = false
         setIntent(intent)
         handleIncomingIntent(intent)
         maybeOpenAnnouncements(intent)
+        if (launcherOpen && !externalIntentConsumed) {
+            autoConnectLaunch.invalidate()
+            maybeAutoConnect()
+        }
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_EXTERNAL_INTENT_CONSUMED, externalIntentConsumed)
         outState.putString(STATE_VISIBLE_TAB, visibleTarget.name)
         outState.putString(STATE_LINK_TEXT, link.text?.toString().orEmpty())
+        outState.putLong(STATE_AUTOCONNECT_GENERATION, autoConnectLaunch.currentGeneration())
+        outState.putBoolean(STATE_AUTOCONNECT_CONSENT_PENDING, autoConnectLaunch.started())
         checkoutOpenPolicy.saveTo(outState)
         super.onSaveInstanceState(outState)
     }
@@ -1189,6 +1287,14 @@ class MainActivity : Activity() {
             if (resultCode == RESULT_OK && data?.data != null) decodeSubscriptionFile(data.data!!)
             return
         }
+        if (requestCode == REQUEST_AUTOCONNECT_CONSENT) {
+            val generation = autoConnectLaunch.currentGeneration()
+            val stillValid = resultCode == RESULT_OK && generation != 0L &&
+                AutoConnectPrefs.isEnabled(this) && generation == AutoConnectPrefs.generation(this)
+            if (autoConnectLaunch.consentReturned(generation, stillValid)) sendAutoConnect(generation)
+            else status.text = UserStatusText.error(AutoConnectCode.CONSENT)
+            return
+        }
         if (requestCode != 100) return
         PowerDiagnostics.flag("consent.result", "ok" to (resultCode == RESULT_OK))
         if (resultCode == RESULT_OK) connectSelected()
@@ -1223,6 +1329,7 @@ class MainActivity : Activity() {
             status.text = "Сначала завершите текущее действие"
             return
         }
+        cancelAutoConnectLaunch()
         startForegroundService(Intent(this, SessionService::class.java)
             .setAction("import").putExtra("link", value))
         link.text.clear()
@@ -1600,6 +1707,9 @@ class MainActivity : Activity() {
         const val STATE_VISIBLE_TAB = "visible_tab"
         const val STATE_LINK_TEXT = "link_text"
         const val REQUEST_QR_IMAGE = 201
+        const val REQUEST_AUTOCONNECT_CONSENT = 101
+        const val STATE_AUTOCONNECT_GENERATION = "autoconnect_generation"
+        const val STATE_AUTOCONNECT_CONSENT_PENDING = "autoconnect_consent_pending"
         const val REQUEST_SUBSCRIPTION_FILE = 202
     }
 }

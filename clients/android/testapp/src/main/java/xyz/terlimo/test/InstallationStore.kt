@@ -160,6 +160,38 @@ internal class InstallationStore(context: Context) {
     /** Display-only memory of the last verified catalog. Never an access grant. */
     fun readCatalogCache(): String? = synchronized(LOCK) { readLocked().opt("catalog_cache") as? String }
 
+    /**
+     * §26.2 last server that actually reached a confirmed Connected, scoped to the account it
+     * was confirmed under. A different/absent account makes it unusable (no cross-identity move).
+     */
+    fun readLastConnectedNode(accountRef: String?): String? = synchronized(LOCK) {
+        val block = readLocked().optJSONObject("last_connect") ?: return@synchronized null
+        val stored = block.optString("account_ref").takeIf { it.isNotEmpty() } ?: return@synchronized null
+        if (accountRef == null || stored != accountRef) return@synchronized null
+        block.optString("node_id").takeIf { it.isNotEmpty() }
+    }
+
+    /** Import/deeplink identity change: the previous identity's last server must not survive. */
+    fun clearLastConnectedNode() = synchronized(LOCK) {
+        val current = readLocked()
+        if (current.has("last_connect")) {
+            val next = JSONObject(current.toString())
+            next.remove("last_connect")
+            writeLocked(next)
+        }
+    }
+
+    /** Written only on a confirmed Connected, together with the account it belongs to. */
+    fun writeLastConnectedNode(nodeId: String, accountRef: String?) {
+        require(nodeId.isNotEmpty() && nodeId.length <= 128)
+        synchronized(LOCK) {
+            val block = JSONObject()
+                .put("node_id", nodeId)
+                .put("account_ref", accountRef ?: "")
+            writeLocked(JSONObject(readLocked().toString()).put("last_connect", block))
+        }
+    }
+
     fun writeCatalogCache(encoded: String) = synchronized(LOCK) {
         require(encoded.toByteArray(Charsets.UTF_8).size in 1..65_536) { "CACHE_OVERSIZED" }
         writeLocked(JSONObject(readLocked().toString()).put("catalog_cache", encoded))
@@ -213,6 +245,7 @@ internal class InstallationPurchaseAttemptStore(private val storage: Installatio
 internal object SubscriptionStateReplacement {
     fun withoutSubscription(current: JSONObject): JSONObject = JSONObject().also { retained ->
         if (current.has("routing_settings")) retained.put("routing_settings", current.get("routing_settings"))
+        // §26.2: last_connect is identity/account bound; a subscription replacement removes it.
     }
 
     /** Field-preserving merge for native subscription persist; never drops routing_settings. */

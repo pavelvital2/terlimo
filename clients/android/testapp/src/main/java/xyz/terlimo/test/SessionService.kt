@@ -61,6 +61,76 @@ class SessionService : Service() {
     // from the retained disconnected state). Cleared on stop/failure; only the
     // active attempt may consume it.
     private var connectOnCatalog: String? = null
+    /** §26.2 controller + adapter (independent from the §26.5 schedule). */
+    private val autoConnectController = AutoConnectController()
+    private var autoConnectGeneration = 0L
+    private val autoConnect = AutoConnectAdapter(autoConnectController, object : AutoConnectPorts {
+        override fun activeGeneration(): Long = autoConnectGeneration
+        override fun prefEnabled(generation: Long): Boolean =
+            generation != 0L && generation == AutoConnectPrefs.generation(this@SessionService) &&
+                AutoConnectPrefs.isEnabled(this@SessionService)
+        override fun gateActive(): String? = gate.active
+        override fun stopping(): Boolean = stopping.get()
+        override fun phase(): String = view.phase
+        override fun nodes(): List<NodeLabel> = view.nodes
+        override fun selectedNodeId(): String = view.selectedNodeId
+        override fun pendingNodeId(): String? = view.pendingNodeId
+        override fun accountRef(): String? = view.accountAccess?.projection?.account?.accountRef
+        override fun entitlementUsable(): Boolean = usableDataRight()
+        override fun vpnConsentGranted(): Boolean = VpnService.prepare(this@SessionService) == null
+        override fun dataIntentActive(): Boolean {
+            if (activeVpnConfig != null || view.phase == "Connected") return true
+            val attempt = gate.active ?: return false
+            return connectDeadline.deadline(attempt) != Long.MAX_VALUE
+        }
+        override fun lastNodeId(accountRef: String): String? =
+            runCatching { storage.readLastConnectedNode(accountRef) }.getOrNull()
+        override fun dispatch(action: () -> Unit) = submitControl(action)
+        override fun clearDeadline(attempt: String) {
+            if (gate.active == attempt) connectDeadline.clear()
+        }
+        override fun beginAttempt() {
+            if (gate.active == null && !stopping.get()) begin("")
+        }
+        override fun sendChoose(nodeId: String) {
+            if (gate.active != null && view.phase == "CatalogReady" && view.pendingNodeId == null &&
+                view.nodes.any { it.id == nodeId }) {
+                publish(view.copy(pendingNodeId = nodeId, error = null))
+                send(JSONObject().put("type", "choose_node").put("node_id", nodeId))
+            }
+        }
+        override fun sendSelect(nodeId: String, attempt: String) {
+            if (gate.active == attempt && !stopping.get() && view.phase == "CatalogReady" &&
+                view.pendingNodeId == null &&
+                nodeId == NodeSelection.connectableNodeId(view.nodes, view.selectedNodeId) &&
+                connectDeadline.deadline(attempt) != Long.MAX_VALUE) {
+                explicitConnect.arm(ExplicitConnectGate.Entry.SELECT, attempt)
+                retention.loadForConnection()
+                val remaining = (connectDeadline.deadline(attempt) - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                retention.transitionFor(remaining)
+                main.postDelayed({
+                    gate.ifActive(attempt) {
+                        if (connectDeadline.expired(attempt, SystemClock.elapsedRealtime()))
+                            handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
+                    }
+                }, remaining)
+                send(JSONObject().put("type", "select_node").put("node_id", nodeId)
+                    .put("explicit_connect", true))
+            }
+        }
+        override fun startDeadline(attempt: String, now: Long): Boolean = connectDeadline.start(attempt, now)
+        override fun deadlineEnd(attempt: String): Long = connectDeadline.deadline(attempt)
+        override fun armDeadlineTimeout(attempt: String, delayMillis: Long, onTimeout: () -> Unit) {
+            main.postDelayed({
+                if (gate.active == attempt && !stopping.get()) onTimeout()
+            }, delayMillis)
+        }
+        override fun publishError(code: String) = publish(view.copy(error = code))
+        override fun terminateAutoAttempt(attempt: String) {
+            if (gate.active == attempt && !stopping.get()) handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
+        }
+        override fun now(): Long = SystemClock.elapsedRealtime()
+    })
     // Explicit gateway choice while a protected hold (KillSwitch) is active. The tapped target
     // is applied only after the previous native child stop is confirmed, a fresh verified
     // catalog is received and native admission succeeds; never from cache.
@@ -549,9 +619,36 @@ class SessionService : Service() {
         when (intent?.action) {
             "import" -> {
                 val link = intent.getStringExtra("link").orEmpty()
+                // §26.2: a subscription import is an identity change; the previous identity's
+                // stored last server and any pending auto-connect sequence must not survive.
+                autoConnect.cancel()
+                AutoConnectPrefs.invalidate(this)
+                runCatching { storage.clearLastConnectedNode() }
                 if (gate.active == null && !stopping.get()) submitControl { begin(link) }
             }
-            "resume" -> if (gate.active == null && !stopping.get()) submitControl { begin("") }
+            "resume" -> submitControl {
+                // Cold Activity bootstrap and auto-connect can both request this writer.
+                // The ownership check must happen after the previously queued begin.
+                if (gate.active == null && !stopping.get()) begin("")
+            }
+            "autoconnect" -> {
+                // §26.2 user-launch only. The launch token is validated BEFORE it can become
+                // the active generation, so a stale or revoked token can never choose/select
+                // and can never corrupt a newer launch.
+                val generation = intent.getLongExtra(AutoConnectPrefs.EXTRA_GENERATION, 0L)
+                if (generation == 0L || generation < autoConnectGeneration ||
+                    !autoConnectAllowed(generation)) return START_NOT_STICKY
+                autoConnectGeneration = generation
+                autoConnect.onLaunch(generation)
+                // A launch with an already accepted verified catalog drives it immediately,
+                // without waiting for the next catalog event.
+                gate.active?.takeIf { view.phase == "CatalogReady" }?.let { autoConnect.onCatalog(it) }
+            }
+            "autoconnect_cancel" -> {
+                // §26.2 Off / Disconnect / import: drop only the auto-connect sequence. The
+                // manual retained connect (connectOnCatalog) belongs to another owner.
+                autoConnect.cancel()
+            }
             "refresh" -> {
                 // S5 §11/§29 single manual refresh path with a host double-tap guard: a
                 // duplicate intent inside the platform double-tap window is a repeat of the
@@ -573,6 +670,7 @@ class SessionService : Service() {
                 }
             }
             "connect" -> {
+                autoConnect.cancel()
                 val id = intent.getStringExtra("node_id").orEmpty()
                 PowerDiagnostics.line("svc.connect.enter",
                     "gateIdle" to (gate.active == null).toString(),
@@ -589,6 +687,7 @@ class SessionService : Service() {
                 }
             }
             "choose" -> {
+                autoConnect.cancel()
                 val id = intent.getStringExtra("node_id").orEmpty()
                 if (!stopping.get() && view.phase == "CatalogReady" && view.nodes.any { it.id == id }) {
                     publish(view.copy(pendingNodeId = id))
@@ -685,6 +784,7 @@ class SessionService : Service() {
                 }
             }
             "select" -> {
+                autoConnect.cancel()
                 val id = intent.getStringExtra("node_id").orEmpty()
                 val attempt = gate.active
                 PowerDiagnostics.line("svc.select.enter",
@@ -1198,8 +1298,10 @@ class SessionService : Service() {
                             // outstanding delete correlation: a late reply must not apply to a
                             // different account. sessionGeneration is a reused counter and is
                             // deliberately NOT used as the account fence.
-                            val accountChanged = view.accountAccess?.projection?.account?.accountRef !=
-                                updated.projection.account.accountRef
+                            // §26.2 fence is computed BEFORE the publish: the first /me attaches
+                            // the account (previous == null), it is never an identity switch.
+                            val previousAccountRef = view.accountAccess?.projection?.account?.accountRef
+                            val accountChanged = previousAccountRef != updated.projection.account.accountRef
                             publishActive(attempt, view.copy(
                                 devices = if (accountChanged) DevicesPolicy.reset() else view.devices,
                                 accountAccess = updated,
@@ -1261,6 +1363,20 @@ class SessionService : Service() {
                                 detail = "rights_${updated.projection.grant.dataAccess}",
                             )
                             refreshAccessDisplay(attempt)
+                            // §26.2: a freshly accepted account projection (including the first
+                            // /me after a cold start) resolves the scoped last server; a real
+                            // identity switch drops the previous identity's last server.
+                            if (AutoConnectAccountFence.isIdentitySwitch(
+                                    previousAccountRef, updated.projection.account.accountRef)) {
+                                // A real identity change invalidates the old launch token,
+                                // pending consent and the old account's last server.
+                                autoConnect.cancel()
+                                AutoConnectPrefs.invalidate(this)
+                                runCatching { storage.clearLastConnectedNode() }
+                            } else {
+                                autoConnect.onAccount(attempt, autoConnectGeneration)
+                                if (view.phase == "CatalogReady") autoConnect.onCatalog(attempt)
+                            }
                             // §11: piggyback the accepted refresh slot; no new timer or poll.
                             requestAnnouncements()
                         }
@@ -1532,6 +1648,7 @@ class SessionService : Service() {
                         send(JSONObject().put("type", "select_node").put("node_id", recovery.nodeId))
                     } else {
                         autoConnectRetained(attempt, updated)
+                        autoConnect.onCatalog(attempt)
                     }
                 }
                 "switch_diag" -> {
@@ -2157,9 +2274,18 @@ class SessionService : Service() {
                     }
                     gate.ifActive(attempt) {
                         if (!stopping.get()) {
-                            if (connectDeadline.complete(attempt, SystemClock.elapsedRealtime()))
+                            if (connectDeadline.complete(attempt, SystemClock.elapsedRealtime())) {
                                 publish(view.copy(phase = "Connected", selectedNodeId = nodeId, pendingNodeId = null, error = null))
-                            else handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
+                                // §26.2: last server is recorded for ANY confirmed connection
+                                // (manual or auto), independent of an auto-connect target.
+                                AutoConnectLastWrite.nodeFor(complete = true, nodeId = nodeId)?.let { confirmed ->
+                                    runCatching {
+                                        storage.writeLastConnectedNode(
+                                            confirmed, view.accountAccess?.projection?.account?.accountRef)
+                                    }
+                                }
+                                autoConnect.onConnected(nodeId)
+                            } else handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
                         }
                     }
                 }
@@ -2755,6 +2881,20 @@ class SessionService : Service() {
 
     private fun stopTrafficTick() = main.removeCallbacks(trafficTick)
 
+    /** §26.2: preference + launch generation must both still be valid. */
+    private fun autoConnectAllowed(generation: Long): Boolean =
+        generation != 0L && AutoConnectPrefs.isEnabled(this) && generation == AutoConnectPrefs.generation(this)
+
+    /** A valid data right: the confirmed onboarding hour or an active subscription. */
+    private fun usableDataRight(snapshot: AccountAccessSnapshot? = view.accountAccess): Boolean {
+        val data = snapshot?.projection?.grant?.dataAccess ?: return false
+        return when (data) {
+            "subscription_data" -> true
+            "onboarding_hour" -> AccountAccessPolicy.isConfirmedOnboardingHour(snapshot, SystemClock.elapsedRealtime())
+            else -> false
+        }
+    }
+
     private fun stopAttempt(code: String?, caller: String = "unspecified") {
         android.util.Log.w("WDTT/Teardown", "stage=stop_enter child=" + (native != null) + " caller=" + caller)
         trialGate.reset()
@@ -2766,6 +2906,8 @@ class SessionService : Service() {
         purchaseFlight.reset()
         // Attempt teardown: no pending create result may correlate into a dead attempt.
         paymentCreates.clear()
+        // §26.2: a launch auto-connect never survives teardown/Disconnect.
+        autoConnect.cancel()
         if (!stopping.compareAndSet(false, true)) {
             android.util.Log.w("WDTT/Teardown", "stage=stop_cas_fail")
             return
@@ -2902,6 +3044,9 @@ class SessionService : Service() {
         @Volatile internal var view = ViewState()
             private set
         @Volatile private var runningService: SessionService? = null
+
+        /** True while a SessionService instance exists; Off toggles never create one. */
+        internal fun isRunning(): Boolean = runningService != null
 
         /**
          * Consistent read-only snapshot of the authoritative tunnel state for the routing editor.

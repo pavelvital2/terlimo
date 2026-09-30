@@ -109,3 +109,11 @@ Source `a3776f1625f1d8ecd2bde4e8016b9ca521ae5d23`, tree `d4319a58383534ab58def5e
 Includes accepted settings theme/battery/Android VPN settings entry and §26.5 catalogue schedule Off/12h/24h/7d. Root engine fix 69bb585 passed 48 focused tests; UI scheduler refusal handling 9880abfb reviewed. Cold background dispatch and schedule Off removal verified. On 30 September, select accepted at11:23:49UTC, VPN36/36 and HTTPS via TEST193.5.251.217 before/after job11:25:36UTC; normal disconnect11:26:32UTC. Final user0/VPNoff/scheduleOff. Diagnostics a3776f1 preserve control logic; root reviewed diff and raw markers, first HTTPS screenshot and second XML.
 
 Earlier silent Connect failure was not reproduced; cause remains unknown, no speculative fallback applied. ViewState attempt marker is not service gate.active. §26.2 autoconnect is still design-only, not implemented. No production readiness claim; server/gateway exports unchanged by this checkpoint.
+
+## 2026-09-30 — §26.2 autoconnect accepted after root repair
+
+Android source `e1581cdfd70d2f51c16c912103fe016f225403b7`, tree `2c4f1859d1180b87e28a54cdce009244e3d1d2fe`; accepted APK SHA-256 `992b67919f6c75dd0291dd84533aaa0260078e252e6cdb5c1c051ffd9f88a67b`. Based on accepted a3776f16; rejected intermediate candidates are not accepted releases.
+
+Commands revalidate launch generation/account/rights at writer dispatch; the choose acknowledgement and select share one deadline without mistaking own choice for an existing data connection. Cold resume checks attempt ownership inside the writer, preventing the observed duplicate-start ATTEMPT_ACTIVE failure. Cancellation preserves manual/data ownership.
+
+Validation: 29 targeted JVM tests (controller8, adapter14, launch5, deadline2) passed. On TECNO KL5n Android user11: manual connection36/36, cold launcher autoconnect without pressing Connect, Android validated VPN and fresh-query browser HTTPS, Off preserves the current connection and prevents a later cold-launch auto connection. Catalog schedule Off remained independent. The different-selected-node choice path and deferred cancellation/account/rights changes were covered by JVM tests; the phone fixture exposes one gateway. Native libraries and private TEST overlay match the accepted parent byte-for-byte; these binaries/private assets are not published. No server/production changes.
