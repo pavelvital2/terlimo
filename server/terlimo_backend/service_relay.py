@@ -54,6 +54,7 @@ def service_path_allowed(method: str, path: str) -> bool:
     """Exact existing mobile API operations only; no arbitrary URL/host/CONNECT/redirect."""
     fixed = {
         "/api/mobile/v1/devices": "GET",
+        "/api/mobile/v1/announcements": "GET",
         "/api/mobile/v1/auth/challenge": "POST",
         "/api/mobile/v1/installations": "POST",
         "/api/mobile/v1/auth/session": "POST",
@@ -79,6 +80,10 @@ def service_path_allowed(method: str, path: str) -> bool:
     device_prefix = "/api/mobile/v1/devices/"
     if method == "DELETE" and path.startswith(device_prefix):
         return bool(_OPERATION_ID.match(path[len(device_prefix) :]))
+    announcement_prefix = "/api/mobile/v1/announcements/"
+    read_suffix = "/read"
+    if method == "POST" and path.startswith(announcement_prefix) and path.endswith(read_suffix):
+        return bool(_OPERATION_ID.match(path[len(announcement_prefix) : -len(read_suffix)]))
     return False
 
 

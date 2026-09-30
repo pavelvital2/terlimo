@@ -196,7 +196,7 @@ func servicePathAllowed(method, path string) bool {
 		"/api/mobile/v1/trial/activate":
 		return method == "POST"
 	case "/api/mobile/v1/me", "/api/mobile/v1/gateways", "/api/mobile/v1/plans",
-		"/api/mobile/v1/usage", "/api/mobile/v1/devices":
+		"/api/mobile/v1/usage", "/api/mobile/v1/devices", "/api/mobile/v1/announcements":
 		return method == "GET"
 	case "/api/mobile/v1/quotes", "/api/mobile/v1/payments":
 		return method == "POST"
@@ -208,6 +208,13 @@ func servicePathAllowed(method, path string) bool {
 	const payments = "/api/mobile/v1/payments/"
 	if method == "GET" && strings.HasPrefix(path, payments) {
 		return serviceOperationID.MatchString(path[len(payments):])
+	}
+	// Announcement read is POST with a strict operation-style UUID and an exact /read suffix
+	// (no trailing slash, extra segment, query or path escape; the caller sanitizes those).
+	const announcements = "/api/mobile/v1/announcements/"
+	if method == "POST" && strings.HasPrefix(path, announcements) && strings.HasSuffix(path, "/read") {
+		mid := strings.TrimSuffix(strings.TrimPrefix(path, announcements), "/read")
+		return serviceOperationID.MatchString(mid)
 	}
 	// Device removal is the only non-GET operation class: DELETE with a strict operation-style
 	// UUID and nothing else (no trailing slash, suffix, query or path escape; the caller
@@ -579,6 +586,8 @@ func serviceFrameClass(path, code string) string {
 		return "TRIAL"
 	case path == "/api/mobile/v1/devices" || strings.HasPrefix(path, "/api/mobile/v1/devices/"):
 		return "DEVICES"
+	case path == "/api/mobile/v1/announcements" || strings.HasPrefix(path, "/api/mobile/v1/announcements/"):
+		return "ANNOUNCEMENTS"
 	case strings.HasPrefix(path, "/api/mobile/v1/operations/"):
 		return "OPERATION"
 	default:

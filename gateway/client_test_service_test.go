@@ -992,3 +992,74 @@ func TestServiceValidateRequestDevices(t *testing.T) {
 		}
 	}
 }
+
+func TestServicePathAllowlistAnnouncements(t *testing.T) {
+	allowed := []struct{ method, path string }{
+		{"GET", "/api/mobile/v1/announcements"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89AB-CDEF-0123-456789ABCDEF/read"},
+	}
+	for _, c := range allowed {
+		if !servicePathAllowed(c.method, c.path) {
+			t.Fatalf("expected allowed: %s %s", c.method, c.path)
+		}
+	}
+	denied := []struct{ method, path string }{
+		{"POST", "/api/mobile/v1/announcements"},
+		{"PUT", "/api/mobile/v1/announcements"},
+		{"DELETE", "/api/mobile/v1/announcements"},
+		{"GET", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read"},
+		{"POST", "/api/mobile/v1/announcements/"},
+		{"POST", "/api/mobile/v1/announcements/not-a-uuid/read"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcde/read"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read/"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read/extra"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/READ"},
+		{"POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/../read"},
+		{"POST", "/api/mobile/v1/announcements/../me"},
+		{"POST", "/api/mobile/v1/announcementsx/01234567-89ab-cdef-0123-456789abcdef/read"},
+	}
+	for _, c := range denied {
+		if servicePathAllowed(c.method, c.path) {
+			t.Fatalf("expected denied: %s %s", c.method, c.path)
+		}
+	}
+}
+
+func TestServiceValidateRequestAnnouncements(t *testing.T) {
+	var id wlwire.ID
+	id[0] = 8
+	headers := map[string]string{"Authorization": "Bearer synthetic-token", "Idempotency-Key": "idem-1"}
+	uuid := "01234567-89ab-cdef-0123-456789abcdef"
+	allowed := []struct{ method, path string }{
+		{"GET", "/api/mobile/v1/announcements"},
+		{"POST", "/api/mobile/v1/announcements/" + uuid + "/read"},
+	}
+	for _, c := range allowed {
+		if _, code := serviceValidateRequest(serviceRequestBody(t, id, c.method, c.path, headers, nil), id); code != "" {
+			t.Fatalf("valid %s %s frame rejected with %q", c.method, c.path, code)
+		}
+	}
+	denied := []struct{ method, path, want string }{
+		{"POST", "/api/mobile/v1/announcements", "SERVICE_PATH_DENIED"},
+		{"GET", "/api/mobile/v1/announcements/" + uuid + "/read", "SERVICE_PATH_DENIED"},
+		{"POST", "/api/mobile/v1/announcements/not-a-uuid/read", "SERVICE_PATH_DENIED"},
+		{"POST", "/api/mobile/v1/announcements/" + uuid + "/read/", "SERVICE_PATH_DENIED"},
+		{"POST", "/api/mobile/v1/announcements/" + uuid + "/extra", "SERVICE_PATH_DENIED"},
+		{"POST", "/api/mobile/v1/announcements/../me", "SERVICE_BAD_PATH"},
+		{"PUT", "/api/mobile/v1/announcements/" + uuid + "/read", "SERVICE_BAD_METHOD"},
+	}
+	for _, c := range denied {
+		if _, code := serviceValidateRequest(serviceRequestBody(t, id, c.method, c.path, headers, nil), id); code != c.want {
+			t.Fatalf("%s %s code=%q want %q", c.method, c.path, code, c.want)
+		}
+	}
+	// Announcement frames keep the fixed bounded diagnostic class.
+	if class := serviceFrameClass("/api/mobile/v1/announcements", ""); class != "ANNOUNCEMENTS" {
+		t.Fatalf("GET announcements class=%q", class)
+	}
+	if class := serviceFrameClass("/api/mobile/v1/announcements/"+uuid+"/read", ""); class != "ANNOUNCEMENTS" {
+		t.Fatalf("POST read class=%q", class)
+	}
+}

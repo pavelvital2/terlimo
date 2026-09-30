@@ -273,6 +273,19 @@ def test_service_path_allowlist_and_role_validation(monkeypatch):
     assert not service_path_allowed("GET", "/api/mobile/v1/trial/activate")
     assert not service_path_allowed("POST", "/api/mobile/v1/registration/telegram/confirm")
     assert service_path_allowed("GET", "/api/mobile/v1/operations/01234567-89ab-cdef-0123-456789abcdef")
+    assert service_path_allowed("GET", "/api/mobile/v1/announcements")
+    assert service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read")
+    assert service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89AB-CDEF-0123-456789ABCDEF/read")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcements")
+    assert not service_path_allowed("DELETE", "/api/mobile/v1/announcements")
+    assert not service_path_allowed("GET", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcements/not-a-uuid/read")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read/")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/read/extra")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/READ")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/../read")
+    assert not service_path_allowed("POST", "/api/mobile/v1/announcementsx/01234567-89ab-cdef-0123-456789abcdef/read")
     for method, path in (("GET", "/internal/onboarding/evidence"), ("POST", "/api/mobile/v1/me"), ("CONNECT", "host:443")):
         assert not service_path_allowed(method, path)
 
@@ -810,6 +823,55 @@ async def test_service_error_frames_echo_request_id(migrated_url, settings_facto
         assert body["request_id"] == request_id
     finally:
         await client.close()
+        await listener.stop()
+        await runner.cleanup()
+        await database.close()
+
+
+async def test_service_endpoint_announcements_reach_real_handler(migrated_url, settings_factory, tmp_path):
+    """GET /announcements and POST /announcements/{uuid}/read are allowlisted end to end:
+    the relay forwards them, and the upstream API's own announcement handlers answer (401
+    without a session), while non-allowlisted shapes stay SERVICE_PATH_DENIED."""
+    material = _Material(tmp_path)
+    await _seed_gateway(migrated_url, key=GATEWAY_KEY)
+    app_settings = await _service_settings(settings_factory, migrated_url, material)
+    database = Database(app_settings)
+    await database.ensure_ready()
+    app = create_app(replace(app_settings, service_endpoint_enabled=False), database)
+    runner, api_port = await _start_site(app, 0, None)
+    service_settings = replace(app_settings, api_port=api_port)
+    listener = EvidenceListener(service_settings, database)
+    await listener.start()
+    session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=material.node_context()))
+    try:
+        uuid_hex = "01234567-89ab-cdef-0123-456789abcdef"
+
+        status, body = await _post(session, listener.port, _service_request("GET", "/api/mobile/v1/announcements"))
+        assert status == 200 and body["v"] == 1 and body["status"] == 401
+        decoded = json.loads(base64.urlsafe_b64decode(body["body_b64"] + "=" * (-len(body["body_b64"]) % 4)))
+        assert decoded["code"] == "SESSION_INVALID"
+
+        status, body = await _post(
+            session, listener.port,
+            _service_request("POST", f"/api/mobile/v1/announcements/{uuid_hex}/read"),
+        )
+        assert status == 200 and body["v"] == 1 and body["status"] == 401
+        assert body["request_id"]
+
+        # A 404 from upstream would mean the route is absent; the read handler must answer 401 first.
+        _status, body = await _post(
+            session, listener.port,
+            _service_request("GET", f"/api/mobile/v1/announcements/{uuid_hex}/read"),
+        )
+        assert body["error"]["code"] == "SERVICE_PATH_DENIED"
+
+        _status, body = await _post(
+            session, listener.port,
+            _service_request("POST", "/api/mobile/v1/announcements"),
+        )
+        assert body["error"]["code"] == "SERVICE_PATH_DENIED"
+    finally:
+        await session.close()
         await listener.stop()
         await runner.cleanup()
         await database.close()
