@@ -79,7 +79,7 @@ func TestRunnerCycleStageSequenceForPendingCatalog(t *testing.T) {
 		t.Fatalf("pending cycle wrong: catalog=%v browse=%v err=%v", catalog, browse, err)
 	}
 	want := []string{cycleStageAfterMeRead, cycleStageEmitBegin, cycleStageEmitEndOK,
-		cycleStageGWRefreshBegin, cycleStageGWPendingRefresh}
+		cycleStageGWRefreshBegin, cycleStageGWPendingRefresh, cycleStageGWPendingEnd}
 	if !equalStrings(recorder.stages, want) {
 		t.Fatalf("pending cycle stages: got %v want %v", recorder.stages, want)
 	}

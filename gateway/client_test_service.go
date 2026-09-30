@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -547,6 +548,83 @@ func serviceReadErrClass(err error) string {
 
 // clientTestServiceServeGen is clientTestServiceServe with a connection generation id for
 // gated diagnostic correlation (gen 0 when called outside the accept loop).
+
+// serviceFrameClass maps a validated service request to a fixed, secret-free diagnostic class.
+// Unknown operations stay "OTHER"; invalid frames are classed separately with their bounded code.
+func serviceFrameClass(path, code string) string {
+	if code != "" {
+		return "invalid"
+	}
+	switch {
+	case path == "/api/mobile/v1/auth/challenge" || path == "/api/mobile/v1/auth/session":
+		return "AUTH"
+	case path == "/api/mobile/v1/me":
+		return "ME"
+	case path == "/api/mobile/v1/gateways":
+		return "GATEWAYS"
+	case path == "/api/mobile/v1/usage":
+		return "USAGE"
+	case path == "/api/mobile/v1/access/sync":
+		return "ACCESS"
+	case path == "/api/mobile/v1/plans" || path == "/api/mobile/v1/quotes" || path == "/api/mobile/v1/payments" ||
+		strings.HasPrefix(path, "/api/mobile/v1/payments/"):
+		return "PAYMENTS"
+	case path == "/api/mobile/v1/installations":
+		return "ENROLL"
+	case strings.HasPrefix(path, "/api/mobile/v1/onboarding/"):
+		return "ONBOARDING"
+	case strings.HasPrefix(path, "/api/mobile/v1/registration/"):
+		return "REGLINK"
+	case path == "/api/mobile/v1/trial/activate":
+		return "TRIAL"
+	case path == "/api/mobile/v1/devices" || strings.HasPrefix(path, "/api/mobile/v1/devices/"):
+		return "DEVICES"
+	case strings.HasPrefix(path, "/api/mobile/v1/operations/"):
+		return "OPERATION"
+	default:
+		return "OTHER"
+	}
+}
+
+// serviceBoundedMethod keeps the diagnostic method field to the fixed allowlist; anything else
+// (including malformed or hostile frames) is reported as INVALID without echoing raw bytes.
+func serviceBoundedMethod(method string) string {
+	switch method {
+	case "GET", "POST", "DELETE":
+		return method
+	default:
+		return "INVALID"
+	}
+}
+
+// serviceBoundedCode keeps diagnostic reason codes to the known service allowlist; unknown
+// backend/relay strings are never echoed raw.
+func serviceBoundedCode(code string) string {
+	switch code {
+	case "":
+		return ""
+	case "SERVICE_BAD_FRAME", "SERVICE_BAD_METHOD", "SERVICE_BAD_PATH", "SERVICE_PATH_DENIED",
+		"SERVICE_BAD_HEADERS", "SERVICE_UNAVAILABLE", "SERVICE_BAD_RESPONSE", "SERVICE_BUSY",
+		"EVIDENCE_BAD_ENVELOPE", "EVIDENCE_REGISTRY_UNKNOWN", "EVIDENCE_REGISTRY_AMBIGUOUS",
+		"EVIDENCE_ENV_MISMATCH", "EVIDENCE_AUTH_REQUIRED":
+		return code
+	default:
+		return "OTHER"
+	}
+}
+
+// serviceTimeLog emits one bounded timing mark for a service-only exchange. Fixed classes and
+// counters only; never wire tokens, passwords, bodies or raw error strings.
+func serviceTimeLog(gen int64, seq int, class, phase, extra string, elapsed time.Duration) {
+	if extra != "" {
+		log.Printf("[SVCTIME] %s gen=%d seq=%d class=%s %s utc_ms=%d elapsed_ms=%d",
+			phase, gen, seq, class, extra, time.Now().UnixMilli(), elapsed.Milliseconds())
+		return
+	}
+	log.Printf("[SVCTIME] %s gen=%d seq=%d class=%s utc_ms=%d elapsed_ms=%d",
+		phase, gen, seq, class, time.Now().UnixMilli(), elapsed.Milliseconds())
+}
+
 func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessIdentity, gen int64) {
 	if !identity.isService {
 		return
@@ -563,6 +641,7 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 		log.Printf("[SVCREG] service_exit gen=%d source=%s utc=%s", gen, serviceSource(c),
 			time.Now().UTC().Format(time.RFC3339Nano))
 	}()
+	serviceSessionStarted := time.Now()
 	limiter := serviceGlobalLimiter()
 	source := serviceSource(c)
 	if !limiter.acquire(source) {
@@ -585,6 +664,11 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 			return
 		}
 		req, code := serviceValidateRequest(body, id)
+		frameClass := serviceFrameClass(req.Path, code)
+		frameSeq := i + 1
+		serviceTimeLog(gen, frameSeq, frameClass, "recv",
+			fmt.Sprintf("method=%s code=%q", serviceBoundedMethod(req.Method), serviceBoundedCode(code)),
+			time.Since(serviceSessionStarted))
 		traceReg := serviceTracePath(req.Method, req.Path)
 		requestID := hex.EncodeToString(id[:])
 		startedAt := time.Now()
@@ -599,7 +683,11 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 					requestID, req.Method, req.Path, code, time.Since(startedAt).Milliseconds(),
 					time.Now().UTC().Format(time.RFC3339Nano))
 			}
+			serviceTimeLog(gen, frameSeq, frameClass, "write_begin",
+				fmt.Sprintf("kind=error code=%q", serviceBoundedCode(code)), time.Since(serviceSessionStarted))
 			serviceWriteError(c, id, code, false)
+			serviceTimeLog(gen, frameSeq, frameClass, "write_end",
+				fmt.Sprintf("kind=error code=%q result=attempted", serviceBoundedCode(code)), time.Since(serviceSessionStarted))
 			return
 		}
 		if ctx.Err() != nil {
@@ -630,8 +718,14 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 		bounded := req.SessionMode == "bounded"
 		req.SessionMode = "" // transport mode is not part of the backend HTTP request
 		relayStartedAt := time.Now()
+		serviceTimeLog(gen, frameSeq, frameClass, "fwd_begin", "", time.Since(serviceSessionStarted))
 		resp, relayErr, relayCode, retryable := serviceRelay(relayCtx, req)
 		relayDur := time.Since(relayStartedAt)
+		serviceTimeLog(gen, frameSeq, frameClass, "fwd_end",
+			fmt.Sprintf("relay_code=%q relay_err=%q status=%d dur_ms=%d",
+				serviceBoundedCode(relayCode), serviceBoundedCode(serviceErrCode(relayErr)),
+				resp.Status, relayDur.Milliseconds()),
+			time.Since(serviceSessionStarted))
 		_ = c.SetReadDeadline(time.Now())
 		<-watchDone
 		cancelRelay()
@@ -652,7 +746,11 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 				log.Printf("[SVCREG] reply request_id=%s %s close_total_ms=%d utc=%s",
 					requestID, trace.String(), time.Since(startedAt).Milliseconds(), time.Now().UTC().Format(time.RFC3339Nano))
 			}
+			serviceTimeLog(gen, frameSeq, frameClass, "write_begin",
+				fmt.Sprintf("kind=error code=%q", serviceBoundedCode(relayErr.Error.Code)), time.Since(serviceSessionStarted))
 			serviceWriteError(c, id, relayErr.Error.Code, relayErr.Error.Retryable)
+			serviceTimeLog(gen, frameSeq, frameClass, "write_end",
+				fmt.Sprintf("kind=error code=%q result=attempted", serviceBoundedCode(relayErr.Error.Code)), time.Since(serviceSessionStarted))
 			return
 		}
 		if relayCode != "" {
@@ -660,7 +758,11 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 				log.Printf("[SVCREG] reply request_id=%s %s close_total_ms=%d utc=%s",
 					requestID, trace.String(), time.Since(startedAt).Milliseconds(), time.Now().UTC().Format(time.RFC3339Nano))
 			}
+			serviceTimeLog(gen, frameSeq, frameClass, "write_begin",
+				fmt.Sprintf("kind=error code=%q", serviceBoundedCode(relayCode)), time.Since(serviceSessionStarted))
 			serviceWriteError(c, id, relayCode, retryable)
+			serviceTimeLog(gen, frameSeq, frameClass, "write_end",
+				fmt.Sprintf("kind=error code=%q result=attempted", serviceBoundedCode(relayCode)), time.Since(serviceSessionStarted))
 			return
 		}
 		payload, err := json.Marshal(resp)
@@ -670,11 +772,17 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 				log.Printf("[SVCREG] reply request_id=%s %s close_total_ms=%d utc=%s",
 					requestID, trace.String(), time.Since(startedAt).Milliseconds(), time.Now().UTC().Format(time.RFC3339Nano))
 			}
+			serviceTimeLog(gen, frameSeq, frameClass, "write_begin",
+				"kind=error code=\"SERVICE_BAD_RESPONSE\"", time.Since(serviceSessionStarted))
 			serviceWriteError(c, id, "SERVICE_BAD_RESPONSE", true)
+			serviceTimeLog(gen, frameSeq, frameClass, "write_end",
+				"kind=error code=\"SERVICE_BAD_RESPONSE\" result=attempted", time.Since(serviceSessionStarted))
 			return
 		}
 		trace.PayloadLen = len(payload)
 		if ctx.Err() != nil {
+			serviceTimeLog(gen, frameSeq, frameClass, "close",
+				"reason=ctx_cancelled_after_relay", time.Since(serviceSessionStarted))
 			if traceReg {
 				log.Printf("[SVCREG] close request_id=%s path=%s reason=ctx_cancelled_after_relay close_total_ms=%d utc=%s",
 					requestID, req.Path, time.Since(startedAt).Milliseconds(),
@@ -682,7 +790,10 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 			}
 			return
 		}
+		serviceTimeLog(gen, frameSeq, frameClass, "write_begin", "kind=response", time.Since(serviceSessionStarted))
 		if err = serviceWriteFrame(c, id, payload); err != nil {
+			serviceTimeLog(gen, frameSeq, frameClass, "write_end",
+				fmt.Sprintf("kind=response err=%q", serviceBoundedErr(err)), time.Since(serviceSessionStarted))
 			if traceReg {
 				trace.WriteErr = serviceBoundedErr(err)
 				log.Printf("[SVCREG] reply request_id=%s %s close_total_ms=%d utc=%s",
@@ -690,6 +801,7 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 			}
 			return
 		}
+		serviceTimeLog(gen, frameSeq, frameClass, "write_end", "kind=response", time.Since(serviceSessionStarted))
 		if traceReg {
 			log.Printf("[SVCREG] reply request_id=%s %s close_total_ms=%d utc=%s",
 				requestID, trace.String(), time.Since(startedAt).Milliseconds(), time.Now().UTC().Format(time.RFC3339Nano))

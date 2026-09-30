@@ -67,17 +67,34 @@ func newMobileTransportAndStore(start managedStart, persist servicechannel.Persi
 	observe := func(stage string) { fmt.Fprintln(os.Stderr, "svcstage:", stage) }
 	channel.Observe = observe
 	doer.Observe = observe
-	// Secret-free per-session correlation: session generation, fixed request class,
-	// fixed event, reuse flag and local UDP source port (never IP/credential/token).
-	channel.Trace = func(session uint64, class, event string, reused bool, port int) {
-		flag := 0
-		if reused {
-			flag = 1
-		}
-		fmt.Fprintf(os.Stderr, "svctrace: gen=%d class=%s event=%s reused=%d port=%d\n",
-			session, class, event, flag, port)
+	// Secret-free per-session correlation: session generation, local monotonic exchange
+	// id, fixed request class, fixed event, reuse flag, bounded counters/durations and a
+	// fixed error class (never IP/credential/token/payload/raw error text).
+	channel.Trace = func(ev servicechannel.TraceEvent) {
+		fmt.Fprintln(os.Stderr, formatServiceTrace(ev))
 	}
 	return doer, seeds, nil
+}
+
+// formatServiceTrace renders one fixed svctrace line. All values are bounded integers,
+// fixed uppercase classes/tokens or local counters; no payload-bearing field exists.
+func formatServiceTrace(ev servicechannel.TraceEvent) string {
+	flag := 0
+	if ev.Reused {
+		flag = 1
+	}
+	line := fmt.Sprintf("svctrace: gen=%d class=%s event=%s reused=%d port=%d xid=%d elapsed_ms=%d",
+		ev.Session, ev.Class, ev.Event, flag, ev.Port, ev.Exchange, ev.ElapsedMS)
+	if ev.Requests > 0 {
+		line += fmt.Sprintf(" req=%d", ev.Requests)
+	}
+	if ev.IdleMS > 0 {
+		line += fmt.Sprintf(" idle_ms=%d", ev.IdleMS)
+	}
+	if ev.ErrClass != "" && ev.ErrClass != "NONE" {
+		line += " err=" + ev.ErrClass
+	}
+	return line
 }
 
 // managedServiceEstablish is the production establishment: it derives the WRAP key

@@ -18,12 +18,14 @@ import java.io.InputStream
  */
 internal object NativeStderrCodes {
     const val TAG = "WDTT/NativeStderr"
-    const val MAX_LINE = 96
+    // The svctrace correlation line grew bounded optional fields (xid/elapsed/req/idle/err);
+    // the cap stays a hard bound over a fixed grammar, never arbitrary text.
+    const val MAX_LINE = 160
     private val ACCOUNT_ACCESS = Regex("^accountaccess: ([A-Z_]{1,64})$")
     private val ONBOARDING = Regex("^onboarding: ([A-Z_]{1,64})$")
     private val ACCTSTAGE = Regex("^acctstage: ([A-Z_]{1,64}) ([0-9]{1,7})$")
     private val SVCSTAGE = Regex("^svcstage: ([A-Z_]{1,64})$")
-    private val SVCSTRACE = Regex("^svctrace: gen=([0-9]{1,10}) class=([A-Z_]{1,16}) event=([A-Z_]{1,16}) reused=([01]) port=([0-9]{1,5})$")
+    private val SVCSTRACE = Regex("^svctrace: gen=([0-9]{1,10}) class=([A-Z_]{1,16}) event=([A-Z_]{1,16}) reused=([01]) port=([0-9]{1,5})(?: xid=([0-9]{1,10}))?(?: elapsed_ms=([0-9]{1,9}))?(?: req=([0-9]{1,3}))?(?: idle_ms=([0-9]{1,10}))?(?: err=([A-Z]{1,8}))?$")
     private val PLANSDIAG = Regex("^plansdiag: (BEGIN|OK|TRANSPORT|API_ERROR|NO_CLIENT)$")
     private val CYCLESTAGE = Regex("^cyclestage: ([A-Z0-9_]{1,64}) ([0-9]{1,7}) ([0-9]{13})$")
     private val VKSTAGE = Regex("^vkstage: ([A-Z0-9_]{1,64}) ([0-9]{1,3}) ([0-9]{1,7}) ([0-9]{13}) ([0-9]{1,7})$")
@@ -93,9 +95,10 @@ internal object NativeStderrCodes {
         "ME_RESPONSE_2XX", "ME_RESPONSE_4XX", "ME_RESPONSE_5XX",
         "ME_RESPONSE_TRANSPORT", "ME_RESPONSE_OTHER",
         "AFTER_ME_READ", "EMIT_BEGIN", "EMIT_END_OK", "EMIT_END_ERR", "EMIT_END_CANCEL",
-        "GW_REFRESH_BEGIN", "GW_PENDING_REFRESH_BEGIN", "GW_REQUEST_BEGIN",
+        "GW_REFRESH_BEGIN", "GW_PENDING_REFRESH_BEGIN", "GW_PENDING_REFRESH_END", "GW_REQUEST_BEGIN",
         "GW_REQUEST_END_2XX", "GW_REQUEST_END_4XX", "GW_REQUEST_END_5XX",
         "GW_REQUEST_END_TRANSPORT", "GW_REQUEST_END_OTHER",
+        "ATTEMPT_RETRY_SLEEP", "ATTEMPT_RETRY_WAIT", "ATTEMPT_TERMINAL",
     )
 
     /**
@@ -166,8 +169,13 @@ internal object NativeStderrCodes {
     /** Fixed request classes and event vocabulary of the secret-free svctrace correlation. */
     val SVCSTRACE_CLASSES = setOf("AUTH", "ME", "GATEWAYS", "ACCESS_SYNC", "REG_LINK", "PLANS", "USAGE", "OTHER")
     val SVCSTRACE_EVENTS = setOf(
-        "ESTABLISH_OK", "ESTABLISH_FAIL", "WRITE_OK", "WRITE_FAIL", "READ_OK", "READ_FAIL",
+        "ESTABLISH_OK", "ESTABLISH_FAIL", "WRITE_BEGIN", "WRITE_OK", "WRITE_FAIL",
+        "READ_BEGIN", "READ_OK", "READ_FAIL", "EXCHANGE_END",
+        "REUSE_STALE_REQ", "REUSE_STALE_IDLE", "REUSE_STALE_SEED",
     )
+
+    /** Fixed error-class vocabulary of the svctrace correlation (never raw error text). */
+    val SVCSTRACE_ERR = setOf("EOF", "CLOSED", "TIMEOUT", "CANCELED", "RESET", "REFUSED", "OTHER")
 
     /** One exact allowlisted line: its observable value and whether it owns the reserved slot. */
     data class Match(val value: String, val terminal: Boolean)
@@ -226,8 +234,16 @@ internal object NativeStderrCodes {
             val event = m.groupValues[3]
             val reused = m.groupValues[4]
             val port = m.groupValues[5].toIntOrNull()
-            if (cls in SVCSTRACE_CLASSES && event in SVCSTRACE_EVENTS && port != null && port in 0..65535) {
-                return Match("svctrace:gen=$gen:class=$cls:event=$event:reused=$reused:port=$port", terminal = false)
+            val err = m.groupValues[10]
+            if (cls in SVCSTRACE_CLASSES && event in SVCSTRACE_EVENTS && port != null && port in 0..65535 &&
+                (err.isEmpty() || err in SVCSTRACE_ERR)) {
+                val builder = StringBuilder("svctrace:gen=$gen:class=$cls:event=$event:reused=$reused:port=$port")
+                if (m.groupValues[6].isNotEmpty()) builder.append(":xid=").append(m.groupValues[6])
+                if (m.groupValues[7].isNotEmpty()) builder.append(":elapsed_ms=").append(m.groupValues[7])
+                if (m.groupValues[8].isNotEmpty()) builder.append(":req=").append(m.groupValues[8])
+                if (m.groupValues[9].isNotEmpty()) builder.append(":idle_ms=").append(m.groupValues[9])
+                if (err.isNotEmpty()) builder.append(":err=").append(err)
+                return Match(builder.toString(), terminal = false)
             }
         }
         return null

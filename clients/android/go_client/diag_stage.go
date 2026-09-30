@@ -34,6 +34,10 @@ const (
 	cycleStageGWRefreshBegin   = "GW_REFRESH_BEGIN"
 	cycleStageGWPendingRefresh = "GW_PENDING_REFRESH_BEGIN"
 	cycleStageGWRequestBegin   = "GW_REQUEST_BEGIN"
+	cycleStageGWPendingEnd     = "GW_PENDING_REFRESH_END"
+	cycleStageRetrySleep       = "ATTEMPT_RETRY_SLEEP"
+	cycleStageRetryWait        = "ATTEMPT_RETRY_WAIT"
+	cycleStageAttemptTerminal  = "ATTEMPT_TERMINAL"
 )
 
 const (
@@ -65,6 +69,10 @@ var diagCycleTokens = map[string]bool{
 	cycleStageGWRefreshBegin:   true,
 	cycleStageGWPendingRefresh: true,
 	cycleStageGWRequestBegin:   true,
+	cycleStageGWPendingEnd:     true,
+	cycleStageRetrySleep:       true,
+	cycleStageRetryWait:        true,
+	cycleStageAttemptTerminal:  true,
 	"GW_REQUEST_END_2XX":       true,
 	"GW_REQUEST_END_4XX":       true,
 	"GW_REQUEST_END_5XX":       true,

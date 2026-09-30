@@ -49,13 +49,17 @@ type RunnerConfig struct {
 // this set (plus the gateway status-class tokens mapped by GatewayRequestStage); the
 // runner never emits anything else. Values are the token and integers only.
 const (
-	cycleStageAfterMeRead      = "AFTER_ME_READ"
-	cycleStageEmitBegin        = "EMIT_BEGIN"
-	cycleStageEmitEndOK        = "EMIT_END_OK"
-	cycleStageEmitEndErr       = "EMIT_END_ERR"
-	cycleStageEmitEndCancel    = "EMIT_END_CANCEL"
-	cycleStageGWRefreshBegin   = "GW_REFRESH_BEGIN"
-	cycleStageGWPendingRefresh = "GW_PENDING_REFRESH_BEGIN"
+	cycleStageAfterMeRead       = "AFTER_ME_READ"
+	cycleStageEmitBegin         = "EMIT_BEGIN"
+	cycleStageEmitEndOK         = "EMIT_END_OK"
+	cycleStageEmitEndErr        = "EMIT_END_ERR"
+	cycleStageEmitEndCancel     = "EMIT_END_CANCEL"
+	cycleStageGWRefreshBegin    = "GW_REFRESH_BEGIN"
+	cycleStageGWPendingRefresh  = "GW_PENDING_REFRESH_BEGIN"
+	cycleStageGWPendingEnd      = "GW_PENDING_REFRESH_END"
+	cycleStageAttemptRetrySleep = "ATTEMPT_RETRY_SLEEP"
+	cycleStageAttemptRetryWait  = "ATTEMPT_RETRY_WAIT"
+	cycleStageAttemptTerminal   = "ATTEMPT_TERMINAL"
 )
 
 // Runner performs bounded cycles and waits on the next refresh point or a trigger.
@@ -238,6 +242,7 @@ func (r *Runner) attempt(ctx context.Context) (*CatalogResponse, *BrowseCatalogR
 		if !runnerRetryable(err) {
 			// A terminal API result (revoke, missing entitlement) must not hot-loop:
 			// wait for the healthy refresh cadence or an explicit wake trigger.
+			r.stage(cycleStageAttemptTerminal)
 			return nil, nil, r.config.RefreshFloor, lastErr
 		}
 		if attempt == r.config.Attempts {
@@ -248,11 +253,13 @@ func (r *Runner) attempt(ctx context.Context) (*CatalogResponse, *BrowseCatalogR
 		if errors.As(err, &status) {
 			retryAfter = status.RetryAfterMS
 		}
+		r.stage(cycleStageAttemptRetrySleep)
 		if sleepErr := r.config.Sleep(ctx, RetryDelay(attempt, retryAfter, r.config.Jitter)); sleepErr != nil {
 			return nil, nil, 0, sleepErr
 		}
 	}
 	wait := RetryDelay(1, nil, r.config.Jitter)
+	r.stage(cycleStageAttemptRetryWait)
 	return nil, nil, wait, lastErr
 }
 
@@ -356,6 +363,7 @@ func (r *Runner) cycle(ctx context.Context) (*CatalogResponse, *BrowseCatalogRes
 	if pendingCatalog || plan.outstanding {
 		r.stage(cycleStageGWPendingRefresh)
 		refreshed, err := r.config.Coordinator.RefreshCatalog(ctx)
+		r.stage(cycleStageGWPendingEnd)
 		if err != nil {
 			return catalog, nil, err
 		}

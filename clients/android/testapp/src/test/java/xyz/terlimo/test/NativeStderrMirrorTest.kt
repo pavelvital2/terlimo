@@ -376,6 +376,27 @@ class NativeStderrMirrorTest {
         assertNull(NativeStderrCodes.code("svctrace: gen=1 class=ME event=READ_OK reused=0 port=70000"))
         assertNull(NativeStderrCodes.code("svctrace: gen=1 class=ME event=READ_OK reused=0 port=1 token=sekrit"))
         assertNull(NativeStderrCodes.code("svctrace: gen=1 class=PLANS event=READ_OK reused=0 port=1 token=sekrit"))
+        // Extended bounded fields of the service-exchange correlation.
+        assertEquals(
+            "svctrace:gen=2:class=GATEWAYS:event=READ_FAIL:reused=1:port=51409:xid=17:elapsed_ms=88:req=3:idle_ms=1250:err=EOF",
+            NativeStderrCodes.code("svctrace: gen=2 class=GATEWAYS event=READ_FAIL reused=1 port=51409 xid=17 elapsed_ms=88 req=3 idle_ms=1250 err=EOF"))
+        assertEquals(
+            "svctrace:gen=1:class=ME:event=EXCHANGE_END:reused=0:port=0:xid=1:elapsed_ms=15000:err=TIMEOUT",
+            NativeStderrCodes.code("svctrace: gen=1 class=ME event=EXCHANGE_END reused=0 port=0 xid=1 elapsed_ms=15000 err=TIMEOUT"))
+        assertEquals(
+            "svctrace:gen=1:class=AUTH:event=REUSE_STALE_IDLE:reused=1:port=41000:xid=2:idle_ms=8001",
+            NativeStderrCodes.code("svctrace: gen=1 class=AUTH event=REUSE_STALE_IDLE reused=1 port=41000 xid=2 idle_ms=8001"))
+        // Unknown error class or malformed field order is rejected.
+        assertNull(NativeStderrCodes.code("svctrace: gen=1 class=ME event=READ_FAIL reused=0 port=1 xid=1 elapsed_ms=5 err=SEKRIT"))
+        assertNull(NativeStderrCodes.code("svctrace: gen=1 class=ME event=READ_FAIL reused=0 port=1 elapsed_ms=5 xid=1"))
+        assertNull(NativeStderrCodes.code("svctrace: gen=1 class=ME event=READ_FAIL reused=0 port=1 xid=1 elapsed_ms=5 err=NONE"))
+    }
+
+    @Test fun acceptsRunnerPendingAndRetryMarkerTokens() {
+        for (token in listOf("GW_PENDING_REFRESH_END", "ATTEMPT_RETRY_SLEEP", "ATTEMPT_RETRY_WAIT", "ATTEMPT_TERMINAL")) {
+            assertEquals("cyclestage:$token:12:1790796172000",
+                NativeStderrCodes.code("cyclestage: $token 12 1790796172000"))
+        }
     }
 
     @Test fun svcTraceBudgetIsDedicatedAndBounded() {

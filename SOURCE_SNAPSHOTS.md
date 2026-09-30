@@ -133,3 +133,13 @@ Official v20 donor d450e132 CAPTCHA managers/JavaScript adapted to TERLIMO. Sepa
 Final canonical artifact rebuilt from exact HEAD; input/package ELF guards, v2 signature and alignment verified; installed readback matches APK hash, data preserved, user0/VPNoff. Build script exit1 is due to the 11 previously documented JVM baseline failures, not a clean full-suite pass. Device tests ran on product-identical predecessor app8e8d7a4 with final instrumentation tests; product sources unchanged at final HEAD.
 
 Open: no live VK CAPTCHA encountered; catalog4xx-to-timeout and one admission/frame-read/readiness deadline failure require server correlation. This is a scoped tested checkpoint, not a production readiness or stability declaration. No production/server changes.
+
+## 2026-10-01 — client and TEST node service timing diagnostics
+
+Android source `6228dafe1e423088dbf49b4bca1796bf714b6583`, tree `d24822e504f61c9251b8292110758a4663bf3be4`; APK SHA-256 `6f5334746c4164d59194543bc2f84e788f9409d5c7cf06b1803ca0862b2ca8f5`; native SHA-256 `ed28f1edf2cd65a813ff7d2a3b6964095be6126228416d97f5e04bb890adb397`. Incremental patch from 0f419e88 SHA-256 `1ba5ad9b05ac0c20f6fa804ef8d5aa91ce329a594a2545a5b8d197cc760a11d6`.
+
+Gateway source `bc28ae02066666c435627f6cdccf3e6529ce7710`, tree `16a803467931f0731f796c88dad86e662abae2ba`, based on 2619c86; patch SHA-256 `93da6840270b9b05132fdde2faf0b393428b5d336342028622fafed71780bd0a`. Running TEST binary SHA-256 `ea67e1ca8572610f7379af5c9f572679f202a0e28b3115a799d78e6ae542d68b`. Diagnostic-only rollback is previous devices-parity binary `e27efa76c196911e15700668395fe34f9e1eb1ba682f8b4ff3fa533acd9aeb99` (2619c86), not the older pre-devices 3f0aae40 snapshot.
+
+Bounded client exchange and node receive/forward/write markers preserve existing protocol, retries and deadlines. Root reviewed changes; focused client tests and six node diagnostic tests passed, node Service tests passed; full Android JVM suite still has 11 known baseline failures. TEST deployment gate 24/24 passed. One correlated phone scenario received catalogue revision289 in13297ms, reached Connected with VPN transport and tun traffic, then disconnected with no tun/service remaining. Actual Connect tap was Sep30 21:33:38UTC, not the announced21:33:16. Client/node clocks must not be treated as synchronized for exact network timing.
+
+Limitations: no independent positive HTTPS/readiness fields in this run; live VK CAPTCHA not exercised; earlier7.73s AUTH read delay did not reproduce and remains unexplained. One node-local SERVICE_PATH_DENIED GET has no identified path/client origin. This checkpoint preserves diagnostics, not a stability fix or production acceptance. Private TEST overlay, logs and binaries excluded; production unchanged.

@@ -5,9 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"io"
 	"net"
 	"reflect"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"wg-turn-client/wlwire"
@@ -33,6 +36,23 @@ var (
 	ErrBadResponse = errors.New("SERVICE_BAD_RESPONSE")
 )
 
+// TraceEvent is one bounded, secret-free exchange correlation record. It never carries a
+// payload, URL, credential, token or raw error text: only fixed classes, counters and
+// bounded durations. Exchange is a local monotonic id of this process, never any wire
+// identity. Cancel vs deadline is reported through the fixed ErrClass values.
+type TraceEvent struct {
+	Session   uint64
+	Exchange  uint64
+	Class     string
+	Event     string
+	Reused    bool
+	Requests  int
+	IdleMS    int64
+	ElapsedMS int64
+	ErrClass  string
+	Port      int
+}
+
 // Channel carries one bounded service exchange per call: exactly one establishment
 // attempt, one request and one reassembled reply. There is no worker pool, no probe
 // map and no catalog/grant dependency; the caller owns retries.
@@ -45,10 +65,9 @@ type Channel struct {
 	Timeout time.Duration
 	// Observe receives only fixed, secret-free stage names; it never affects I/O.
 	Observe func(string)
-	// Trace, when set, receives secret-free per-session correlation events:
-	// (session generation, request class, fixed event, reused, local UDP source port).
-	// It never affects I/O and never carries IP/credential/token/payload.
-	Trace         func(session uint64, class, event string, reused bool, port int)
+	// Trace, when set, receives secret-free per-session correlation events. It never
+	// affects I/O and never carries IP/credential/token/payload or raw error text.
+	Trace         func(TraceEvent)
 	mu            sync.Mutex
 	conn          net.Conn
 	cleanup       func()
@@ -57,6 +76,7 @@ type Channel struct {
 	requests      int
 	lastReply     time.Time
 	session       uint64
+	exchange      atomic.Uint64
 }
 
 func (c *Channel) stage(name string) {
@@ -65,12 +85,49 @@ func (c *Channel) stage(name string) {
 	}
 }
 
-// trace emits one bounded, secret-free session correlation event when a Trace sink is set.
-func (c *Channel) trace(class, event string, reused bool, port int) {
+// traceEvent emits one bounded, secret-free session correlation event when a Trace sink
+// is set. The sink is observation-only: a panic is contained and never affects I/O.
+func (c *Channel) traceEvent(ev TraceEvent) {
 	if c == nil || c.Trace == nil {
 		return
 	}
-	func() { defer func() { _ = recover() }(); c.Trace(c.session, class, event, reused, port) }()
+	func() { defer func() { _ = recover() }(); c.Trace(ev) }()
+}
+
+// traceErrClass maps an exchange outcome to the fixed error-class vocabulary. The cause
+// is decided by the exchange context first, so cancel vs deadline is never mixed up with
+// a transport error class; no raw error text, URL or body ever leaves this function.
+func traceErrClass(ctx context.Context, err error) string {
+	if ctx != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "TIMEOUT"
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return "CANCELED"
+		}
+	}
+	if err == nil {
+		return "NONE"
+	}
+	if errors.Is(err, io.EOF) {
+		return "EOF"
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return "CLOSED"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "TIMEOUT"
+	}
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "reset"):
+		return "RESET"
+	case strings.Contains(lower, "refused"):
+		return "REFUSED"
+	default:
+		return "OTHER"
+	}
 }
 
 type requestClassKey struct{}
@@ -145,7 +202,7 @@ func (c *Channel) closeLocked() {
 // canceled or failed request closes it terminally; an idle, changed-seed or full
 // connection is closed before any new request. The caller-provided id is the
 // frame identity the payload's request_id must echo.
-func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload []byte) ([]byte, error) {
+func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload []byte) (body []byte, err error) {
 	if len(payload) < 1 || len(payload) > wlwire.ServiceMaxFrame {
 		return nil, ErrBadResponse
 	}
@@ -165,11 +222,42 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 	if establishment == nil {
 		return nil, ErrTransportFailed
 	}
-	if c.conn != nil && (c.requests >= maxSessionRequests ||
-		!reflect.DeepEqual(c.seed, seed) || time.Since(c.lastReply) >= maxSessionIdle) {
-		c.closeLocked()
+	xid := c.exchange.Add(1)
+	start := time.Now()
+	outcomeClass := ""
+	requestsAtStart := c.requests
+	idleMS := int64(0)
+	if !c.lastReply.IsZero() {
+		idleMS = time.Since(c.lastReply).Milliseconds()
 	}
-	reused := c.conn != nil
+	reused := false
+	port := 0
+	defer func() {
+		cls := outcomeClass
+		if cls == "" {
+			cls = traceErrClass(runCtx, err)
+		}
+		c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "EXCHANGE_END",
+			Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+			ElapsedMS: time.Since(start).Milliseconds(), ErrClass: cls, Port: port})
+	}()
+	if c.conn != nil {
+		switch {
+		case c.requests >= maxSessionRequests:
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "REUSE_STALE_REQ",
+				Reused: true, Requests: c.requests, IdleMS: idleMS, Port: localUDPPort(c.conn)})
+			c.closeLocked()
+		case !reflect.DeepEqual(c.seed, seed):
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "REUSE_STALE_SEED",
+				Reused: true, Requests: c.requests, IdleMS: idleMS, Port: localUDPPort(c.conn)})
+			c.closeLocked()
+		case idleMS >= maxSessionIdle.Milliseconds():
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "REUSE_STALE_IDLE",
+				Reused: true, Requests: c.requests, IdleMS: idleMS, Port: localUDPPort(c.conn)})
+			c.closeLocked()
+		}
+	}
+	reused = c.conn != nil
 	if c.conn == nil {
 		// The established DTLS transport owns a session lifetime, not this HTTP
 		// request's 15-second context. Preserve caller values (physical network)
@@ -223,7 +311,9 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 			if !pendingQueued {
 				c.failed("ESTABLISH_FAILED", runCtx)
 			}
-			c.trace(class, "ESTABLISH_FAIL", false, 0)
+			outcomeClass = traceErrClass(runCtx, err)
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "ESTABLISH_FAIL",
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass})
 			return nil, transportError(runCtx, err)
 		}
 		if conn == nil {
@@ -234,7 +324,9 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 			if !pendingQueued {
 				c.failed("ESTABLISH_FAILED", runCtx)
 			}
-			c.trace(class, "ESTABLISH_FAIL", false, 0)
+			outcomeClass = traceErrClass(runCtx, nil)
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "ESTABLISH_FAIL",
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass})
 			return nil, ErrTransportFailed
 		}
 		if err := runCtx.Err(); err != nil {
@@ -247,18 +339,22 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 			if !pendingQueued {
 				c.failed("ESTABLISH_FAILED", runCtx)
 			}
-			c.trace(class, "ESTABLISH_FAIL", false, 0)
+			outcomeClass = traceErrClass(runCtx, err)
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "ESTABLISH_FAIL",
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass})
 			return nil, err
 		}
 		c.conn, c.cleanup, c.cancelSession, c.seed = conn, cleanup, cancelSession, seed
 		c.session++
 		c.stage("ESTABLISH_OK")
-		c.trace(class, "ESTABLISH_OK", false, localUDPPort(c.conn))
+		c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "ESTABLISH_OK",
+			ElapsedMS: time.Since(start).Milliseconds(), Port: localUDPPort(c.conn)})
+		port = localUDPPort(c.conn)
 	}
 	// Cancellation closes the active connection immediately even while Read blocks.
 	// A later request never reuses that connection.
 	activeConn := c.conn
-	port := localUDPPort(c.conn)
+	port = localUDPPort(c.conn)
 	stop := context.AfterFunc(runCtx, func() { _ = activeConn.Close() })
 	defer stop()
 	defer func() {
@@ -267,6 +363,8 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 		}
 	}()
 	c.stage("FRAME_WRITE_BEGIN")
+	c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "WRITE_BEGIN",
+		Reused: reused, Requests: requestsAtStart, IdleMS: idleMS, Port: port})
 	deadline := time.Now().Add(limit)
 	if ctxDeadline, ok := runCtx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
@@ -274,27 +372,41 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 	if err := c.conn.SetDeadline(deadline); err != nil {
 		c.closeLocked()
 		c.failed("FRAME_WRITE_FAILED", runCtx)
-		c.trace(class, "WRITE_FAIL", reused, port)
+		outcomeClass = traceErrClass(runCtx, err)
+		c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "WRITE_FAIL",
+			Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+			ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 		return nil, ErrTransportFailed
 	}
 	frames, err := wlwire.ServiceFrames(id, false, payload)
 	if err != nil {
 		c.closeLocked()
 		c.failed("FRAME_WRITE_FAILED", runCtx)
-		c.trace(class, "WRITE_FAIL", reused, port)
+		outcomeClass = traceErrClass(runCtx, err)
+		c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "WRITE_FAIL",
+			Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+			ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 		return nil, ErrBadResponse
 	}
 	for _, frame := range frames {
 		if _, err := c.conn.Write(frame); err != nil {
 			c.closeLocked()
 			c.failed("FRAME_WRITE_FAILED", runCtx)
-			c.trace(class, "WRITE_FAIL", reused, port)
+			outcomeClass = traceErrClass(runCtx, err)
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "WRITE_FAIL",
+				Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 			return nil, transportError(runCtx, err)
 		}
 	}
 	c.stage("FRAME_WRITE_OK")
-	c.trace(class, "WRITE_OK", reused, port)
+	c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "WRITE_OK",
+		Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+		ElapsedMS: time.Since(start).Milliseconds(), Port: port})
 	c.stage("FRAME_READ_BEGIN")
+	c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "READ_BEGIN",
+		Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+		ElapsedMS: time.Since(start).Milliseconds(), Port: port})
 	assembler := wlwire.ServiceAssembler{}
 	buf := make([]byte, readChunk)
 	for {
@@ -302,14 +414,20 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 		if err != nil {
 			c.closeLocked()
 			c.failed("FRAME_READ_FAILED", runCtx)
-			c.trace(class, "READ_FAIL", reused, port)
+			outcomeClass = traceErrClass(runCtx, err)
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "READ_FAIL",
+				Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 			return nil, transportError(runCtx, err)
 		}
 		replyID, body, err := assembler.Add(buf[:n], time.Now())
 		if err != nil {
 			c.closeLocked()
 			c.failed("FRAME_INVALID", runCtx)
-			c.trace(class, "READ_FAIL", reused, port)
+			outcomeClass = "OTHER"
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "READ_FAIL",
+				Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 			return nil, ErrBadResponse
 		}
 		if body == nil {
@@ -318,25 +436,36 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 		if replyID != id || len(body) == 0 {
 			c.closeLocked()
 			c.failed("FRAME_INVALID", runCtx)
-			c.trace(class, "READ_FAIL", reused, port)
+			outcomeClass = "OTHER"
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "READ_FAIL",
+				Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 			return nil, ErrBadResponse
 		}
 		if err := runCtx.Err(); err != nil {
 			c.closeLocked()
 			c.failed("FRAME_READ_FAILED", runCtx)
-			c.trace(class, "READ_FAIL", reused, port)
+			outcomeClass = traceErrClass(runCtx, err)
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "READ_FAIL",
+				Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 			return nil, err
 		}
 		if err := c.conn.SetDeadline(time.Time{}); err != nil {
 			c.closeLocked()
 			c.failed("FRAME_READ_FAILED", runCtx)
-			c.trace(class, "READ_FAIL", reused, port)
+			outcomeClass = traceErrClass(runCtx, err)
+			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "READ_FAIL",
+				Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+				ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 			return nil, ErrTransportFailed
 		}
 		c.requests++
 		c.lastReply = time.Now()
 		c.stage("FRAME_READ_OK")
-		c.trace(class, "READ_OK", reused, port)
+		c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "READ_OK",
+			Reused: reused, Requests: requestsAtStart, IdleMS: idleMS,
+			ElapsedMS: time.Since(start).Milliseconds(), Port: port})
 		return body, nil
 	}
 }
