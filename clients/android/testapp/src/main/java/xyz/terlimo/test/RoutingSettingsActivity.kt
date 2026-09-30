@@ -12,6 +12,11 @@ import android.widget.*
 
 /** Local, secret-free routing editor. Saving is disabled while a session is active. */
 class RoutingSettingsActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        // §26.1: resolve the stored per-user theme before any view is created.
+        super.attachBaseContext(AppTheme.wrap(newBase))
+    }
+
     private val protected by lazy { setOf(packageName) }
     private val presets = QuickExclusionCatalog(listOf(QuickExclusionPreset(QUICK_PRESET_ID, 18, QUICK_PACKAGES)))
     private lateinit var store: InstallationStore
@@ -25,6 +30,7 @@ class RoutingSettingsActivity : Activity() {
     private var installed: Map<String, ApplicationInfo> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
         store = InstallationStore(this)
         loaded = runCatching { store.readRoutingSettings(protected, presets) }.getOrNull()

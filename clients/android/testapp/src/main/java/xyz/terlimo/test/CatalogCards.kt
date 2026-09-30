@@ -94,13 +94,33 @@ internal object CatalogCardProjection {
 }
 
 internal object TerlimoCatalogBrandTokens {
-    const val BACKGROUND = 0xFF03070B
-    const val SURFACE = 0xFF0B1118
-    const val DIVIDER = 0xFF24303D
-    const val ACCENT = 0xFF00FE7A
-    const val BLUE = 0xFF2D9CFF
-    const val TEXT = 0xFFF4FFF9
-    const val MUTED_TEXT = 0xFFA9B4B0
-    const val WARNING = 0xFFF4B740
-    const val ERROR = 0xFFFF6B6B
+    /**
+     * §26.1: the brand tokens resolve against the process-wide theme (set by AppTheme.wrap in
+     * each Activity BEFORE views are built), so every existing screen/dialog follows the
+     * System/Light/Dark choice. Values are the same brand palette; light mode keeps contrast.
+     */
+    private val dark = intArrayOf(
+        0xFF03070B.toInt(), 0xFF0B1118.toInt(), 0xFF24303D.toInt(), 0xFF00FE7A.toInt(),
+        0xFF2D9CFF.toInt(), 0xFFF4FFF9.toInt(), 0xFFA9B4B0.toInt(), 0xFFF4B740.toInt(),
+        0xFFFF6B6B.toInt(), 0xFF0B2B20.toInt(), 0xFF1E2A36.toInt(),
+    )
+    private val light = intArrayOf(
+        0xFFF1F5F3.toInt(), 0xFFFFFFFF.toInt(), 0xFFD3DEDD.toInt(), 0xFF008A4B.toInt(),
+        0xFF1565C0.toInt(), 0xFF0A1A12.toInt(), 0xFF55655D.toInt(), 0xFFA05A00.toInt(),
+        0xFFC62828.toInt(), 0xFFE2F3E8.toInt(), 0xFFE7ECEA.toInt(),
+    )
+    private val palette: IntArray get() = if (ThemeState.isDark) dark else light
+
+    val BACKGROUND: Int get() = palette[0]
+    val SURFACE: Int get() = palette[1]
+    val DIVIDER: Int get() = palette[2]
+    val ACCENT: Int get() = palette[3]
+    val BLUE: Int get() = palette[4]
+    val TEXT: Int get() = palette[5]
+    val MUTED_TEXT: Int get() = palette[6]
+    val WARNING: Int get() = palette[7]
+    val ERROR: Int get() = palette[8]
+    /** Selected-row / loading-placeholder surfaces; palette-driven for light readability. */
+    val SELECTED: Int get() = palette[9]
+    val PLACEHOLDER: Int get() = palette[10]
 }

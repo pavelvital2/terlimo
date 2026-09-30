@@ -160,7 +160,7 @@ internal class OrbitHomeHeader(
     }
     private fun weighted(start: Int = 0) = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = start }
     private fun section(top: Int) = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = top }
-    private fun ring(stroke: Int, radius: Int, width: Int, fill: Int = 0xFF071016.toInt()) = GradientDrawable().apply {
+    private fun ring(stroke: Int, radius: Int, width: Int, fill: Int = TerlimoCatalogBrandTokens.SURFACE.toInt()) = GradientDrawable().apply {
         setColor(fill); cornerRadius = radius.toFloat(); setStroke(dp(width), stroke)
     }
     private fun powerBackground(stroke: Int, connected: Boolean, blocked: Boolean = false): LayerDrawable {
@@ -172,7 +172,7 @@ internal class OrbitHomeHeader(
         val glow = circle(if (connected) 0x3300FE7A else 0x18283945, if (connected) 7 else 4,
             TerlimoCatalogBrandTokens.BACKGROUND.toInt())
         val outer = circle(stroke, 1)
-        val inner = circle(if (connected || blocked) stroke else 0xFF617075.toInt(), 1)
+        val inner = circle(if (connected || blocked) stroke else TerlimoCatalogBrandTokens.DIVIDER.toInt(), 1)
         return LayerDrawable(arrayOf(glow, outer, inner)).apply {
             setLayerInset(1, dp(2), dp(2), dp(2), dp(2))
             setLayerInset(2, dp(5), dp(5), dp(5), dp(5))

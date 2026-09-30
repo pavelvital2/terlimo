@@ -49,4 +49,20 @@ class BottomNavigationSelectionTest {
             BottomNavigation.isInPlace(it.target) || it.target == NavTarget.ROUTING
         })
     }
+
+    @Test
+    fun `theme recreate restores an in-place tab with its highlight and never Routing`() {
+        val initial = BottomNavigation.initial()
+        // Every in-place tab is restored to BOTH visible and selected (the highlight follows).
+        for (target in listOf(NavTarget.HOME, NavTarget.SUBSCRIPTION, NavTarget.SETTINGS, NavTarget.HELP)) {
+            val restored = BottomNavigation.restoreSelection(initial, target)
+            assertEquals(target, restored.visible)
+            assertEquals(target, restored.selected)
+        }
+        // Routing opens its own Activity: restoring it keeps the current in-place state.
+        val onSettings = BottomNavigation.onTap(initial, NavTarget.SETTINGS)
+        assertEquals(onSettings, BottomNavigation.restoreSelection(onSettings, NavTarget.ROUTING))
+        // A cold start (nothing to restore) keeps the current state unchanged.
+        assertEquals(initial, BottomNavigation.restoreSelection(initial, null))
+    }
 }

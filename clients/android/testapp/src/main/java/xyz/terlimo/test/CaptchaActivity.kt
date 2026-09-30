@@ -11,6 +11,11 @@ import java.io.ByteArrayInputStream
 
 /** Bounded visible v17 CAPTCHA fallback; only success token crosses back into Go. */
 class CaptchaActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        // §26.1: resolve the stored per-user theme before any view is created.
+        super.attachBaseContext(AppTheme.wrap(newBase))
+    }
+
     private var browser: WebView? = null
     private var prompt: CaptchaPrompt? = null
     private val main = Handler(Looper.getMainLooper())
@@ -25,6 +30,7 @@ class CaptchaActivity : Activity() {
     }
     @Suppress("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
         val current = SessionService.captcha ?: return finish()
         prompt = current

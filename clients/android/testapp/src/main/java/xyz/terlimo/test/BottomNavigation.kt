@@ -34,6 +34,14 @@ internal object BottomNavigation {
 
     fun isInPlace(target: NavTarget): Boolean = target in IN_PLACE
 
+    /**
+     * §26.1: the tab restored after a theme recreate. Only an in-place tab can be restored;
+     * null or Routing keeps the current state (Routing opens its own Activity and must never
+     * become visible/selected this way).
+     */
+    fun restoreSelection(state: NavState, restored: NavTarget?): NavState =
+        if (restored != null && isInPlace(restored)) NavState(visible = restored, selected = restored) else state
+
     fun onTap(state: NavState, tapped: NavTarget): NavState =
         if (tapped in IN_PLACE) NavState(visible = tapped, selected = tapped) else state
 

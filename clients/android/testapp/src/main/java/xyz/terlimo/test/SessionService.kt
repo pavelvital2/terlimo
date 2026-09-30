@@ -106,6 +106,10 @@ class SessionService : Service() {
     }
     private val main = Handler(Looper.getMainLooper())
     private val actor = BridgeActor()
+    private var foregroundPromoted = false
+    private var scheduleListener: ((CatalogRefreshCoordinator.ScheduleChange) -> Unit)? = null
+    private val catalogGate = CatalogRefreshScheduleState.gate
+    private val catalogRefreshObservers = CatalogRefreshRequestRegistry()
     private val vpnWorker = Executors.newSingleThreadExecutor()
     private val signer = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(4))
     private val gate = AttemptGate()
@@ -357,6 +361,22 @@ class SessionService : Service() {
         connectivity = getSystemService(ConnectivityManager::class.java)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel("test-vpn", "TERLIMO VPN", NotificationManager.IMPORTANCE_LOW))
+        val listener: (CatalogRefreshCoordinator.ScheduleChange) -> Unit = { change ->
+            submitControl { onScheduleChanged(change) }
+        }
+        scheduleListener = listener
+        CatalogRefreshScheduleState.addScheduleListener(listener)
+    }
+
+    /**
+     * §26.5: a bound-only job instance must not become a foreground service or post the VPN
+     * notification. The ordinary started-service paths (UI/startForegroundService, retention
+     * alarm) promote exactly as before; the 5s startForeground window is kept because the
+     * promotion happens at the top of onStartCommand.
+     */
+    private fun promoteToForeground() {
+        if (foregroundPromoted) return
+        foregroundPromoted = true
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, MainActivity::class.java).putExtra(AnnouncementDeepLink.EXTRA_OPEN_ANNOUNCEMENTS, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -365,8 +385,12 @@ class SessionService : Service() {
             .setContentText("VPN-подключение").setSmallIcon(android.R.drawable.stat_sys_warning)
             .setContentIntent(open).addAction(Notification.Action.Builder(null, "Отключить", stop).build())
             .setOngoing(true).build())
+        updateForegroundState(view)
     }
     private fun updateForegroundState(state: ViewState) {
+        // §26.5: a bound-only job instance must never post the VPN notification; the ordinary
+        // started path promotes first and then publishes the same state into the notification.
+        if (!foregroundPromoted) return
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, MainActivity::class.java).putExtra(AnnouncementDeepLink.EXTRA_OPEN_ANNOUNCEMENTS, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -397,8 +421,127 @@ class SessionService : Service() {
             .setContentIntent(open).addAction(Notification.Action.Builder(null, "Отключить", stop).build())
             .setOnlyAlertOnce(true).setOngoing(true).build())
     }
-    override fun onBind(intent: Intent?) = null
+    override fun onBind(intent: Intent?): android.os.IBinder = binder
+
+    /**
+     * §26.5 in-process control surface for the periodic catalog job. The job gets a lease on
+     * the single writer; it can only ask for the existing bounded refresh and cancel its own
+     * request. No HTTP, signing, seed or explicit-connect surface is exposed.
+     */
+    internal inner class LocalBinder : android.os.Binder() {
+        fun requestCatalogRefresh(
+            requestId: String,
+            epochAtStart: Long,
+            observer: CatalogRefreshObserver,
+        ): Boolean = this@SessionService.requestCatalogRefresh(requestId, epochAtStart, observer)
+
+        fun cancelCatalogRefresh(requestId: String) =
+            this@SessionService.cancelCatalogRefresh(requestId)
+    }
+
+    private val binder = LocalBinder()
+
+    private fun requestCatalogRefresh(
+        requestId: String,
+        epochAtStart: Long,
+        observer: CatalogRefreshObserver,
+    ): Boolean {
+        if (stopping.get() || retiringActors.get() > 0) return false
+        if (!catalogGate.registerJob(requestId, epochAtStart)) return false
+        if (!catalogRefreshObservers.register(requestId, observer)) {
+            catalogGate.cancelJob(requestId)
+            return false
+        }
+        val attempt = gate.active
+        if (attempt == null) {
+            if (!catalogGate.pendCold(requestId)) {
+                catalogGate.cancelJob(requestId)
+                completeCatalogRefresh(listOf(CatalogRefreshCoordinator.Completion(requestId, false, "rejected")))
+                return true
+            }
+            // The queued begin re-validates the claim on the actor: a cancel/Off that arrived
+            // first makes this a rejection instead of a misclassified manual cycle.
+            submitCatalogControl(requestId) {
+                if (!catalogGate.isColdJobValid(requestId)) {
+                    completeCatalogRefresh(
+                        listOf(CatalogRefreshCoordinator.Completion(requestId, false, "rejected")))
+                } else {
+                    begin("", catalogRequestId = requestId)
+                }
+            }
+            return true
+        }
+        submitCatalogControl(requestId) {
+            val live = gate.active
+            val child = native
+            if (live != attempt || child == null || stopping.get()) {
+                catalogGate.cancelJob(requestId)
+                completeCatalogRefresh(
+                    listOf(CatalogRefreshCoordinator.Completion(requestId, false, "rejected")))
+                return@submitCatalogControl
+            }
+            if (!catalogGate.dispatch(attempt, requestId) {
+                    child.trySend(JSONObject().put("type", "refresh_manual"))
+                }) {
+                catalogGate.cancelJob(requestId)
+                completeCatalogRefresh(
+                    listOf(CatalogRefreshCoordinator.Completion(requestId, false, "rejected")))
+            }
+        }
+        return true
+    }
+
+    /** A periodic request must not vanish when the actor is full or already closing. */
+    private fun submitCatalogControl(requestId: String, action: () -> Unit) {
+        fun reject() {
+            catalogGate.cancelJob(requestId)
+            completeCatalogRefresh(listOf(CatalogRefreshCoordinator.Completion(requestId, false, "rejected")))
+        }
+        val result = actor.submit { if (stopping.get()) reject() else action() }
+        if (result != BridgeActor.Result.ACCEPTED) reject()
+    }
+
+    private val catalogCancellation by lazy {
+        CatalogRefreshCancellation(catalogGate, catalogRefreshObservers,
+            { cleanup -> submitControl(cleanup) }, ::stopJobOnlyCycles)
+    }
+
+    private fun cancelCatalogRefresh(requestId: String) = catalogCancellation.cancel(requestId)
+
+    /** Stops only the still-active job-only attempts; a manual/VPN takeover is never stopped. */
+    private fun stopJobOnlyCycles(attempts: List<String>) {
+        attempts.forEach { id ->
+            if (gate.active == id && catalogGate.isJobOnly(id)) stopAttempt(null, "schedule_cancelled")
+        }
+    }
+
+    /** The only terminal delivery path: the registry guarantees exactly one callback. */
+    private fun completeCatalogRefresh(completions: List<CatalogRefreshCoordinator.Completion>) {
+        if (completions.isEmpty()) return
+        main.post {
+            completions.forEach { completion ->
+                catalogRefreshObservers.deliver(completion.requestId, completion.ok, completion.error)
+            }
+        }
+    }
+
+    /** Off / mode change already applied linearly; execute only the actor-side consequences. */
+    private fun onScheduleChanged(change: CatalogRefreshCoordinator.ScheduleChange) {
+        if (stopping.get()) return
+        completeCatalogRefresh(change.jobFailures)
+        stopJobOnlyCycles(change.attemptsToStop)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        promoteToForeground()
+        // §26.5: any started-service intent is a live (manual/UI) owner of the cycle. This is
+        // queued on the actor before the begin it may trigger, so the ownership decision can
+        // never see it out of order. The job only ever binds, so it can never mark its own
+        // cycle as manually owned.
+        submitControl {
+            catalogGate.markServiceIntent()
+            catalogGate.markAttemptManual(gate.active)
+        }
         if (intent?.action != "cancel" && retiringActors.get() > 0) {
             if (intent?.action == "switch") SwitchDiagnostics.log("service_reject", "retiring")
             return START_NOT_STICKY
@@ -431,7 +574,14 @@ class SessionService : Service() {
             }
             "connect" -> {
                 val id = intent.getStringExtra("node_id").orEmpty()
+                PowerDiagnostics.line("svc.connect.enter",
+                    "gateIdle" to (gate.active == null).toString(),
+                    "retainedOk" to (RetainedCatalogPolicy.connectableId(view) == id).toString(),
+                    "phase" to view.phase,
+                    "native" to (native != null).toString(),
+                    "stopping" to stopping.get().toString())
                 if (gate.active == null && !stopping.get() && RetainedCatalogPolicy.connectableId(view) == id) {
+                    PowerDiagnostics.line("svc.connect.begin", "phase" to view.phase)
                     // Start a fresh native attempt; the retained id is applied only
                     // after the new catalog is verified (never from cache directly).
                     connectOnCatalog = id
@@ -537,10 +687,18 @@ class SessionService : Service() {
             "select" -> {
                 val id = intent.getStringExtra("node_id").orEmpty()
                 val attempt = gate.active
+                PowerDiagnostics.line("svc.select.enter",
+                    "phase" to view.phase,
+                    "selValid" to (id == NodeSelection.connectableNodeId(view.nodes, view.selectedNodeId)).toString(),
+                    "pending" to (view.pendingNodeId != null).toString(),
+                    "attemptLive" to (attempt != null).toString(),
+                    "native" to (native != null).toString(),
+                    "stopping" to stopping.get().toString())
                 if (!stopping.get() && view.phase == "CatalogReady" && view.pendingNodeId == null &&
                     id == NodeSelection.connectableNodeId(view.nodes, view.selectedNodeId) &&
                     VpnService.prepare(this) == null && attempt != null &&
                     connectDeadline.start(attempt, SystemClock.elapsedRealtime())) {
+                    PowerDiagnostics.line("svc.select.accepted", "phase" to view.phase)
                     explicitConnect.arm(ExplicitConnectGate.Entry.SELECT, attempt)
                     retention.loadForConnection()
                     retention.transitionFor(ConnectDeadline.MILLIS)
@@ -764,11 +922,18 @@ class SessionService : Service() {
                     handlePurchaseOperation(PurchaseOperation.PaymentGet(paymentId))
                 }
             }
-            "cancel" -> stopAttempt(null, "user_cancel")
+            "cancel" -> {
+                PowerDiagnostics.line("svc.cancel.enter",
+                    "phase" to view.phase,
+                    "attemptLive" to (gate.active != null).toString(),
+                    "native" to (native != null).toString())
+                stopAttempt(null, "user_cancel")
+            }
         }
         return START_NOT_STICKY
     }
-    private fun begin(link: String, requiredNetwork: Network? = null, recoveryGeneration: Long? = null) {
+    private fun begin(link: String, requiredNetwork: Network? = null, recoveryGeneration: Long? = null,
+        catalogRequestId: String? = null) {
         var startedAttempt: String? = null
         try {
             lastReadiness = emptyMap()
@@ -828,6 +993,11 @@ class SessionService : Service() {
                 "network_validated" to (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true),
                 "network_default_match" to runCatching { connectivity.activeNetwork == network }.getOrDefault(false))
             val attempt = UUID.randomUUID().toString()
+            if (catalogGate.beginCycle(attempt, catalogRequestId) == null) {
+                completeCatalogRefresh(listOf(CatalogRefreshCoordinator.Completion(
+                    catalogRequestId!!, false, "rejected")))
+                return
+            }
             startedAttempt = attempt
             lifecycleRevision.set(0)
             activeRuntimeEpoch = 0
@@ -949,7 +1119,12 @@ class SessionService : Service() {
             // Arm before any child start: native can accept a catalogue immediately, and a later
             // arm would resurrect a deadline that the accepted catalogue already disarmed.
             catalogTimer.apply(attempt, mobileCatalog.onAttemptStart(attempt, mobileBaseUrl != null))
-            child.start(start)
+            if (catalogRequestId == null) {
+                child.start(start)
+            } else if (!catalogGate.dispatch(attempt, catalogRequestId) { child.start(start); true }) {
+                stopAttempt(null, "schedule_cancelled")
+                return
+            }
             child.send(JSONObject().put("type", if (getSystemService(PowerManager::class.java).isInteractive) "device_wake" else "device_sleep")
                 .put("lifecycle_revision", lifecycleRevision.incrementAndGet()))
             // The explicit pre-admission first connect is consumed by the child that was
@@ -970,6 +1145,11 @@ class SessionService : Service() {
             }
             if (purchaseGate.onControlFailed()) {
                 publish(view.copy(purchase = PurchaseFlow.failure(view.purchase, "MOBILE_STATE_UNAVAILABLE")))
+            }
+            if (startedAttempt != null) {
+                completeCatalogRefresh(catalogGate.planTerminal(startedAttempt, code))
+            } else {
+                completeCatalogRefresh(listOfNotNull(catalogGate.failPendingCold("BEGIN_FAILED")))
             }
             if (recoveryGeneration != null) handleRecoveryTerminal(startedAttempt, recoveryGeneration, code)
             else if (activeVpnConfig != null) holdKillSwitch(code)
@@ -1299,16 +1479,30 @@ class SessionService : Service() {
                         // selection, never sets CatalogReady, never arms the catalogue deadline,
                         // probe/admission/sync and never starts intent/hour/VPN. A malformed
                         // browse answer fails the attempt through the existing host-failure path.
-                        publishActive(attempt, BrowseCatalogCodec.apply(view, BrowseCatalogCodec.parse(event)))
+                        val updatedBrowse = BrowseCatalogCodec.apply(view, BrowseCatalogCodec.parse(event))
+                        val refreshPlan = catalogGate.commit(attempt) { publishActive(attempt, updatedBrowse) }
+                        if (refreshPlan.stopCycle) stopAttempt(null, "schedule_cancelled")
+                        completeCatalogRefresh(refreshPlan.completions)
                         return
                     }
                     val catalog = NodeSelection.parseCatalog(event)
                     // Optional display data cannot change transport admission/outcome.
                     val summary = runCatching { CatalogSummary.parse(event) }.getOrNull()
                     val updated = NodeSelection.applyCatalog(view, catalog, summary)
-                    // A fresh verified catalogue invalidates any in-flight "Пинг всех" run.
-                    publishActive(attempt, updated.copy(pingAll = PingAllGate.reset()))
-                    runCatching { persistCatalogCache(updated) }
+                    // §26.5 commit-time ownership fence: the publish/persist block runs inside
+                    // the ownership lock, so an Off/mode change either invalidates the claim
+                    // before the decision or happens only after the write completed. A cycle
+                    // that only served a canceled periodic request publishes nothing.
+                    val refreshPlan = catalogGate.commit(attempt) {
+                        // A fresh verified catalogue invalidates any in-flight "Пинг всех" run.
+                        publishActive(attempt, updated.copy(pingAll = PingAllGate.reset()))
+                        runCatching { persistCatalogCache(updated) }
+                    }
+                    if (!refreshPlan.publish) {
+                        if (refreshPlan.stopCycle) stopAttempt(null, "schedule_cancelled")
+                        return
+                    }
+                    completeCatalogRefresh(refreshPlan.completions)
                     // Fresh catalogue accepted for this attempt: terminal CATALOG_ACCEPTED, the
                     // acquisition deadline is done and later rights never re-arm it.
                     catalogTimer.apply(
@@ -2393,8 +2587,14 @@ class SessionService : Service() {
         val recovery = networkRecovery
         when (TerminalFailurePolicy.outcome(code, recovery != null, activeVpnConfig != null)) {
             TerminalFailureOutcome.STOP -> stopAttempt(code)
-            TerminalFailureOutcome.HOLD -> holdKillSwitch(code)
-            TerminalFailureOutcome.RETRY_RECOVERY -> recovery?.let { handleRecoveryTerminal(attempt, it.generation, code) }
+            TerminalFailureOutcome.HOLD -> {
+                completeCatalogRefresh(catalogGate.planTerminal(attempt, code))
+                holdKillSwitch(code)
+            }
+            TerminalFailureOutcome.RETRY_RECOVERY -> {
+                completeCatalogRefresh(catalogGate.planTerminal(attempt, code))
+                recovery?.let { handleRecoveryTerminal(attempt, it.generation, code) }
+            }
         }
     }
     private fun handleRecoveryTerminal(attempt: String?, generation: Long, code: String) {
@@ -2579,6 +2779,7 @@ class SessionService : Service() {
         invalidateHoldFailover()
         // Reset the per-attempt state and fence all older callbacks; a stale stop of a foreign
         // attempt can neither clear the timer nor reset the current state.
+        completeCatalogRefresh(catalogGate.planTerminal(gate.active ?: "", code ?: "stopped"))
         if (mobileCatalog.onAttemptStop(gate.active) == MobileCatalogAction.DISARM) catalogTimer.clear()
         if (code != null) {
             android.util.Log.w("WDTT/Terminal", FailureDiagnostics.line("stop", view.phase, gate.active, code, null))
@@ -2664,6 +2865,8 @@ class SessionService : Service() {
     }
     override fun onDestroy() {
         if (runningService === this) runningService = null
+        scheduleListener?.let { CatalogRefreshScheduleState.removeScheduleListener(it) }
+        scheduleListener = null
         retention.close()
         listeners.remove(statusListener)
         stopAttempt(null, "on_destroy")

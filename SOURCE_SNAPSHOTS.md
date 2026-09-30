@@ -100,3 +100,12 @@ Android 0d1878fb1fdf30b9dc0eea56f1fdcf8fa218a0b5, tree 4c7d4dcbb178f16d1eb699360
 ## 2026-09-29 red protected HOLD
 
 Android821803cb36fe7d042dd0f4bb10d1a8514c51b976/treeec13df3fab31a4ac264e2217fb4c27a7567fdaf8 accepted after root full diff review. KillSwitch uses existing ERROR color on rings/icon; OFF/Connected and disconnect action preserved. Executor reports focused JVM checks and actual Android View instrumentation passed (1 test); synthetic state render is not live expiry acceptance. Installed APK6f660efd8b392179e1481df4797129c26994fb1aa5841968c21d56795e676f4e, packagednative5e89b800 unchanged, signer42ab6d95 unchanged, Wi-Fi install-r/no clear and installed readback reported. Private overlay excluded. Backend5d391c6/gateway2619c86 unchanged. Live expiry pass remains pending.
+
+
+## Android accepted checkpoint — 2026-09-30
+
+Source `a3776f1625f1d8ecd2bde4e8016b9ca521ae5d23`, tree `d4319a58383534ab58def5e7ca671b5f35f651ad`; installed TEST APK SHA256 `8ed7e5200c70f771a3414c389ec7d934a7b1b18acf547abb5937bed53b1215d9`. Exported pinned Git objects, not dirty working files; private test-mobile.json and compiled APK/native artifacts excluded. Previous export .gitignore retained.
+
+Includes accepted settings theme/battery/Android VPN settings entry and §26.5 catalogue schedule Off/12h/24h/7d. Root engine fix 69bb585 passed 48 focused tests; UI scheduler refusal handling 9880abfb reviewed. Cold background dispatch and schedule Off removal verified. On 30 September, select accepted at11:23:49UTC, VPN36/36 and HTTPS via TEST193.5.251.217 before/after job11:25:36UTC; normal disconnect11:26:32UTC. Final user0/VPNoff/scheduleOff. Diagnostics a3776f1 preserve control logic; root reviewed diff and raw markers, first HTTPS screenshot and second XML.
+
+Earlier silent Connect failure was not reproduced; cause remains unknown, no speculative fallback applied. ViewState attempt marker is not service gate.active. §26.2 autoconnect is still design-only, not implemented. No production readiness claim; server/gateway exports unchanged by this checkpoint.

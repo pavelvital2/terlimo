@@ -6,7 +6,13 @@ import android.text.InputType
 import android.widget.*
 
 class RetentionSettingsActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        // §26.1: resolve the stored per-user theme before any view is created.
+        super.attachBaseContext(AppTheme.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("transport_retention", MODE_PRIVATE)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 32, 32, 48) }

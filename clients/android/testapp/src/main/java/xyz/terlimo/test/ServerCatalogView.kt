@@ -182,7 +182,7 @@ internal class ServerCatalogView(
     private fun addServerRow(card: CatalogCard, readOnly: Boolean = false) {
         val enabled = card.enabled && !readOnly
         addView(row(minHeight = 64).apply {
-            background = shape(if (card.selected) 0xFF0B2B20.toInt() else TerlimoCatalogBrandTokens.SURFACE.toInt(), dp(14),
+            background = shape(if (card.selected) TerlimoCatalogBrandTokens.SELECTED.toInt() else TerlimoCatalogBrandTokens.SURFACE.toInt(), dp(14),
                 if (card.selected) TerlimoCatalogBrandTokens.ACCENT.toInt() else TerlimoCatalogBrandTokens.DIVIDER.toInt())
             isEnabled = enabled
             isClickable = enabled
@@ -218,7 +218,7 @@ internal class ServerCatalogView(
     private fun addLoading() {
         addView(card().apply {
             addView(text("Обновляем каталог…", 18f, bold = true))
-            repeat(3) { addView(TextView(context).apply { minHeight = dp(48); background = shape(0xFF1E2A36.toInt(), dp(12)) }, sectionParams(8)) }
+            repeat(3) { addView(TextView(context).apply { minHeight = dp(48); background = shape(TerlimoCatalogBrandTokens.PLACEHOLDER.toInt(), dp(12)) }, sectionParams(8)) }
         }, sectionParams())
     }
 
@@ -304,7 +304,7 @@ internal class ServerCatalogView(
 
     private fun addBrowseRow(node: NodeLabel, selected: Boolean) {
         addView(row(minHeight = 64).apply {
-            background = shape(if (selected) 0xFF0B2B20.toInt() else TerlimoCatalogBrandTokens.SURFACE.toInt(), dp(14),
+            background = shape(if (selected) TerlimoCatalogBrandTokens.SELECTED.toInt() else TerlimoCatalogBrandTokens.SURFACE.toInt(), dp(14),
                 if (selected) TerlimoCatalogBrandTokens.ACCENT.toInt() else TerlimoCatalogBrandTokens.DIVIDER.toInt())
             isClickable = true
             isFocusable = true
@@ -340,7 +340,7 @@ internal class ServerCatalogView(
     }
     private fun badge(label: String, color: Int) = TextView(context).apply {
         text = label; textSize = 13f; setTextColor(color); gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD
-        minWidth = dp(48); minHeight = dp(48); background = shape(0xFF0D1722.toInt(), dp(14), color)
+        minWidth = dp(48); minHeight = dp(48); background = shape(TerlimoCatalogBrandTokens.PLACEHOLDER.toInt(), dp(14), color)
     }
     private fun text(value: String, sp: Float, bold: Boolean = false, muted: Boolean = false, color: Int? = null) = TextView(context).apply {
         text = value; textSize = sp; setTextColor(color ?: if (muted) TerlimoCatalogBrandTokens.MUTED_TEXT.toInt() else TerlimoCatalogBrandTokens.TEXT.toInt())
@@ -385,7 +385,7 @@ private class CountryFlagView(context: Context, private val code: String) : View
             "NL" -> { stripe(canvas, left, top, right, bottom, listOf(0xFFAE1C28.toInt(), Color.WHITE, 0xFF21468B.toInt())) }
             "DE" -> { stripe(canvas, left, top, right, bottom, listOf(Color.BLACK, 0xFFDD0000.toInt(), 0xFFFFCE00.toInt())) }
             "RU" -> { stripe(canvas, left, top, right, bottom, listOf(Color.WHITE, 0xFF0039A6.toInt(), 0xFFD52B1E.toInt())) }
-            else -> { fill(canvas, 0xFF0D1722.toInt(), left, top, right, bottom); paint.color = 0xFF9AA3B2.toInt(); paint.textSize = dp(10).toFloat(); paint.textAlign = Paint.Align.CENTER; canvas.drawText(code, (left + right) / 2, top + dp(13), paint) }
+            else -> { fill(canvas, TerlimoCatalogBrandTokens.PLACEHOLDER.toInt(), left, top, right, bottom); paint.color = TerlimoCatalogBrandTokens.MUTED_TEXT.toInt(); paint.textSize = dp(10).toFloat(); paint.textAlign = Paint.Align.CENTER; canvas.drawText(code, (left + right) / 2, top + dp(13), paint) }
         }
     }
     private fun stripe(canvas: Canvas, l: Float, t: Float, r: Float, b: Float, colors: List<Int>) {

@@ -2,6 +2,7 @@ package xyz.terlimo.test
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.res.ColorStateList
 import android.content.ClipboardManager
 import android.content.Intent
@@ -12,6 +13,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.text.InputType
 import android.view.View
 import android.widget.*
@@ -19,6 +22,11 @@ import com.google.zxing.integration.android.IntentIntegrator
 
 /** Product UI; no admin/deploy controls or secret diagnostics. */
 class MainActivity : Activity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        // §26.1: resolve the stored per-user theme before any view is created.
+        super.attachBaseContext(AppTheme.wrap(newBase))
+    }
+
     private lateinit var link: EditText
     private lateinit var status: TextView
     private lateinit var nodes: Spinner
@@ -36,6 +44,10 @@ class MainActivity : Activity() {
     private lateinit var subscriptionDevices: TextView
     private lateinit var subscriptionTraffic: TextView
     private lateinit var subscriptionPlan: TextView
+    private lateinit var batteryMessage: TextView
+    private lateinit var batteryButton: Button
+    private lateinit var scheduleStatus: TextView
+    private var catalogScheduleRefused = false
     private lateinit var devicesBlock: LinearLayout
     private lateinit var devicesRefreshButton: Button
     private lateinit var devicesCount: TextView
@@ -75,6 +87,9 @@ class MainActivity : Activity() {
     private var openHelp: (() -> Unit)? = null
     private var helpTabButton: Button? = null
     private var openTab: ((NavTarget) -> Unit)? = null
+    // §26.1: survive a theme-driven recreate without repeating side effects.
+    private var visibleTarget: NavTarget = NavTarget.HOME
+    private var restoreTarget: NavTarget? = null
     private var lastRenderedState: ViewState? = null
     private val listener: (ViewState) -> Unit = { state -> runOnUiThread { render(state) } }
     private val main = Handler(Looper.getMainLooper())
@@ -97,7 +112,21 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
+        // §26.5: restore the persisted schedule and reconcile BEFORE building the Settings UI,
+        // so the radio group shows the real stored mode. Idempotent: a recreation never
+        // restarts the period.
+        CatalogRefreshScheduleState.restore(this)
+        // §26.5: the STARTUP reconcile result is honoured exactly like a later change, so a
+        // refused schedule is never shown as active; a scheduler throw is honestly reported.
+        val startupReconcile = runCatching { CatalogRefreshScheduler.reconcile(this) }.getOrNull()
+        catalogScheduleRefused = if (startupReconcile == null) {
+            CatalogRefreshScheduleState.mode() != CatalogRefreshMode.OFF
+        } else {
+            CatalogRefreshPolicy.refused(
+                CatalogRefreshScheduleState.mode(), startupReconcile.decision, startupReconcile.scheduleResult)
+        }
         // Android 13+ hides the foreground-service notification without the runtime
         // permission. Ask at most once per install; the tunnel never depends on the answer
         // and the in-app status/diagnostics remain when the user declines.
@@ -110,6 +139,9 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NotificationPermission.REQUEST_CODE)
         }
         externalIntentConsumed = savedInstanceState?.getBoolean(STATE_EXTERNAL_INTENT_CONSUMED) == true
+        restoreTarget = savedInstanceState?.getString(STATE_VISIBLE_TAB)?.let {
+            runCatching { NavTarget.valueOf(it) }.getOrNull()
+        }
         // Restores only the opened id and visible error; never a live open marker, so a
         // recreated Activity cannot auto-open the browser (explicit action only).
         checkoutOpenPolicy.restoreFrom(savedInstanceState)
@@ -369,12 +401,26 @@ class MainActivity : Activity() {
         orbitHeader = OrbitHomeHeader(this,
             onPower = {
                 val state = SessionService.view
+                val projected = projectedState()
+                PowerDiagnostics.line("onPower",
+                    "live" to state.phase, "proj" to projected.phase,
+                    "display" to projected.displayMode, "nodes" to projected.nodes.size.toString(),
+                    "selPresent" to (projected.selectedNodeId.isNotEmpty()).toString(),
+                    "selValid" to (NodeSelection.displayedNodeId(projected.nodes, projected.selectedNodeId) != null).toString(),
+                    "pendChoice" to (pendingChoiceId != null).toString(),
+                    "pendNode" to (projected.pendingNodeId != null).toString(),
+                    "attempt" to (!projected.attempt.isNullOrEmpty()).toString())
                 if (PreAdmissionConnect.connectable(state, pendingChoiceId != null)) {
+                    PowerDiagnostics.line("onPower.branch", "value" to "preAdmission")
                     requestPreAdmissionConsent(state)
                 } else if (state.phase in setOf("Connected", "Starting", "BootstrapConnecting", "NodeAuthenticating", "ConfiguringVPN", "SwitchingServer", "WaitingUser", "Reconnecting", "SleepPaused", "KillSwitch")) {
+                    PowerDiagnostics.line("onPower.branch", "value" to "cancel", "phase" to state.phase)
                     selectedForConsent = null
                     startService(Intent(this, SessionService::class.java).setAction("cancel"))
-                } else requestVpnConsentForCurrentSelection()
+                } else {
+                    PowerDiagnostics.line("onPower.branch", "value" to "requestConsent", "phase" to state.phase)
+                    requestVpnConsentForCurrentSelection()
+                }
             },
             onRefresh = { startForegroundService(Intent(this, SessionService::class.java).setAction("refresh")) },
         )
@@ -525,6 +571,114 @@ class MainActivity : Activity() {
                 minHeight = dp(48)
                 setOnClickListener { startActivity(Intent(this@MainActivity, RetentionSettingsActivity::class.java)) }
             })
+            // §26.3: entry point only. Always-on itself is chosen by the user on the standard
+            // Android VPN screen; the app never enables it and starts nothing after a reboot.
+            addView(TextView(this@MainActivity).apply {
+                text = "VPN после перезагрузки телефона"
+                textSize = 18f
+                setPadding(0, dp(20), 0, 0)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Настройте постоянное VPN-подключение в системных настройках Android."
+                textSize = 14f
+            })
+            addView(Button(this@MainActivity).apply {
+                text = "Настроить"
+                minHeight = dp(48)
+                setOnClickListener { openSystemVpnSettings() }
+            })
+            // §26.4: honest battery-optimization warning with a system-settings entry. The
+            // app changes nothing; the user chooses "Без ограничений / Не оптимизировать".
+            addView(TextView(this@MainActivity).apply {
+                text = "Энергосбережение"
+                textSize = 18f
+                setPadding(0, dp(20), 0, 0)
+            })
+            batteryMessage = TextView(this@MainActivity).apply { textSize = 14f }
+            addView(batteryMessage)
+            batteryButton = Button(this@MainActivity).apply {
+                text = BatteryOptimizationPolicy.ACTION_TEXT
+                minHeight = dp(48)
+                setOnClickListener { openBatteryOptimizationSettings() }
+            }
+            addView(batteryButton)
+            // §26.1: theme choice (System default). Saved per user; applied by recreating the
+            // current screen with the tab and input preserved (no network/VPN side effects).
+            addView(TextView(this@MainActivity).apply {
+                text = "Тема"
+                textSize = 18f
+                setPadding(0, dp(20), 0, 0)
+            })
+            val themeGroup = RadioGroup(this@MainActivity).apply { orientation = RadioGroup.VERTICAL }
+            fun themeRadio(id: Int, label: String) = RadioButton(this@MainActivity).apply {
+                this.id = id; text = label; minHeight = dp(48)
+            }
+            themeGroup.addView(themeRadio(THEME_SYSTEM, "Системная"))
+            themeGroup.addView(themeRadio(THEME_LIGHT, "Светлая"))
+            themeGroup.addView(themeRadio(THEME_DARK, "Тёмная"))
+            when (AppTheme.load(this@MainActivity)) {
+                ThemeMode.LIGHT -> themeGroup.check(THEME_LIGHT)
+                ThemeMode.DARK -> themeGroup.check(THEME_DARK)
+                ThemeMode.SYSTEM -> themeGroup.check(THEME_SYSTEM)
+            }
+            themeGroup.setOnCheckedChangeListener { _, checkedId ->
+                val mode = when (checkedId) {
+                    THEME_LIGHT -> ThemeMode.LIGHT
+                    THEME_DARK -> ThemeMode.DARK
+                    else -> ThemeMode.SYSTEM
+                }
+                if (AppTheme.load(this@MainActivity) != mode) {
+                    AppTheme.save(this@MainActivity, mode)
+                    recreate()
+                }
+            }
+            addView(themeGroup)
+            // §26.5: catalog auto-update schedule. Off is the default; changing the mode
+            // replaces the single existing JobScheduler entry and reports a refusal honestly.
+            addView(TextView(this@MainActivity).apply {
+                text = "Обновление каталога"
+                textSize = 18f
+                setPadding(0, dp(20), 0, 0)
+            })
+            val scheduleGroup = RadioGroup(this@MainActivity).apply { orientation = RadioGroup.VERTICAL }
+            fun scheduleRadio(id: Int, label: String) = RadioButton(this@MainActivity).apply {
+                this.id = id; text = label; minHeight = dp(48)
+            }
+            scheduleGroup.addView(scheduleRadio(SCHEDULE_OFF, CatalogRefreshPolicy.label(CatalogRefreshMode.OFF)))
+            scheduleGroup.addView(scheduleRadio(SCHEDULE_TWICE, CatalogRefreshPolicy.label(CatalogRefreshMode.TWICE_DAILY)))
+            scheduleGroup.addView(scheduleRadio(SCHEDULE_DAILY, CatalogRefreshPolicy.label(CatalogRefreshMode.DAILY)))
+            scheduleGroup.addView(scheduleRadio(SCHEDULE_WEEKLY, CatalogRefreshPolicy.label(CatalogRefreshMode.WEEKLY)))
+            scheduleGroup.check(when (CatalogRefreshScheduleState.mode()) {
+                CatalogRefreshMode.OFF -> SCHEDULE_OFF
+                CatalogRefreshMode.TWICE_DAILY -> SCHEDULE_TWICE
+                CatalogRefreshMode.DAILY -> SCHEDULE_DAILY
+                CatalogRefreshMode.WEEKLY -> SCHEDULE_WEEKLY
+            })
+            scheduleStatus = TextView(this@MainActivity).apply {
+                textSize = 14f
+                setTextColor(TerlimoCatalogBrandTokens.MUTED_TEXT.toInt())
+            }
+            scheduleStatus.text = CatalogRefreshPolicy.statusText(CatalogRefreshScheduleState.mode(), catalogScheduleRefused)
+            scheduleGroup.setOnCheckedChangeListener { _, checkedId ->
+                val mode = when (checkedId) {
+                    SCHEDULE_TWICE -> CatalogRefreshMode.TWICE_DAILY
+                    SCHEDULE_DAILY -> CatalogRefreshMode.DAILY
+                    SCHEDULE_WEEKLY -> CatalogRefreshMode.WEEKLY
+                    else -> CatalogRefreshMode.OFF
+                }
+                if (CatalogRefreshScheduleState.mode() != mode) {
+                    CatalogRefreshScheduleState.setMode(mode)
+                    val result = runCatching { CatalogRefreshScheduler.reconcile(this@MainActivity, mode) }.getOrNull()
+                    catalogScheduleRefused = if (result == null) {
+                        mode != CatalogRefreshMode.OFF
+                    } else {
+                        CatalogRefreshPolicy.refused(mode, result.decision, result.scheduleResult)
+                    }
+                    scheduleStatus.text = CatalogRefreshPolicy.statusText(mode, catalogScheduleRefused)
+                }
+            }
+            addView(scheduleGroup)
+            addView(scheduleStatus)
         }
         val settingsSurface = ScrollView(this).apply {
             isFillViewport = true
@@ -552,6 +706,7 @@ class MainActivity : Activity() {
             var navState = BottomNavigation.initial()
             fun onTab(target: NavTarget) {
                 navState = BottomNavigation.onTap(navState, target)
+                visibleTarget = navState.visible
                 val visibleView = when (navState.visible) {
                     NavTarget.HOME -> mainSurface
                     NavTarget.SUBSCRIPTION -> subscriptionSurface
@@ -585,7 +740,28 @@ class MainActivity : Activity() {
             // Bind only after the map is populated, so the first render(SessionService.view)
             // already holds a non-null Help button and can apply the unread red dot.
             helpTabButton = destinationButtons[NavTarget.HELP]
-            onTab(NavTarget.HOME)
+            // §26.1: restore AFTER the buttons exist, so the selected highlight is rendered
+            // too. The pure selection helper keeps Routing out of the in-place surfaces and
+            // never runs a side-effecting onTab (no probe cancel / routing launch / ask).
+            val restoredState = BottomNavigation.restoreSelection(navState, restoreTarget)
+            if (restoredState !== navState) {
+                navState = restoredState
+                val visibleView = when (restoredState.visible) {
+                    NavTarget.SUBSCRIPTION -> subscriptionSurface
+                    NavTarget.SETTINGS -> settingsSurface
+                    NavTarget.HELP -> helpSurface
+                    else -> mainSurface
+                }
+                surfaces.forEach { it.visibility = if (it === visibleView) View.VISIBLE else View.GONE }
+                destinationButtons.forEach { (tab, button) ->
+                    button.setBottomNavigationActive(tab == restoredState.selected)
+                }
+                visibleTarget = navState.visible
+            } else if (restoreTarget == null) {
+                // A normal cold start (no recreate) opens Главная.
+                onTab(NavTarget.HOME)
+            }
+            restoreTarget = null
         }
         val content = FrameLayout(this).apply {
             addView(mainSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -593,6 +769,7 @@ class MainActivity : Activity() {
             addView(helpSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(settingsSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
+        savedInstanceState?.getString(STATE_LINK_TEXT)?.let { link.setText(it) }
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(TerlimoCatalogBrandTokens.BACKGROUND.toInt())
@@ -620,6 +797,69 @@ class MainActivity : Activity() {
         if (!ProcessAutoLoad.claim()) return
         startForegroundService(Intent(this, SessionService::class.java).setAction("resume"))
     }
+
+    /**
+     * §26.3: the Settings entry opens the standard Android VPN screen, where the user alone
+     * decides whether to enable Always-on. If the OEM resolves no VPN settings screen, the
+     * generic system settings are shown instead; if neither resolves, a clear message is
+     * shown. Nothing is enabled from here and no reboot/autostart behaviour is added.
+     */
+    /**
+     * §26.4: platform check of THIS app's battery-optimization state. A missing manager or a
+     * thrown SecurityException/RuntimeException is an honest UNKNOWN, never a false PASS.
+     */
+    private fun batteryIgnoringOptimization(): Boolean? = try {
+        (getSystemService(POWER_SERVICE) as? PowerManager)?.isIgnoringBatteryOptimizations(packageName)
+    } catch (_: SecurityException) {
+        null
+    } catch (_: RuntimeException) {
+        null
+    }
+
+    private fun renderBatteryOptimization() {
+        val state = BatteryOptimizationPolicy.state(batteryIgnoringOptimization())
+        val visible = BatteryOptimizationPolicy.warningVisible(state)
+        batteryMessage.text = BatteryOptimizationPolicy.text(state)
+        batteryMessage.visibility = if (visible) View.VISIBLE else View.GONE
+        batteryButton.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * §26.4: opens the standard battery screen where the user alone decides. Falls back to the
+     * app details and generic settings; if none resolves a clear message is shown. No new
+     * permission (the ignore-optimization request screen needs none) and no app-side change.
+     */
+    private fun openBatteryOptimizationSettings() {
+        for (action in BatteryOptimizationPolicy.actions()) {
+            val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Only the app-details screen takes the package; the battery list and generic
+            // settings screens are package-agnostic.
+            if (action == Settings.ACTION_APPLICATION_DETAILS_SETTINGS) {
+                intent.data = android.net.Uri.parse("package:$packageName")
+            }
+            try {
+                startActivity(intent)
+                return
+            } catch (_: ActivityNotFoundException) {
+            } catch (_: SecurityException) {
+            }
+        }
+        Toast.makeText(this, "Системные настройки батареи недоступны на этом устройстве",
+            Toast.LENGTH_LONG).show()
+    }
+
+    private fun openSystemVpnSettings() {
+        val actions = listOf(Settings.ACTION_VPN_SETTINGS, Settings.ACTION_SETTINGS)
+        for (action in actions) {
+            try {
+                startActivity(Intent(action))
+                return
+            } catch (_: ActivityNotFoundException) {
+            } catch (_: SecurityException) {
+            }
+        }
+        Toast.makeText(this, "Системные настройки VPN недоступны на этом устройстве", Toast.LENGTH_LONG).show()
+    }
     private fun Button.configureBottomNavigationButton(icon: Int) {
         minWidth = 0
         minHeight = dp(48)
@@ -637,6 +877,8 @@ class MainActivity : Activity() {
         setCompoundDrawablesRelativeWithIntrinsicBounds(0, icon, 0, 0)
         compoundDrawablePadding = dp(2)
         setPadding(dp(2), dp(4), dp(2), dp(2))
+        // §26.1: palette-driven default tint/text so icons are never hard-coded white.
+        setBottomNavigationActive(false)
     }
     private fun Button.setBottomNavigationActive(active: Boolean) {
         val color = if (active) TerlimoCatalogBrandTokens.ACCENT.toInt() else TerlimoCatalogBrandTokens.MUTED_TEXT.toInt()
@@ -832,19 +1074,34 @@ class MainActivity : Activity() {
         val state = projectedState()
         val nodeId = NodeSelection.connectableNodeId(
             BrowseCatalogCodec.verifiedNodes(state), state.selectedNodeId)
+        PowerDiagnostics.line("rvcs.enter",
+            "nodeFound" to (nodeId != null).toString(),
+            "phase" to state.phase,
+            "live" to SessionService.view.phase,
+            "display" to state.displayMode,
+            "nodes" to state.nodes.size.toString())
         if (nodeId == null) {
             // Waiting for explicit first connect: no node selection exists yet. The
             // eligible /me (data_access=none, onboarding not_started) may still start
             // the first-connect consent; the separate explicit action follows consent.
+            PowerDiagnostics.line("rvcs.noNode", "phase" to state.phase)
             requestPreAdmissionConsent(state)
             return
         }
         val ready = state.phase == "CatalogReady"
         val retained = RetainedCatalogPolicy.connectableId(state) == nodeId
-        if ((!ready && !retained) || pendingChoiceId != null || state.pendingNodeId != null) return
+        PowerDiagnostics.flag("rvcs.guard",
+            "ready" to ready, "retained" to retained,
+            "pendChoice" to (pendingChoiceId != null),
+            "pendNode" to (state.pendingNodeId != null))
+        if ((!ready && !retained) || pendingChoiceId != null || state.pendingNodeId != null) {
+            PowerDiagnostics.line("rvcs.refused", "phase" to state.phase)
+            return
+        }
         consentDenied = false
         selectedForConsent = nodeId
         val consent = VpnService.prepare(this)
+        PowerDiagnostics.flag("rvcs.consent", "needsConsent" to (consent != null))
         if (consent != null) startActivityForResult(consent, 100) else connectSelected()
     }
 
@@ -854,10 +1111,15 @@ class MainActivity : Activity() {
      * only from [connectSelected] after a granted consent.
      */
     private fun requestPreAdmissionConsent(state: ViewState) {
-        if (!PreAdmissionConnect.connectable(state, pendingChoiceId != null)) return
+        PowerDiagnostics.flag("rpac.enter", "connectable" to PreAdmissionConnect.connectable(state, pendingChoiceId != null))
+        if (!PreAdmissionConnect.connectable(state, pendingChoiceId != null)) {
+            PowerDiagnostics.line("rpac.refused", "phase" to state.phase)
+            return
+        }
         // Owner contract 5: with a non-empty browse list the connect waits for an explicit
         // row selection; the chosen gateway_id travels as the optional gateway_key.
         if (BrowseConnectGate.requiresSelection(state)) {
+            PowerDiagnostics.line("rpac.requiresSelection", "phase" to state.phase)
             status.text = "Выберите сервер из списка и нажмите подключение"
             return
         }
@@ -866,6 +1128,7 @@ class MainActivity : Activity() {
         // Explicit owner warning before the first hour starts; display-only text.
         status.text = PreAdmissionConnect.HOUR_WARNING
         val consent = VpnService.prepare(this)
+        PowerDiagnostics.flag("rpac.consent", "needsConsent" to (consent != null))
         if (consent != null) startActivityForResult(consent, 100) else connectSelected()
     }
     override fun onNewIntent(intent: Intent) {
@@ -877,6 +1140,8 @@ class MainActivity : Activity() {
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_EXTERNAL_INTENT_CONSUMED, externalIntentConsumed)
+        outState.putString(STATE_VISIBLE_TAB, visibleTarget.name)
+        outState.putString(STATE_LINK_TEXT, link.text?.toString().orEmpty())
         checkoutOpenPolicy.saveTo(outState)
         super.onSaveInstanceState(outState)
     }
@@ -901,6 +1166,9 @@ class MainActivity : Activity() {
      */
     override fun onResume() {
         super.onResume()
+        // §26.4: refresh the battery warning on every return from the system settings so a
+        // lifted restriction disappears immediately.
+        if (::batteryMessage.isInitialized) renderBatteryOptimization()
         if (SessionService.view.registration?.state == "pending") {
             startForegroundService(Intent(this, SessionService::class.java).setAction("telegram_refresh"))
         }
@@ -922,6 +1190,7 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != 100) return
+        PowerDiagnostics.flag("consent.result", "ok" to (resultCode == RESULT_OK))
         if (resultCode == RESULT_OK) connectSelected()
         else {
             selectedForConsent = null
@@ -977,6 +1246,9 @@ class MainActivity : Activity() {
         }.start()
     }
     private fun connectSelected() {
+        PowerDiagnostics.flag("cs.enter",
+            "preAdmission" to preAdmissionConsentRequest,
+            "idPresent" to (selectedForConsent != null))
         if (preAdmissionConsentRequest) {
             // The separate explicit action after consent: no node id, no catalogue.
             // SessionService passes exactly this flag through the bridge to the runner.
@@ -985,27 +1257,41 @@ class MainActivity : Activity() {
             // Owner contract 5: re-check the current browse selection after the consent
             // round-trip; without a current selection the keyless fallback is refused.
             if (BrowseConnectGate.requiresSelection(SessionService.view)) {
+                PowerDiagnostics.line("cs.pre.requiresSelection", "phase" to SessionService.view.phase)
                 status.text = "Выберите сервер из списка и повторите подключение"
                 render(SessionService.view)
                 return
             }
             val gatewayKey = BrowseCatalogCodec.selectedId(SessionService.view)
+            PowerDiagnostics.flag("cs.pre.send", "keyPresent" to gatewayKey.isNotEmpty())
             val intent = Intent(this, SessionService::class.java).setAction("onboarding_connect")
             if (gatewayKey.isNotEmpty()) intent.putExtra("gateway_key", gatewayKey)
             startForegroundService(intent)
             return
         }
-        val id = selectedForConsent ?: return
+        val id = selectedForConsent
+        if (id == null) {
+            PowerDiagnostics.line("cs.noId", "phase" to SessionService.view.phase)
+            return
+        }
         selectedForConsent = null
         val state = projectedState()
-        if (id != NodeSelection.connectableNodeId(state.nodes, state.selectedNodeId)) return
+        if (id != NodeSelection.connectableNodeId(state.nodes, state.selectedNodeId)) {
+            PowerDiagnostics.line("cs.idMismatch", "phase" to state.phase)
+            return
+        }
         when {
-            state.phase == "CatalogReady" && pendingChoiceId == null && state.pendingNodeId == null ->
+            state.phase == "CatalogReady" && pendingChoiceId == null && state.pendingNodeId == null -> {
+                PowerDiagnostics.line("cs.branch", "value" to "select", "phase" to state.phase)
                 startService(Intent(this, SessionService::class.java).setAction("select").putExtra("node_id", id))
-            RetainedCatalogPolicy.connectableId(state.phase, state.nodes, state.selectedNodeId) == id ->
+            }
+            RetainedCatalogPolicy.connectableId(state.phase, state.nodes, state.selectedNodeId) == id -> {
                 // Cold start: the retained id starts a fresh native attempt (foreground
                 // service is required by the OS for a cold started service).
+                PowerDiagnostics.line("cs.branch", "value" to "connect", "phase" to state.phase)
                 startForegroundService(Intent(this, SessionService::class.java).setAction("connect").putExtra("node_id", id))
+            }
+            else -> PowerDiagnostics.line("cs.branch", "value" to "noBranch", "phase" to state.phase)
         }
     }
     private fun render(passed: ViewState) {
@@ -1308,6 +1594,11 @@ class MainActivity : Activity() {
 
     private companion object {
         const val STATE_EXTERNAL_INTENT_CONSUMED = "external_intent_consumed"
+        const val THEME_SYSTEM = 200; const val THEME_LIGHT = 201; const val THEME_DARK = 202
+        const val SCHEDULE_OFF = 300; const val SCHEDULE_TWICE = 301
+        const val SCHEDULE_DAILY = 302; const val SCHEDULE_WEEKLY = 303
+        const val STATE_VISIBLE_TAB = "visible_tab"
+        const val STATE_LINK_TEXT = "link_text"
         const val REQUEST_QR_IMAGE = 201
         const val REQUEST_SUBSCRIPTION_FILE = 202
     }
