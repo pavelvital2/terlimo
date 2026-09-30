@@ -507,7 +507,13 @@ class MainActivity : Activity() {
             onSelect = { requestNodeSelection(it) },
             onProbe = { nodeId -> startService(Intent(this, SessionService::class.java).setAction("probe").putExtra("node_id", nodeId)) },
             onProbeAll = { startService(Intent(this, SessionService::class.java).setAction("probe_all")) },
-            onProbeAllCancel = { startService(Intent(this, SessionService::class.java).setAction("probe_all_cancel")) },
+            onProbeAllCancel = {
+                // Same idle-command gate as navigation: cancel only an actually running ping.
+                if (SessionService.hasActiveCommonPing()) {
+                    startService(Intent(this, SessionService::class.java)
+                        .setAction(NavigationServiceCommands.CANCEL_COMMON_PING))
+                }
+            },
             showChrome = false,
             onSupport = { openHelpLink(HelpContent.SUPPORT_URL) },
         )
@@ -784,16 +790,22 @@ class MainActivity : Activity() {
                 destinationButtons.forEach { (tab, button) ->
                     button.setBottomNavigationActive(tab == navState.selected)
                 }
-                if (navState.visible != NavTarget.HOME) {
-                    // Leaving the catalog screen must stop an in-flight common ping.
-                    startService(Intent(this@MainActivity, SessionService::class.java).setAction("probe_all_cancel"))
+                if (NavigationServiceCommands.shouldCancelCommonPing(
+                        navState.visible != NavTarget.HOME, SessionService.hasActiveCommonPing())) {
+                    // Leaving the catalog screen stops an in-flight common ping; navigation with
+                    // no running ping never wakes the service.
+                    startService(Intent(this@MainActivity, SessionService::class.java)
+                        .setAction(NavigationServiceCommands.CANCEL_COMMON_PING))
                 }
                 if (target == NavTarget.ROUTING) {
                     startActivity(Intent(this@MainActivity, RoutingSettingsActivity::class.java))
                 }
-                if (target == NavTarget.HELP) {
-                    // §11: opening the section asks the existing attempt for a fresh list.
-                    startService(Intent(this@MainActivity, SessionService::class.java).setAction("announcements_request"))
+                if (NavigationServiceCommands.shouldRequestAnnouncements(
+                        target == NavTarget.HELP, SessionService.hasLiveAttempt())) {
+                    // §11: opening the section asks the existing attempt for a fresh list;
+                    // without a live attempt there is nothing to ask and nothing to wake.
+                    startService(Intent(this@MainActivity, SessionService::class.java)
+                        .setAction(NavigationServiceCommands.REQUEST_ANNOUNCEMENTS))
                 }
             }
             openTab = { target -> onTab(target) }

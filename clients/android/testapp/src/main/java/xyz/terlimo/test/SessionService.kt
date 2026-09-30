@@ -622,6 +622,15 @@ class SessionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Navigation-only commands (cancel a common ping / request announcements) must never
+        // promote an empty foreground instance: with no attempt, native child or prior
+        // promotion there is no work to own, so the intent is answered and released here.
+        // Live attempts and already-promoted services are untouched.
+        if (NavigationServiceCommands.isIdleCommand(intent?.action) &&
+            !foregroundPromoted && gate.active == null && native == null) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         promoteToForeground()
         // §26.5: any started-service intent is a live (manual/UI) owner of the cycle. This is
         // queued on the actor before the begin it may trigger, so the ownership decision can
@@ -3153,6 +3162,13 @@ class SessionService : Service() {
 
         /** True while a SessionService instance exists; Off toggles never create one. */
         internal fun isRunning(): Boolean = runningService != null
+
+        /** Live attempt with a native child: the only state announcements can be asked from. */
+        internal fun hasLiveAttempt(): Boolean = runningService?.let { it.gate.active != null } ?: false
+
+        /** Common ping locally active on a running service (navigation may cancel only this). */
+        internal fun hasActiveCommonPing(): Boolean =
+            runningService != null && view.pingAll.active
 
         // ─── Debug-only CAPTCHA seam (debuggable builds only; никогда в release) ───
 

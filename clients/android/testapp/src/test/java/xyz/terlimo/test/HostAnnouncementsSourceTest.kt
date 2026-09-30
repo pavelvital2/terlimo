@@ -23,7 +23,8 @@ class HostAnnouncementsSourceTest {
         assertTrue(service.contains("\"announcement_read\" ->"))
         assertTrue(service.contains("AnnouncementsCodec.parseList(event)"))
         assertTrue(service.contains("AnnouncementsCodec.parseRead(event)"))
-        assertTrue(activity.contains(".setAction(\"announcements_request\")"))
+        // The HELP navigation now sends the fixed command through the shared constant.
+        assertTrue(activity.contains("NavigationServiceCommands.REQUEST_ANNOUNCEMENTS"))
         assertTrue(service.contains("private fun requestAnnouncements()"))
         assertTrue(service.contains("private fun openAnnouncement(announcementId: String)"))
         assertTrue(service.contains(".put(\"type\", \"announcement_read\")"))
