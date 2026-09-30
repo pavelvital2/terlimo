@@ -77,8 +77,11 @@ UNLINKED_INSTALLATION_SCOPES = frozenset(
     {"enrollment", "session:read", "session:write", "management-only"}
 )
 # A proven trusted installation->account link may additionally request access:sync in 03.4.
-# Future payment/admin scopes stay unavailable; a session scope is never itself a right.
-LINKED_SESSION_SCOPES = UNLINKED_INSTALLATION_SCOPES | {"access:sync"}
+# payment:write joins the linked set only: it gates the bounded checkout-session policy
+# issuance for the account's own pending order. It grants no VPN/data access, is available
+# before activation, and does not change S4/browser/payments/renewal behavior. A session
+# scope is never itself a right.
+LINKED_SESSION_SCOPES = UNLINKED_INSTALLATION_SCOPES | {"access:sync", "payment:write"}
 _NOT_GIVEN = object()
 MAX_REQUEST_BYTES = 64 * 1024
 

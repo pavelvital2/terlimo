@@ -188,6 +188,9 @@ var serviceResponseHeaders = map[string]bool{
 // servicePathAllowed reports whether the exact method+path pair is an existing mobile API
 // operation. Paths are matched literally (operations/{uuid} by strict UUID) and nothing
 // else; there is no arbitrary URL, host, scheme, CONNECT or redirect support.
+// serviceBoundedPathID matches the frozen PathId grammar (bounded opaque, no slash/escape).
+var serviceBoundedPathID = regexp.MustCompile(`^[A-Za-z0-9._~-]{1,128}$`)
+
 func servicePathAllowed(method, path string) bool {
 	switch path {
 	case "/api/mobile/v1/auth/challenge", "/api/mobile/v1/installations",
@@ -211,6 +214,16 @@ func servicePathAllowed(method, path string) bool {
 	}
 	// Announcement read is POST with a strict operation-style UUID and an exact /read suffix
 	// (no trailing slash, extra segment, query or path escape; the caller sanitizes those).
+	// Checkout session is POST with a bounded opaque path id (contract PathId 1..128); only a
+	// canonical generated UUID resolves in storage, but the transport accepts the bounded form.
+	const checkout = "/api/mobile/v1/payments/"
+	if method == "POST" && strings.HasPrefix(path, checkout) {
+		rest := strings.TrimPrefix(path, checkout)
+		if !strings.HasSuffix(rest, "/checkout-session") {
+			return false
+		}
+		return serviceBoundedPathID.MatchString(strings.TrimSuffix(rest, "/checkout-session"))
+	}
 	const announcements = "/api/mobile/v1/announcements/"
 	if method == "POST" && strings.HasPrefix(path, announcements) && strings.HasSuffix(path, "/read") {
 		mid := strings.TrimSuffix(strings.TrimPrefix(path, announcements), "/read")

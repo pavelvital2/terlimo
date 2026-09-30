@@ -46,6 +46,7 @@ SERVICE_ACTIVE_KEY: web.AppKey = web.AppKey("service_active", "list[int]")
 
 _ALLOWED_HEADERS = ("Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key")
 _RESPONSE_HEADERS = ("Content-Type", "Retry-After")
+_BOUNDED_PATH_ID = re.compile(r"[A-Za-z0-9._~-]{1,128}")
 _REQUEST_ID = re.compile(r"^[0-9a-f]{32}$")
 _OPERATION_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
@@ -80,6 +81,13 @@ def service_path_allowed(method: str, path: str) -> bool:
     device_prefix = "/api/mobile/v1/devices/"
     if method == "DELETE" and path.startswith(device_prefix):
         return bool(_OPERATION_ID.match(path[len(device_prefix) :]))
+    checkout_prefix = "/api/mobile/v1/payments/"
+    checkout_suffix = "/checkout-session"
+    if method == "POST" and path.startswith(checkout_prefix):
+        rest = path[len(checkout_prefix):]
+        if not rest.endswith(checkout_suffix):
+            return False
+        return bool(_BOUNDED_PATH_ID.fullmatch(rest[: -len(checkout_suffix)]))
     announcement_prefix = "/api/mobile/v1/announcements/"
     read_suffix = "/read"
     if method == "POST" and path.startswith(announcement_prefix) and path.endswith(read_suffix):

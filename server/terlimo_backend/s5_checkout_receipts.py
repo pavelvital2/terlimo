@@ -31,6 +31,26 @@ def _refuse(code: str, http: int) -> ApiError:
     return ApiError(code, http=http)
 
 
+def _bounded_strings(value: Any, *, limit: int) -> bool:
+    if not isinstance(value, (tuple, list)) or not value or len(value) > limit:
+        return False
+    return all(isinstance(item, str) and 0 < len(item) <= 2048 for item in value)
+
+
+def _policy_usable(policy: CheckoutPolicy | None) -> bool:
+    """Structural validation of the injected policy value only. Real provider origin/redirect
+    verification against a merchant policy is a separate (still missing) configuration step."""
+    if policy is None or not isinstance(policy, CheckoutPolicy):
+        return False
+    if not isinstance(policy.version, str) or not 0 < len(policy.version) <= 64:
+        return False
+    if not isinstance(policy.ttl, timedelta) or policy.ttl <= timedelta(0):
+        return False
+    return _bounded_strings(policy.allowed_origins, limit=32) and _bounded_strings(
+        policy.allowed_redirects, limit=32
+    )
+
+
 async def issue_checkout_receipt(
     connection: asyncpg.Connection,
     *,
@@ -51,14 +71,8 @@ async def issue_checkout_receipt(
     key = (idempotency_key or "").strip()
     if not key:
         raise _refuse("BAD_MESSAGE", 400)
-    if (
-        policy is None
-        or not policy.version
-        or policy.ttl <= timedelta(0)
-        or not policy.allowed_origins
-        or not policy.allowed_redirects
-    ):
-        # Production default is disabled; synthetic policy is a test-only explicit value.
+    if not _policy_usable(policy):
+        # Production default is disabled; malformed injected values fail closed too.
         raise _refuse("CHECKOUT_POLICY_DENIED", 403)
     async with connection.transaction():
         order = await connection.fetchrow(

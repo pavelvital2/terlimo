@@ -21,9 +21,15 @@ from .config import Settings
 from .db import Database
 from .mobile_account import BASE_LIMIT
 from .payments import PAYMENT_PROVIDER_KEY, _envelope, _order_view, create_order, payment_amount
+from .s5_checkout_receipts import CheckoutPolicy, issue_checkout_receipt
 from .session_auth import AuthError, authenticate_session
 
 PREFIX = "/api/mobile/v1"
+# Explicitly injected policy value; absent means production default disabled (CHECKOUT_POLICY_DENIED).
+CHECKOUT_POLICY_KEY = "s5_checkout_policy"
+# Bounded opaque path id per the frozen contract (PathId 1..128): transport accepts a bounded
+# segment, while only a canonical generated UUID resolves in storage.
+_BOUNDED_PATH_ID = re.compile(r"^[A-Za-z0-9._~-]{1,128}$")
 PLANS_PATH = PREFIX + "/plans"
 QUOTES_PATH = PREFIX + "/quotes"
 PAYMENTS_PATH = PREFIX + "/payments"
@@ -266,6 +272,53 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
         except ApiError as error:
             return _error_response(fallback, error)
 
+    async def checkout_session(request: web.Request) -> web.Response:
+        fallback = random_hex(16)
+        try:
+            token = _bearer(request)
+            key = _idempotency_key(request)
+            raw_id = request.match_info["payment_id"]
+            if not _BOUNDED_PATH_ID.fullmatch(raw_id or ""):
+                # Bounded opaque grammar; slash/traversal/escape/oversize never reach storage.
+                raise ApiError("PAYMENT_NOT_FOUND", http=404)
+            try:
+                order_id = uuid.UUID(raw_id)
+            except (ValueError, AttributeError):
+                # Allowed non-UUID opaque ids resolve to no storage row: neutral 404.
+                raise ApiError("PAYMENT_NOT_FOUND", http=404) from None
+            if str(order_id) != raw_id:
+                # UUID aliases (32-hex, braces, urn, ...) are bounded opaque transport ids but
+                # never resolve in storage: only the canonical generated form does.
+                raise ApiError("PAYMENT_NOT_FOUND", http=404)
+            policy = request.app.get(CHECKOUT_POLICY_KEY)
+            if policy is not None and not isinstance(policy, CheckoutPolicy):
+                policy = None
+            async with database.acquire() as connection:
+                context = await authenticate_session(connection, settings, token)
+                if "payment:write" not in context.scopes:
+                    raise ApiError("ACCESS_DENIED", http=403)
+                receipt = await issue_checkout_receipt(
+                    connection,
+                    order_id=order_id,
+                    account_id=context.account_id,
+                    installation_id=context.installation_id,
+                    idempotency_key=key,
+                    policy=policy,
+                )
+            origins = receipt["allowed_origins"]
+            redirects = receipt["allowed_redirects"]
+            return _envelope({
+                "checkout_session_id": str(receipt["id"]),
+                "policy_version": receipt["policy_version"],
+                "expires_at": rfc3339(receipt["expires_at"]),
+                "allowed_origins": json.loads(origins) if isinstance(origins, str) else list(origins),
+                "allowed_redirects": json.loads(redirects) if isinstance(redirects, str) else list(redirects),
+            })
+        except AuthError as error:
+            return _error_response(fallback, ApiError(error.code, http=error.http, retryable=error.retryable))
+        except ApiError as error:
+            return _error_response(fallback, error)
+
     async def status(request: web.Request) -> web.Response:
         fallback = random_hex(16)
         try:
@@ -292,3 +345,4 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
     app.router.add_post(QUOTES_PATH, quote)
     app.router.add_post(PAYMENTS_PATH, create)
     app.router.add_get(PAYMENT_PATH, status)
+    app.router.add_post(PAYMENT_PATH + "/checkout-session", checkout_session)

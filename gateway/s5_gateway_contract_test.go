@@ -82,6 +82,8 @@ func TestS5ServicePathsExact(t *testing.T) {
 		{"POST", "/api/mobile/v1/quotes"},
 		{"POST", "/api/mobile/v1/payments"},
 		{"GET", "/api/mobile/v1/payments/" + paymentID},
+		{"POST", "/api/mobile/v1/payments/" + paymentID + "/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/order_A-123/checkout-session"},
 	}
 	for _, item := range allowed {
 		if !servicePathAllowed(item.method, item.path) {
@@ -98,8 +100,9 @@ func TestS5ServicePathsExact(t *testing.T) {
 		{"GET", "/api/mobile/v1/payments/" + paymentID + "/extra"},
 		{"GET", "/api/mobile/v1/payments/" + paymentID + "%2fextra"},
 		{"GET", "/api/mobile/v1/payments/../me"},
-		{"POST", "/api/mobile/v1/payments/" + paymentID + "/checkout-session"},
 		{"GET", "/api/mobile/v1/payments/" + paymentID + "/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/" + paymentID + "/checkout-session/"},
 		{"GET", "/api/mobile/v1/plans/"},
 		{"GET", "/api/mobile/v1/plans/extra"},
 		{"GET", "/api/mobile/v1/payment/" + paymentID},

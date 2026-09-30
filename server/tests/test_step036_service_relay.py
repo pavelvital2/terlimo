@@ -286,6 +286,15 @@ def test_service_path_allowlist_and_role_validation(monkeypatch):
     assert not service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/READ")
     assert not service_path_allowed("POST", "/api/mobile/v1/announcements/01234567-89ab-cdef-0123-456789abcdef/../read")
     assert not service_path_allowed("POST", "/api/mobile/v1/announcementsx/01234567-89ab-cdef-0123-456789abcdef/read")
+    assert service_path_allowed("POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session")
+    assert service_path_allowed("POST", "/api/mobile/v1/payments/AbC.def-123_XY~z9/checkout-session")
+    assert not service_path_allowed("GET", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session")
+    assert not service_path_allowed("POST", "/api/mobile/v1/payments/checkout-session")
+    assert not service_path_allowed("POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session/")
+    assert not service_path_allowed("POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout")
+    assert not service_path_allowed("POST", "/api/mobile/v1/payments/" + "a" * 129 + "/checkout-session")
+    assert not service_path_allowed("POST", "/api/mobile/v1/payments/../me/checkout-session")
+    assert not service_path_allowed("POST", "/api/mobile/v1/paymentsx/01234567-89ab-cdef-0123-456789abcdef/checkout-session")
     for method, path in (("GET", "/internal/onboarding/evidence"), ("POST", "/api/mobile/v1/me"), ("CONNECT", "host:443")):
         assert not service_path_allowed(method, path)
 

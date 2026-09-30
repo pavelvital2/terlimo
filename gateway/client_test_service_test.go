@@ -1063,3 +1063,40 @@ func TestServiceValidateRequestAnnouncements(t *testing.T) {
 		t.Fatalf("POST read class=%q", class)
 	}
 }
+
+func TestServicePathAllowlistCheckoutSession(t *testing.T) {
+	allowed := []struct{ method, path string }{
+		{"POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/AbC.def-123_XY~z9/checkout-session"},
+	}
+	for _, c := range allowed {
+		if !servicePathAllowed(c.method, c.path) {
+			t.Fatalf("expected allowed: %s %s", c.method, c.path)
+		}
+	}
+	denied := []struct{ method, path string }{
+		{"GET", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session"},
+		{"DELETE", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session/"},
+		{"POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout"},
+		{"POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef"},
+		{"POST", "/api/mobile/v1/paymentsx/01234567-89ab-cdef-0123-456789abcdef/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/" + strings.Repeat("a", 129) + "/checkout-session"},
+		{"POST", "/api/mobile/v1/payments/..%2Fme/checkout-session"},
+	}
+	for _, c := range denied {
+		if servicePathAllowed(c.method, c.path) {
+			t.Fatalf("expected denied: %s %s", c.method, c.path)
+		}
+	}
+	// Validator keeps the global path gates ahead of the allowlist.
+	var id wlwire.ID
+	id[0] = 9
+	if _, code := serviceValidateRequest(serviceRequestBody(t, id, "POST", "/api/mobile/v1/payments/../me/checkout-session", nil, nil), id); code != "SERVICE_BAD_PATH" {
+		t.Fatalf("traversal code=%q", code)
+	}
+	if _, code := serviceValidateRequest(serviceRequestBody(t, id, "POST", "/api/mobile/v1/payments/01234567-89ab-cdef-0123-456789abcdef/checkout-session", map[string]string{"Idempotency-Key": "idem-1"}, nil), id); code != "" {
+		t.Fatalf("valid checkout frame rejected: %q", code)
+	}
+}
