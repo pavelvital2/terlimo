@@ -177,6 +177,34 @@ class MainActivity : Activity() {
                 text = "Диагностика проверяет VPN, интернет, DNS и доступность соединения. Отчёт не содержит ключей и ссылки подписки."
                 setPadding(0, 12, 0, 16)
             })
+            // §27/07.6: runtime version, short instructions and the confirmed public
+            // TERLIMO contacts/legal pages. Links open the existing external app.
+            addView(TextView(this@MainActivity).apply {
+                text = HelpContent.versionText(this@MainActivity)
+                setPadding(0, 0, 0, 12)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = HelpContent.CONNECT_TITLE; textSize = 18f; setPadding(0, 8, 0, 0)
+            })
+            addView(TextView(this@MainActivity).apply { text = HelpContent.CONNECT_TEXT; setPadding(0, 4, 0, 0) })
+            addView(TextView(this@MainActivity).apply {
+                text = HelpContent.SPEED_TITLE; textSize = 18f; setPadding(0, 12, 0, 0)
+            })
+            addView(TextView(this@MainActivity).apply { text = HelpContent.SPEED_TEXT; setPadding(0, 4, 0, 0) })
+            addView(TextView(this@MainActivity).apply {
+                text = HelpContent.NETWORK_TITLE; textSize = 18f; setPadding(0, 12, 0, 0)
+            })
+            addView(TextView(this@MainActivity).apply { text = HelpContent.NETWORK_TEXT; setPadding(0, 4, 0, 0) })
+            addView(TextView(this@MainActivity).apply {
+                text = HelpContent.CONTACTS_TITLE; textSize = 20f; setPadding(0, 20, 0, 0)
+            })
+            addView(helpLink(HelpContent.BOT_LABEL, HelpContent.BOT_URL))
+            addView(helpLink(HelpContent.CHANNEL_LABEL, HelpContent.CHANNEL_URL))
+            addView(helpLink(HelpContent.SUPPORT_GROUP_LABEL, HelpContent.SUPPORT_GROUP_URL))
+            addView(helpLink(HelpContent.SUPPORT_LABEL, HelpContent.SUPPORT_URL))
+            addView(helpLink(HelpContent.SITE_LABEL, HelpContent.SITE_URL))
+            addView(helpLink(HelpContent.PRIVACY_LABEL, HelpContent.PRIVACY_URL))
+            addView(helpLink(HelpContent.AGREEMENT_LABEL, HelpContent.AGREEMENT_URL))
             // S5 §11 «Уведомления»: one-way service messages only, never a chat. The red dot
             // reflects the server unread state after local read acknowledgements.
             announcementsBadge = TextView(this@MainActivity).apply { textSize = 20f }
@@ -481,6 +509,7 @@ class MainActivity : Activity() {
             onProbeAll = { startService(Intent(this, SessionService::class.java).setAction("probe_all")) },
             onProbeAllCancel = { startService(Intent(this, SessionService::class.java).setAction("probe_all_cancel")) },
             showChrome = false,
+            onSupport = { openHelpLink(HelpContent.SUPPORT_URL) },
         )
         mainPanel.addView(catalogView)
         subscriptionPanel.addView(Button(this).apply {
@@ -886,6 +915,23 @@ class MainActivity : Activity() {
         }
         Toast.makeText(this, "Системные настройки батареи недоступны на этом устройстве",
             Toast.LENGTH_LONG).show()
+    }
+
+    private fun helpLink(label: String, url: String) = Button(this).apply {
+        text = label
+        minHeight = dp(48)
+        setOnClickListener { openHelpLink(url) }
+    }
+
+    /** §27: open a confirmed public contact/legal page in the existing external app. */
+    private fun openHelpLink(url: String) {
+        val parsed = android.net.Uri.parse(url)
+        if (!url.startsWith("https://") || parsed.host.isNullOrBlank()) return
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, parsed))
+        } catch (_: android.content.ActivityNotFoundException) {
+            Toast.makeText(this, "Не удалось открыть ссылку", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun openSystemVpnSettings() {

@@ -27,6 +27,7 @@ internal class ServerCatalogView(
     private val onProbeAll: () -> Unit,
     private val onProbeAllCancel: () -> Unit,
     private val showChrome: Boolean = true,
+    private val onSupport: () -> Unit = {},
 ) : LinearLayout(context) {
     private val density = resources.displayMetrics.density
     private var lastState: ViewState? = null
@@ -60,11 +61,14 @@ internal class ServerCatalogView(
             // Retained verified catalog after an ordinary Disconnect: show it read-only
             // (selection cannot mutate the stale cache) plus the idle/error message.
             CatalogRenderPolicy.showRetained(state.phase, state.nodes) -> {
-                if (state.phase == "Error") addError(state.error) else addIdle()
+                if (state.phase == "Error")
+                    addError(state.error, retry = CatalogErrorActions.credentialRetry(state.phase, state.error))
+                else addIdle()
                 addContent(state, readOnly = true)
             }
             state.phase == "Idle" -> addIdle()
-            state.phase == "Error" -> addError(state.error)
+            state.phase == "Error" ->
+                addError(state.error, retry = CatalogErrorActions.credentialRetry(state.phase, state.error))
             !catalogUsable && state.nodes.isEmpty() -> addLoading()
             !catalogUsable -> {
                 addSelected(state)
@@ -242,12 +246,20 @@ internal class ServerCatalogView(
         addView(card(border = TerlimoCatalogBrandTokens.ERROR.toInt()).apply {
             addView(text(title, 18f, bold = true, color = TerlimoCatalogBrandTokens.ERROR.toInt()))
             addView(text(code?.let(UserStatusText::error) ?: "Повторите обновление каталога.", 14f, muted = true))
-            if (retry) addView(Button(context).apply {
-                text = "Повторить"
-                contentDescription = "Повторить загрузку списка серверов"
-                minHeight = dp(48)
-                setOnClickListener { onRefresh() }
-            }, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(10) })
+            if (retry) {
+                addView(Button(context).apply {
+                    text = "Попробовать ещё раз"
+                    contentDescription = "Попробовать ещё раз: повторить загрузку списка серверов"
+                    minHeight = dp(48)
+                    setOnClickListener { onRefresh() }
+                }, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(10) })
+                // §29.3: the explicit support action lives on the same real error card.
+                addView(Button(context).apply {
+                    text = HelpContent.SUPPORT_LABEL
+                    minHeight = dp(48)
+                    setOnClickListener { onSupport() }
+                }, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(6) })
+            }
         }, sectionParams())
     }
 
@@ -292,7 +304,8 @@ internal class ServerCatalogView(
             state.phase == "Error" || it == "ONBOARDING_INTENT_CONFLICT"
         }
         if (error != null) addError(error, if (error == "ONBOARDING_INTENT_CONFLICT")
-            "Завершите текущую попытку" else "Не удалось загрузить список серверов", retry = true)
+            "Завершите текущую попытку" else "Не удалось загрузить список серверов",
+            retry = CatalogErrorActions.browseRetry(error))
         if (nodes.isEmpty()) {
             if (error == null) addEmpty()
             return
