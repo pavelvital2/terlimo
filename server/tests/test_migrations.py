@@ -63,6 +63,7 @@ async def test_migrations_repeatable_and_status(database_url):
         "0032_s5_card_method",
         "0033_device_list_revisions",
         "0034_checkout_owner_refs",
+        "0035_checkout_sessions",
     ]
     connection = await _connect(database_url)
     try:
@@ -152,7 +153,7 @@ async def test_0008_refuses_accountless_non_hour_and_keeps_state(database_url, t
     early_dir = tmp_path / "versions_early"
     early_dir.mkdir()
     for path in sorted(runner.VERSIONS_DIR.glob("*.sql")):
-        if path.name.startswith(("0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034")):
+        if path.name.startswith(("0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034", "0035")):
             continue
         (early_dir / path.name).write_bytes(path.read_bytes())
     connection = await _connect(database_url)
@@ -245,7 +246,7 @@ async def test_0010_converts_existing_access_receipts_without_loss(database_url,
     early_dir = tmp_path / "versions_before_0010"
     early_dir.mkdir()
     for path in sorted(runner.VERSIONS_DIR.glob("*.sql")):
-        if path.name.startswith(("0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034")):
+        if path.name.startswith(("0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034", "0035")):
             continue
         (early_dir / path.name).write_bytes(path.read_bytes())
     connection = await _connect(database_url)
@@ -291,6 +292,7 @@ async def test_0010_converts_existing_access_receipts_without_loss(database_url,
         "0032_s5_card_method",
             "0033_device_list_revisions",
         "0034_checkout_owner_refs",
+        "0035_checkout_sessions",
         ]
         access = await connection.fetchrow(
             "SELECT * FROM operation_receipts WHERE op = 'access.sync'"
@@ -310,7 +312,7 @@ async def test_0011_backfills_only_from_real_registry_rows(database_url, tmp_pat
     early_dir = tmp_path / "versions_before_0011"
     early_dir.mkdir()
     for path in sorted(runner.VERSIONS_DIR.glob("*.sql")):
-        if path.name.startswith(("0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034")):
+        if path.name.startswith(("0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020", "0021", "0022", "0023", "0024", "0025", "0026", "0027", "0028", "0029", "0030", "0031", "0032", "0033", "0034", "0035")):
             continue
         (early_dir / path.name).write_bytes(path.read_bytes())
     connection = await _connect(database_url)
@@ -350,6 +352,7 @@ async def test_0011_backfills_only_from_real_registry_rows(database_url, tmp_pat
         "0032_s5_card_method",
             "0033_device_list_revisions",
         "0034_checkout_owner_refs",
+        "0035_checkout_sessions",
         ]
         rows = await connection.fetch(
             "SELECT environment, initialized_at FROM registry_environments ORDER BY environment"

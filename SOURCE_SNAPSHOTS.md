@@ -167,3 +167,9 @@ Limits: no repeat read of the same ID or subsequent server GET was performed; UI
 Reviewed source 1c0fcee910b0b9cdf4071f1546dfc19bed07b618, tree e916e50dc4342d987a28b2838211e9dc3b37f884, based on live API 7e591453. Patch SHA256 7201b8231dc63ee4cee8203b96bb92b5a24a80761de5107b8971abe1389bf667.
 Separate nullable checkout owner references captured from trusted S5 context on first order insert. Replay checks owner; historical NULL ownership is not backfilled. Existing mutable credit target/rebinding behavior preserved.
 Executor reported 70 passing isolated PostgreSQL/fake-provider tests, including eight owner/replay/concurrency/rebinding cases; root reviewed exact patch and tests. Migration 0034 and source are NOT applied to live TEST or production. Checkout-session route, durable receipt, permissions and transport admission remain separate unfinished work; provider policy stays disabled. Previously accepted live API remains 7e591453.
+
+## 2026-10-01 Durable checkout receipt source — NOT DEPLOYED
+
+Accepted corrected source d9af27e5aa735df4c0c82cff024327654d0dadc3, tree 7285d9614f985cbbff037bf0dde584c47174eaff. Two-commit patch from owner 1c0fcee9 SHA256 878ad8153aad79cdf8c410476f42f667538ed2224ad6f7cf454d129b8edf2485.
+Migration 0035 and transactional receipt helper preserve one receipt per order, explicit account/installation ownership, current order eligibility on replay, expiry/version refusal and no provider/credit effects. Root reviewed corrections and focused tests; executor reported 84 PASS isolated PostgreSQL/fake provider, including 14 receipt cases. Fresh-connection replay and independent live-receipt policy-version check covered.
+Source acceptance only: migrations 0034/0035 NOT applied to live; no public route, permission or transport integration yet. Real merchant policy remains unavailable/default disabled. Live API still 7e591453.
