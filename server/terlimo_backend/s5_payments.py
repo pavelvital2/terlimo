@@ -243,6 +243,8 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                         quote_id=str(quote_id),
                         method=S5_METHOD_PROVIDER.get(row["method"], row["method"]),
                         public_method=row["method"],
+                        checkout_owner_account_id=context.account_id,
+                        checkout_owner_binding_id=context.binding["id"] if context.binding else None,
                     )
                 except ApiError as error:
                     if error.code == "PAYMENT_PROVIDER_UNAVAILABLE":

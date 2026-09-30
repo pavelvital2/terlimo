@@ -398,6 +398,8 @@ async def create_order(
     quote_id: str | None = None,
     method: str | None = None,
     public_method: str | None = None,
+    checkout_owner_account_id: Any = None,
+    checkout_owner_binding_id: Any = None,
 ) -> dict[str, Any]:
     if months not in SUPPORTED_MONTHS:
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "unsupported_period"})
@@ -468,6 +470,16 @@ async def create_order(
                 raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "quote_changed"})
             if _order_method(existing) != requested_public:
                 raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "method_changed"})
+            # Immutable checkout owner is compared, never rewritten: the credit-target
+            # account_id/binding_id may legitimately change when the installation is rebound
+            # before payment, so it is not used here. Historical rows (NULL owner) are not
+            # backfilled on replay; they simply carry no checkout ownership.
+            if (
+                checkout_owner_account_id is not None
+                and existing["checkout_owner_account_id"] is not None
+                and existing["checkout_owner_account_id"] != checkout_owner_account_id
+            ):
+                raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "checkout_owner_mismatch"})
             if existing["provider_create_state"] == "unknown":
                 # A previous provider create timed out: the outcome is unknown and no second
                 # invoice may be created until identity reconciliation resolves it.
@@ -511,8 +523,9 @@ async def create_order(
                     """
                     INSERT INTO payment_orders
                         (installation_id, provider, idempotency_key, quote, amount, currency, months, tariff_key,
-                         provider_create_state, source_quote_id)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'in_flight', $9)
+                         provider_create_state, source_quote_id,
+                         checkout_owner_account_id, checkout_owner_binding_id)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'in_flight', $9, $10, $11)
                     RETURNING id
                     """,
                     installation_id,
@@ -524,6 +537,8 @@ async def create_order(
                     months,
                     settings.payment_tariff_key,
                     source_quote_id,
+                    checkout_owner_account_id,
+                    checkout_owner_binding_id,
                 )
             except asyncpg.UniqueViolationError:
                 # One quote funds at most one order; no provider create happened for this attempt.
