@@ -78,6 +78,8 @@ tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(verifyNativeI
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    // Official v20 CAPTCHA managers are coroutine-based (CompletableDeferred/Mutex/withTimeout).
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.wireguard.android:tunnel:1.0.20260102")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.4")

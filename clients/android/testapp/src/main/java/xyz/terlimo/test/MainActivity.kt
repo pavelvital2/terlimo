@@ -563,7 +563,7 @@ class MainActivity : Activity() {
         mainPanel.addView(connectButton)
         captchaButton = Button(this).apply {
             text = "Открыть CAPTCHA VK"
-            setOnClickListener { if (SessionService.captcha != null) startActivity(Intent(this@MainActivity, CaptchaActivity::class.java)) }
+            setOnClickListener { ManlCaptchaWebViewManager.checkAndShowPendingCaptcha(this@MainActivity) }
         }
         mainPanel.addView(captchaButton)
         mainPanel.addView(Button(this).apply {
@@ -1310,12 +1310,20 @@ class MainActivity : Activity() {
      */
     override fun onResume() {
         super.onResume()
+        AppForeground.isForeground = true
+        // Official v20 return path: exactly one pending manual CAPTCHA window is shown again.
+        ManlCaptchaWebViewManager.checkAndShowPendingCaptcha(this)
         // §26.4: refresh the battery warning on every return from the system settings so a
         // lifted restriction disappears immediately.
         if (::batteryMessage.isInitialized) renderBatteryOptimization()
         if (SessionService.view.registration?.state == "pending") {
             startForegroundService(Intent(this, SessionService::class.java).setAction("telegram_refresh"))
         }
+    }
+
+    override fun onPause() {
+        AppForeground.isForeground = false
+        super.onPause()
     }
     @Deprecated("Activity result used without adding an activity framework")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -1508,7 +1516,7 @@ class MainActivity : Activity() {
             (pending == null && RetainedCatalogPolicy.connectableId(state) != null) ||
             BrowseConnectGate.connectable(state, pending != null)
         nodes.isEnabled = state.phase in setOf("CatalogReady", "Connected", "KillSwitch") && state.nodes.isNotEmpty()
-        captchaButton.visibility = if (SessionService.captcha != null) View.VISIBLE else View.GONE
+        captchaButton.visibility = if (SessionService.captchaPending) View.VISIBLE else View.GONE
         if (labels != state.nodes) {
             labels = state.nodes
             nodes.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,

@@ -24,6 +24,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 internal data class ViewState(val phase: String = "Idle", val attempt: String? = null,
     val nodes: List<NodeLabel> = emptyList(), val error: String? = null,
@@ -51,7 +57,6 @@ internal data class ViewState(val phase: String = "Idle", val attempt: String? =
     val announcements: AnnouncementsUi = AnnouncementsUi(),
     // §§18–19 connected-devices display state (server-owned; read/delete only).
     val devices: DevicesUi? = null)
-internal data class CaptchaPrompt(val attempt: String, val id: String, val url: String, val deadlineElapsed: Long, val complete: (String) -> Unit)
 
 class SessionService : Service() {
     private lateinit var retention: ConnectionRetentionController
@@ -108,12 +113,7 @@ class SessionService : Service() {
                 retention.loadForConnection()
                 val remaining = (connectDeadline.deadline(attempt) - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                 retention.transitionFor(remaining)
-                main.postDelayed({
-                    gate.ifActive(attempt) {
-                        if (connectDeadline.expired(attempt, SystemClock.elapsedRealtime()))
-                            handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
-                    }
-                }, remaining)
+                armConnectDeadline(attempt, remaining)
                 send(JSONObject().put("type", "select_node").put("node_id", nodeId)
                     .put("explicit_connect", true))
             }
@@ -184,6 +184,25 @@ class SessionService : Service() {
     private val signer = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(4))
     private val gate = AttemptGate()
     private val connectDeadline = ConnectDeadline()
+    // Official v20 CAPTCHA junction: one active request, exactly-once correlation, and a
+    // pausable Connect budget so the bounded user wait never consumes the network budget.
+    private val captchaScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var captchaJob: Job? = null
+    // One owner for correlation/resume/send: every mutation happens on the actor queue.
+    private val captchaQueue = CaptchaQueue()
+    private var connectDeadlineWatchdog: Runnable? = null
+    // Debug-only seam for the on-device CAPTCHA service-path test: active exactly in
+    // debuggable builds, never in release. It injects a synthetic bridge event only.
+    private val debugSeamEnabled: Boolean
+        get() = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    private val connectBudget = ConnectBudgetController(
+        connectDeadline,
+        { connectDeadlineWatchdog?.let { main.removeCallbacks(it) }; connectDeadlineWatchdog = null },
+        { attempt, delay -> armConnectDeadline(attempt, delay) })
+    // Donor default TunnelParams.captchaSolveMethod; TERLIMO exposes no captcha-method setting,
+    // so the official default "auto" (selected mode = 2 auto attempts with manual fallback)
+    // is used. Recorded in the integration report.
+    private val selectedCaptchaSolveMethod = { "auto" }
     // S5 07.2 probe attribution: one bounded id per manual request (ping-all reuses the
     // same factories through a ProbeRunPlan) and one active fence per request.
     private val probeIds = ProbeIds()
@@ -802,12 +821,7 @@ class SessionService : Service() {
                     explicitConnect.arm(ExplicitConnectGate.Entry.SELECT, attempt)
                     retention.loadForConnection()
                     retention.transitionFor(ConnectDeadline.MILLIS)
-                    main.postDelayed({
-                        gate.ifActive(attempt) {
-                            if (connectDeadline.expired(attempt, SystemClock.elapsedRealtime()))
-                                handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
-                        }
-                    }, ConnectDeadline.MILLIS)
+                    armConnectDeadline(attempt, ConnectDeadline.MILLIS)
                     submitControl {
                         if (view.phase == "CatalogReady" && view.pendingNodeId == null &&
                             id == NodeSelection.connectableNodeId(view.nodes, view.selectedNodeId))
@@ -1193,6 +1207,7 @@ class SessionService : Service() {
                 { completion -> android.util.Log.w(ChildCompletionDiagnostics.TAG, ChildCompletionDiagnostics.line(completion)) },
                 { code -> mirrorNativeStderr(attempt, code) })
             native = child
+            CaptchaWebViewManager.onTunnelStart(applicationContext)
             val start = JSONObject().put("type", "start").put("link", activeLink)
                 .put("public_key_spki", SigningPolicy.encode(storage.publicSpki()))
                 .put("installation_id", storage.installationId())
@@ -1770,27 +1785,7 @@ class SessionService : Service() {
                 }
                 "vpn_config" -> configureVpn(event, attempt)
                 "lease" -> gate.ifActive(attempt) { if (!stopping.get()) armExpiry(event) }
-                "captcha" -> {
-                    val id = event.getString("request_id")
-                    val remaining = event.getLong("deadline_unix_ms") - System.currentTimeMillis()
-                    check(remaining in 1..180_000 && captcha == null) { "CAPTCHA_INVALID" }
-                    val url = event.getString("redirect_uri")
-                    check(CaptchaActivity.allowedUri(url)) { "CAPTCHA_ORIGIN_INVALID" }
-                    val prompt = CaptchaPrompt(attempt, id, url, SystemClock.elapsedRealtime() + remaining) { value ->
-                        enqueueActive(attempt) {
-                            val current = captcha
-                            if (current?.attempt == attempt && current.id == id && gate.active == attempt) {
-                                captcha = null
-                                send(JSONObject().put("type", "captcha_result").put("request_id", id)
-                                    .put("value", if (SystemClock.elapsedRealtime() >= current.deadlineElapsed) "error:timeout" else value))
-                                publishActive(attempt, view.copy(phase = if (view.phase == "WaitingUser") "BootstrapConnecting" else view.phase, error = null))
-                            }
-                        }
-                    }
-                    gate.ifActive(attempt) { if (!stopping.get()) captcha = prompt }
-                    main.postDelayed({ if (captcha === prompt) prompt.complete("error:timeout") }, remaining)
-                    publishActive(attempt, view.copy(phase = if (view.phase == "Connected") "Connected" else "WaitingUser", error = "VK_CAPTCHA_REQUIRED"))
-                }
+                "captcha" -> handleCaptchaRequest(event, attempt)
                 "error" -> stopAttempt(safeCode(event.optString("code")))
                 "stopped" -> stopAttempt(null, "native_stopped")
                 else -> error("BRIDGE_MESSAGE_INVALID")
@@ -2895,6 +2890,114 @@ class SessionService : Service() {
         }
     }
 
+    // ─── Official v20 CAPTCHA junction ───
+
+    /**
+     * One bridge CAPTCHA request → the official donor dispatcher. Stale/duplicate/conflicting
+     * requests are answered per request id and never stop the attempt; the network budget
+     * (Connect deadline and the Go network budget) pauses for the bounded user wait and
+     * resumes with the remaining budget so the same operation continues.
+     */
+    private fun handleCaptchaRequest(event: JSONObject, attempt: String?) {
+        if (attempt == null) return
+        val id = event.optString("request_id")
+        if (id.isEmpty()) return
+        // Duplicate/stale decisions are localized to their request before any validation:
+        // a conflicting or late request never stops the attempt or touches a live prompt.
+        when (captchaQueue.request(attempt, id)) {
+            CaptchaQueue.Decision.IGNORE_DUPLICATE -> return
+            CaptchaQueue.Decision.BUSY -> { sendCaptchaResult(id, "error:busy"); return }
+            CaptchaQueue.Decision.ACCEPT -> Unit
+        }
+        val url = event.optString("redirect_uri")
+        if (gate.active != attempt || stopping.get()) return
+        if (!CaptchaOrigins.allowed(url)) {
+            sendCaptchaResult(id, "error:origin_invalid")
+            return
+        }
+        val mode = event.optString("mode", "auto").lowercase()
+        val sessionToken = event.optString("session_token")
+
+        val entry = CaptchaQueue.Entry(attempt, id, mode, url, sessionToken)
+        captchaQueue.activate(entry)
+        captchaPending = true
+        publishActive(attempt, view.copy(
+            phase = if (view.phase == "Connected") "Connected" else "WaitingUser",
+            error = "VK_CAPTCHA_REQUIRED"))
+        val paused = connectBudget.pause(attempt, SystemClock.elapsedRealtime())
+        if (debugSeamEnabled) android.util.Log.i("WDTT/Captcha",
+            "debug pause attempt=$attempt paused=${paused != null}")
+        captchaJob = captchaScope.launch {
+            val adapter = CaptchaRequestAdapter(captchaSolver(), selectedCaptchaSolveMethod,
+                { step -> android.util.Log.i("WDTT/Captcha", step) })
+            val value = try {
+                adapter.solve(mode, url, sessionToken) { step -> android.util.Log.i("WDTT/Captcha", step) }
+            } catch (t: Throwable) {
+                adapter.errorValue(t)
+            }
+            // Completion always runs on the actor queue: correlation, budget resume and the
+            // correlated result are one atomic step, and a late callback cannot clear a
+            // newer prompt or a newer attempt.
+            enqueueActive(attempt) { completeCaptcha(entry, value) }
+        }
+    }
+
+    /** Runs on the actor queue only. */
+    private fun completeCaptcha(entry: CaptchaQueue.Entry, value: String) {
+        val completed = captchaQueue.complete(entry.attempt, entry.id) ?: return // late/stale
+        captchaJob = null
+        captchaPending = false
+        if (gate.active == completed.attempt && !stopping.get()) {
+            val resumed = connectBudget.resume(completed.attempt, SystemClock.elapsedRealtime())
+            if (debugSeamEnabled) android.util.Log.i("WDTT/Captcha",
+                "debug complete request=${completed.id} value_len=${value.length} resumed=${resumed != null}")
+            sendCaptchaResult(completed.id, value)
+            publishActive(completed.attempt, view.copy(
+                phase = if (view.phase == "WaitingUser") "BootstrapConnecting" else view.phase,
+                error = null))
+        }
+    }
+
+    private fun sendCaptchaResult(id: String, value: String) {
+        if (debugSeamEnabled) android.util.Log.i("WDTT/Captcha",
+            "debug send result request=$id value_len=${value.length}")
+        send(JSONObject().put("type", "captcha_result").put("request_id", id).put("value", value))
+    }
+
+    private fun captchaSolver(): CaptchaSolver = object : CaptchaSolver {
+        override suspend fun solveAuto(redirectUri: String, sessionToken: String, onStep: (String) -> Unit): String =
+            CaptchaWebViewManager.solveCaptchaAsync(redirectUri, sessionToken, onStep)
+        override suspend fun solveManual(redirectUri: String, sessionToken: String): String =
+            ManlCaptchaWebViewManager.solveCaptchaAsync(this@SessionService, redirectUri, sessionToken)
+    }
+
+    private fun teardownCaptcha() {
+        val cleanup = Runnable {
+            if (debugSeamEnabled) android.util.Log.i("WDTT/Captcha", "debug teardown captcha")
+            captchaQueue.invalidate()
+            captchaPending = false
+            captchaJob?.cancel()
+            captchaJob = null
+            CaptchaWebViewManager.onTunnelStop()
+            ManlCaptchaWebViewManager.cancelCaptcha()
+        }
+        if (actor.submit { cleanup.run() } == BridgeActor.Result.CLOSED) cleanup.run()
+    }
+
+    // One Connect budget owns one watchdog; pausing the budget for a CAPTCHA removes it and
+    // resuming re-arms it with exactly the remaining time.
+    private fun armConnectDeadline(attempt: String, delayMillis: Long) {
+        connectDeadlineWatchdog?.let { main.removeCallbacks(it) }
+        val watchdog = Runnable {
+            gate.ifActive(attempt) {
+                if (connectDeadline.expired(attempt, SystemClock.elapsedRealtime()))
+                    handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
+            }
+        }
+        connectDeadlineWatchdog = watchdog
+        main.postDelayed(watchdog, delayMillis)
+    }
+
     private fun stopAttempt(code: String?, caller: String = "unspecified") {
         android.util.Log.w("WDTT/Teardown", "stage=stop_enter child=" + (native != null) + " caller=" + caller)
         trialGate.reset()
@@ -2933,12 +3036,14 @@ class SessionService : Service() {
         activeRuntimeEpoch = 0
         gate.cancel()
         connectDeadline.clear()
+        connectDeadlineWatchdog?.let { main.removeCallbacks(it) }
+        connectDeadlineWatchdog = null
+        teardownCaptcha()
         explicitConnect.clear()
         preAdmissionConnect = false
         preAdmissionGatewayKey = ""
         actor.close()
         signer.shutdownNow()
-        captcha = null
         main.removeCallbacks(expiry)
         main.removeCallbacks(recoveryExpiry)
         main.removeCallbacks(accessTick)
@@ -3012,7 +3117,8 @@ class SessionService : Service() {
         retention.close()
         listeners.remove(statusListener)
         stopAttempt(null, "on_destroy")
-        captcha = null
+        teardownCaptcha()
+        captchaScope.cancel()
         main.removeCallbacksAndMessages(null)
         leaseAlarms.close()
         networkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
@@ -3048,6 +3154,50 @@ class SessionService : Service() {
         /** True while a SessionService instance exists; Off toggles never create one. */
         internal fun isRunning(): Boolean = runningService != null
 
+        // ─── Debug-only CAPTCHA seam (debuggable builds only; никогда в release) ───
+
+        private fun debugService(): SessionService? {
+            val service = runningService ?: return null
+            val debuggable = (service.applicationInfo.flags and
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            return if (debuggable) service else null
+        }
+
+        /** Deterministically injects one synthetic CAPTCHA bridge event for the active attempt. */
+        internal fun debugInjectCaptcha(requestId: String, mode: String, redirectUri: String,
+            sessionToken: String): Boolean {
+            val service = debugService() ?: return false
+            val attempt = service.gate.active ?: return false
+            val event = JSONObject().put("request_id", requestId).put("mode", mode)
+                .put("redirect_uri", redirectUri).put("session_token", sessionToken)
+            val accepted = service.actor.submit { service.handleCaptchaRequest(event, attempt) }
+            android.util.Log.i("WDTT/Captcha",
+                "debug inject request=$requestId mode=$mode attempt=$attempt accepted=$accepted")
+            return accepted == BridgeActor.Result.ACCEPTED
+        }
+
+        /** Deterministically starts the real Connect budget/watchdog for the active attempt. */
+        internal fun debugStartConnectBudget(): Boolean {
+            val service = debugService() ?: return false
+            val attempt = service.gate.active ?: return false
+            val started = service.connectDeadline.start(attempt, SystemClock.elapsedRealtime())
+            if (started) service.armConnectDeadline(attempt, ConnectDeadline.MILLIS)
+            android.util.Log.i("WDTT/Captcha",
+                "debug budget start attempt=$attempt started=$started end=${service.connectDeadline.deadline(attempt)}")
+            return started
+        }
+
+        /** Active attempt id for the seam tests (null when no writer owns an attempt). */
+        internal fun debugAttemptId(): String? = debugService()?.gate?.active
+
+        internal fun debugBudgetEnd(): Long =
+            debugService()?.let { it.connectDeadline.deadline(it.gate.active ?: "") } ?: Long.MAX_VALUE
+
+        internal fun debugBudgetExpired(): Boolean = debugService()?.let {
+            val attempt = it.gate.active ?: return@let false
+            it.connectDeadline.expired(attempt, SystemClock.elapsedRealtime())
+        } ?: false
+
         /**
          * Consistent read-only snapshot of the authoritative tunnel state for the routing editor.
          * Combines the published phase with the actual applied/applying tunnel markers, because a
@@ -3069,7 +3219,7 @@ class SessionService : Service() {
             return RoutingEditSnapshot(view.phase, tunnel)
         }
         internal val listeners = CopyOnWriteArraySet<(ViewState) -> Unit>()
-        @Volatile internal var captcha: CaptchaPrompt? = null
+        @Volatile internal var captchaPending: Boolean = false
         private val NATIVE_PHASES = setOf("ImportVerified", "BootstrapConnecting", "Registering", "ResolvingOperation", "SyncingAccess", "CatalogReady", "NodeAuthenticating", "WaitingUser")
         private fun publish(state: ViewState) {
             synchronized(viewLock) { view = state }

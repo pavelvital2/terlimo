@@ -273,6 +273,9 @@ var globalCaptchaLockout atomic.Int64
 
 var errCaptchaNextChallenge = errors.New("request fresh captcha challenge")
 
+// Official Donor v20 timeouts (d450e132 go_client/creds.go:277-281). The Android UI
+// keeps its own shorter windows (auto 18s, manual 180s), so each layer times out in
+// its own role and the host reports error:timeout first.
 const (
 	captchaAutoWebViewTimeout     = 25 * time.Second
 	captchaManualWebViewTimeout   = 195 * time.Second
@@ -727,15 +730,15 @@ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCrede
 
 				successToken, solveErr := solveCaptchaBySelectedMode(ctx, streamID, captchaStageAttempt, captchaErr, client, profile, savedProfile)
 				if solveErr != nil {
-					if errors.Is(solveErr, errCaptchaNextChallenge) {
+					if nextAttempt, nextSoftFailures, waitRequired := captchaOuterDecision(
+						solveErr,
+						captchaStageAttempt,
+						captchaAutoSoftFailures,
+					); !waitRequired {
 						// Причина конкретного сбоя уже обработана на Android. Не выводим
 						// её внутренний английский текст в пользовательский журнал.
 						log.Printf("[STREAM %d] [КАПЧА] AUTO: текущий способ не завершил проверку; запрашиваем новую капчу", streamID)
-						captchaStageAttempt, captchaAutoSoftFailures = captchaNextStageAfterSolverFailure(
-							captchaStageAttempt,
-							solveErr,
-							captchaAutoSoftFailures,
-						)
+						captchaStageAttempt, captchaAutoSoftFailures = nextAttempt, nextSoftFailures
 						data = buildCaptchaRetryData(link, escapedName, token1, captchaErr, "")
 						timer := time.NewTimer(time.Duration(800+rand.Intn(500)) * time.Millisecond)
 						select {
@@ -931,6 +934,22 @@ func captchaStageAfterSolverSuccess(_ int) int {
 	return 1
 }
 
+// captchaOuterDecision is the outer fetch/worker retry classification for one failed
+// stage solve: a fresh-challenge error maps to the official next stage, everything else
+// (including a user-refused prompt) needs the standard safe wait. Extracted so every
+// retry layer can be proven without live VK traffic.
+func captchaOuterDecision(solveErr error, attempt int, autoSoftFailures int) (nextAttempt int, nextSoftFailures int, waitRequired bool) {
+	if !errors.Is(solveErr, errCaptchaNextChallenge) {
+		return attempt, autoSoftFailures, true
+	}
+	next, soft := captchaNextStageAfterSolverFailure(attempt, solveErr, autoSoftFailures)
+	return next, soft, false
+}
+
+// captchaNextStageAfterSolverFailure is the official stage mapper (donor creds.go:912-919):
+// only the soft auto failures retry a fresh auto challenge, every other failure advances
+// one stage. The Android dispatcher handles slider/kaleidoscope itself (selected mode opens
+// the manual window), so Go does not special-case the message text.
 func captchaNextStageAfterSolverFailure(attempt int, err error, autoSoftFailures int) (int, int) {
 	if attempt <= 2 && captchaAutoFailureShouldRetryFreshAuto(err) && autoSoftFailures < captchaAutoSoftFailureLimit {
 		return 1, autoSoftFailures + 1
@@ -985,6 +1004,9 @@ func requestWebViewCaptcha(ctx context.Context, streamID int, captchaErr *VkCapt
 	if CaptchaResultChan == nil || captchaErr == nil || captchaErr.RedirectURI == "" || captchaErr.SessionToken == "" {
 		return "", fmt.Errorf("webview captcha data is incomplete")
 	}
+	// Donor v20 normalization (creds.go:962-979): only manual/selected keep their mode,
+	// everything else is auto. The mode is dispatched by the Android side exactly as in
+	// the official handler.
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode != "manual" && mode != "selected" {
 		mode = "auto"
@@ -992,18 +1014,46 @@ func requestWebViewCaptcha(ctx context.Context, streamID int, captchaErr *VkCapt
 	if timeout <= 0 {
 		timeout = captchaAutoWebViewTimeout
 	}
+	// An attempt that is already over never opens a challenge window.
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	// Transition the operation into the bounded wait BEFORE the challenge is emitted:
+	// a slow bridge can never let the operation timer expire first, and an expired or
+	// cancelled operation refuses the challenge instead of opening a dead window.
+	controller := budgetFromContext(ctx)
+	if controller != nil {
+		paused, usable := controller.PauseForWait()
+		if !usable {
+			return "", fmt.Errorf("captcha operation budget expired")
+		}
+		if paused {
+			defer controller.ResumeAfterWait()
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 
 	requestID := nextCaptchaRequestID(streamID)
 	resultCh, unregisterResultWaiter := registerCaptchaResultWaiter(requestID)
 	defer unregisterResultWaiter()
 
 	if managedCaptchaOutput != nil {
-		managedCaptchaOutput(requestID, mode, captchaErr.RedirectURI, captchaErr.SessionToken, timeout)
+		managedCaptchaOutput(requestID, mode, captchaErr.RedirectURI, captchaErr.SessionToken)
 	} else {
 		fmt.Printf("CAPTCHA_SOLVE|%s|%s|%s|%s\n", requestID, mode, captchaErr.RedirectURI, captchaErr.SessionToken)
 	}
 
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	var waitCtx context.Context
+	var cancel context.CancelFunc
+	if controller != nil {
+		// The donor-bounded wait survives the caller's narrower network deadlines while
+		// still following a real caller cancellation (Disconnect/runtime stop).
+		waitCtx, cancel = controller.WaitContext(ctx, timeout)
+	} else {
+		waitCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
 	defer cancel()
 
 	handleResponse := func(response CaptchaResult) (string, bool, error) {
@@ -1036,7 +1086,10 @@ func requestWebViewCaptcha(ctx context.Context, streamID int, captchaErr *VkCapt
 				return token, err
 			}
 		case <-waitCtx.Done():
-			return "", fmt.Errorf("webview captcha timed out: %w", waitCtx.Err())
+			if errors.Is(context.Cause(waitCtx), context.DeadlineExceeded) {
+				return "", fmt.Errorf("webview captcha timed out: %w", context.DeadlineExceeded)
+			}
+			return "", fmt.Errorf("webview captcha wait cancelled: %w", context.Cause(waitCtx))
 		}
 	}
 }

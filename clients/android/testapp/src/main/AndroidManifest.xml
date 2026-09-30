@@ -39,7 +39,9 @@
         <activity android:name=".RetentionSettingsActivity" android:exported="false" />
         <receiver android:name=".RetentionAlarmReceiver" android:exported="false" />
         <activity android:name=".RoutingSettingsActivity" android:exported="false" />
-        <activity android:name=".CaptchaActivity" android:exported="false" android:excludeFromRecents="true" />
+        <activity android:name=".ManlCaptchaActivity" android:exported="false" android:excludeFromRecents="true"
+            android:launchMode="singleTop" />
+        <receiver android:name=".CaptchaCancelReceiver" android:exported="false" />
         <service android:name=".SessionService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User initiated TEST VPN connection" />
         </service>

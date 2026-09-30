@@ -104,9 +104,21 @@ func (s *BootstrapStarter) Start(ctx context.Context, ready IntentPoll) (StartRe
 	return StartReply{}, nil, last
 }
 
+// exchangeTimeoutContext keeps the configured attempt timeout. When the operation
+// carries a wait pauser, the timeout clock is controller-managed so a bounded CAPTCHA
+// wait does not consume it (the duration itself is never extended).
+func exchangeTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if pauser, ok := waitPauser(ctx); ok {
+		if attemptCtx, cancel, ok := pauser.TrackTimeout(timeout); ok {
+			return attemptCtx, cancel
+		}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 func (s *BootstrapStarter) exchange(ctx context.Context, ready IntentPoll, body []byte,
 	timeout time.Duration) (StartReply, *APIError, error) {
-	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+	attemptCtx, cancel := exchangeTimeoutContext(ctx, timeout)
 	defer cancel()
 	conn, cleanup, err := s.Dial(attemptCtx, ready.Gateway.Endpoint, *ready.Bootstrap)
 	if err != nil {

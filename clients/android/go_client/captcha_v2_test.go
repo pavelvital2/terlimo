@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseCaptchaV2PageUsesActualScriptMetadata(t *testing.T) {
@@ -207,5 +211,87 @@ func TestBuildCaptchaRetryDataWithoutCaptchaSid(t *testing.T) {
 	want := "vk_join_link=https://vk.ru/call/join/join-code&name=Test+User&success_token=success%2Ftoken&access_token=anon-token&remixstlid=tmp%2Fuser"
 	if got != want {
 		t.Fatalf("unexpected retry data:\nwant %s\ngot  %s", want, got)
+	}
+}
+
+func TestCaptchaSliderFailureAdvancesPerOfficialMapper(t *testing.T) {
+	// Donor v20 keeps the slider/kaleidoscope answer inside the normal stage order: the
+	// Android dispatcher opens the manual window for selected mode, while the plain stage
+	// order advances one step at a time.
+	got, soft := captchaNextStageAfterSolverFailure(1, errors.New("webview captcha failed: error:slider_detected"), 0)
+	if got != 2 || soft != 0 {
+		t.Fatalf("slider mapping=(%d,%d), want (2,0)", got, soft)
+	}
+	got, _ = captchaNextStageAfterSolverFailure(2, errors.New("webview captcha failed: error:slider_detected"), 0)
+	if got != 3 {
+		t.Fatalf("second slider mapping=%d, want 3", got)
+	}
+	got, soft = captchaNextStageAfterSolverFailure(3, errors.New("webview captcha failed: error:slider_detected"), 0)
+	if got != 4 || soft != 0 {
+		t.Fatalf("third slider mapping=(%d,%d), want (4,0)", got, soft)
+	}
+}
+
+func TestCaptchaRefusedPromptNeedsSafeWaitWithoutNewChallenge(t *testing.T) {
+	previousOutput := managedCaptchaOutput
+	previousChan := CaptchaResultChan
+	defer func() {
+		managedCaptchaOutput = previousOutput
+		CaptchaResultChan = previousChan
+	}()
+	CaptchaResultChan = make(chan CaptchaResult, 1)
+	managedCaptchaOutput = func(id, mode, redirect, token string) {
+		CaptchaResultChan <- CaptchaResult{RequestID: id, Value: "error:cancelled"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Official order: a refusal is an ordinary stage failure. Earlier stages advance to
+	// the next challenge (no terminal claim from a single classifier)...
+	_, err := solveCaptchaBySelectedMode(ctx, 0, 1,
+		&VkCaptchaError{RedirectURI: "https://vk.com/captcha", SessionToken: "s"}, nil, Profile{}, nil)
+	if !errors.Is(err, errCaptchaNextChallenge) || !strings.Contains(err.Error(), "error:cancelled") {
+		t.Fatalf("stage 1 refusal must advance with its reason, got %v", err)
+	}
+	next, _, waitRequired := captchaOuterDecision(err, 1, 0)
+	if waitRequired || next != 2 {
+		t.Fatalf("stage 1 outer decision=(next=%d,wait=%v), want stage 2", next, waitRequired)
+	}
+
+	// ...and only the last stage falls through to the standard safe wait.
+	_, err = solveCaptchaBySelectedMode(ctx, 0, captchaSolveStageCount(),
+		&VkCaptchaError{RedirectURI: "https://vk.com/captcha", SessionToken: "s"}, nil, Profile{}, nil)
+	if err == nil || errors.Is(err, errCaptchaNextChallenge) {
+		t.Fatalf("last-stage refusal must be a plain failure, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "error:cancelled") {
+		t.Fatalf("refusal reason must reach the outer layers, got %v", err)
+	}
+	lastAttempt, soft, waitRequired := captchaOuterDecision(err, captchaSolveStageCount(), 0)
+	if !waitRequired || lastAttempt != captchaSolveStageCount() || soft != 0 {
+		t.Fatalf("last-stage outer decision=(%d,%d,wait=%v), want safe wait", lastAttempt, soft, waitRequired)
+	}
+	// Worker/group retry layer: the safe wait stays recoverable and keeps its bounded delay.
+	if isTerminalGroupCredentialError(errors.New("CAPTCHA_WAIT_REQUIRED")) {
+		t.Fatal("safe wait must stay recoverable for another group fetch")
+	}
+	if got := groupCredentialRetryDelay(errors.New("CAPTCHA_WAIT_REQUIRED")); got != 90*time.Second {
+		t.Fatalf("safe wait retry delay = %v, want 90s", got)
+	}
+}
+
+func TestCaptchaStageFailureDecisionKeepsOfficialOrder(t *testing.T) {
+	// Fresh-challenge errors from stages 1-3 advance exactly one stage; the last stage
+	// falls through to the safe wait.
+	for attempt := 1; attempt < captchaSolveStageCount(); attempt++ {
+		err := fmt.Errorf("%w: stage %d", errCaptchaNextChallenge, attempt)
+		next, _, waitRequired := captchaOuterDecision(err, attempt, 0)
+		if waitRequired || next != attempt+1 {
+			t.Fatalf("attempt %d decision=(%d,wait=%v), want next stage", attempt, next, waitRequired)
+		}
+	}
+	next, _, waitRequired := captchaOuterDecision(errors.New("last stage failed"), captchaSolveStageCount(), 0)
+	if !waitRequired || next != captchaSolveStageCount() {
+		t.Fatalf("last stage decision=(%d,wait=%v), want safe wait", next, waitRequired)
 	}
 }

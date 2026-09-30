@@ -22,10 +22,11 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3"
+	"wg-turn-client/onboarding"
 	"wg-turn-client/wlbs"
 )
 
-var managedCaptchaOutput func(string, string, string, string, time.Duration)
+var managedCaptchaOutput func(id, mode, redirect, token string)
 
 type managedSaved struct {
 	Subscription   string                 `json:"subscription_ref"`
@@ -236,9 +237,9 @@ func runTerlimoMain() {
 	}()
 	defer b.send(bridgeMessage{"type": "stopped"})
 	go b.read(ctx, scanner)
-	managedCaptchaOutput = func(id, mode, redirect, token string, timeout time.Duration) {
+	managedCaptchaOutput = func(id, mode, redirect, token string) {
 		b.send(bridgeMessage{"type": "state", "state": "WaitingUser"})
-		b.send(bridgeMessage{"type": "captcha", "request_id": id, "mode": mode, "redirect_uri": redirect, "session_token": token, "deadline_unix_ms": time.Now().Add(timeout).UnixMilli()})
+		b.send(bridgeMessage{"type": "captcha", "request_id": id, "mode": mode, "redirect_uri": redirect, "session_token": token})
 	}
 	c := &managedController{bridge: b, start: start, signSem: make(chan struct{}, 1)}
 	runErr = c.run(ctx, cancel)
@@ -508,7 +509,8 @@ func (c *managedController) runMobile(ctx context.Context, cancel context.Cancel
 			return ctx.Err()
 		case <-mobile.verifiedSignal():
 		case gatewayKey := <-c.bridge.explicit:
-			onboardingCtx, stopOnboarding := context.WithTimeout(ctx, mobileHTTPTimeout)
+			onboardingCtx, onboardingBudget, stopOnboarding := newOperationBudget(ctx, mobileHTTPTimeout)
+			onboardingCtx = onboarding.WithWaitPauser(onboardingCtx, onboardingBudget)
 			activated, onboardingErr := mobile.explicitConnect(onboardingCtx, gatewayKey)
 			stopOnboarding()
 			if onboardingErr == nil {
@@ -558,7 +560,7 @@ func (c *managedController) runSelected(ctx context.Context, cancel context.Canc
 	}
 	// One Connect budget covers admission refresh, workers and host readiness.
 	// The established runtime retains ctx, not this preparation deadline.
-	connectCtx, stopConnect := context.WithTimeout(ctx, 15*time.Second)
+	connectCtx, _, stopConnect := newOperationBudget(ctx, 15*time.Second)
 	defer stopConnect()
 	catalog := c.store.Snapshot()
 	if _, e = c.probeForNode(nodeID); e != nil {
@@ -1155,7 +1157,8 @@ func (c *managedController) waitForNode(ctx context.Context) (string, error) {
 			if c.bridge.explicitSelection() && c.mobile != nil {
 				// Bound the explicit hour attempt by the existing mobile call budget;
 				// it never extends the attempt lifetime or the Connect deadline policy.
-				onboardingCtx, stopOnboarding := context.WithTimeout(ctx, mobileHTTPTimeout)
+				onboardingCtx, onboardingBudget, stopOnboarding := newOperationBudget(ctx, mobileHTTPTimeout)
+				onboardingCtx = onboarding.WithWaitPauser(onboardingCtx, onboardingBudget)
 				onboardingErr := c.runExplicitOnboarding(ctx, onboardingCtx, gatewayKey, c.mobile)
 				stopOnboarding()
 				// Only a post-start wait failure or a canceled parent is terminal here;
@@ -1737,6 +1740,10 @@ func awaitManagedSetup(ctx context.Context, plan managedTunnelPlan, configCh <-c
 
 func (c *managedController) vpn(parent context.Context, parentCancel context.CancelFunc, node wlbs.Node, registration string,
 	replace func(), operation *managedSwitch, terminal chan<- error, preparation context.Context) (resultErr error) {
+	// Workers started by this preparation receive only the correlated pause handle of the
+	// operation; the runtime/worker lifetime stays the attempt lifetime.
+	parent = linkOperationBudget(parent, preparation)
+	defer invalidatePreparationBudget(preparation)
 	runtimeEpoch := c.bridge.nextRuntimeEpoch()
 	connecting, connected := operation == nil, false
 	defer func() {
@@ -1907,6 +1914,9 @@ func (c *managedController) vpn(parent context.Context, parentCancel context.Can
 		}
 	}
 	connected = true
+	// Readiness reached: decouple the operation handle so a later CAPTCHA (another
+	// runtime, add-stream worker, or the old switch) never pauses this operation again.
+	invalidatePreparationBudget(preparation)
 	if replace != nil {
 		if operation == nil {
 			return errors.New("REVISION_CONFLICT")
@@ -2043,7 +2053,7 @@ func (c *managedController) vpn(parent context.Context, parentCancel context.Can
 		case switchRequest := <-c.bridge.switchNode:
 			switchDiag(c.bridge, "runner_consumed")
 			targetID := switchRequest.NodeID
-			switchCtx, stopSwitch := context.WithTimeout(parent, 10*time.Second)
+			switchCtx, _, stopSwitch := newOperationBudget(parent, 10*time.Second)
 			var target wlbs.Node
 			var switchErr error
 			if refreshing {

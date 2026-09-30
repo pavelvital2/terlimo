@@ -208,11 +208,13 @@ func TestMobileSwitchRuntimeSelectionByIDBothDirections(t *testing.T) {
 		}
 		feedWaitFor(t, func() bool { return controller.selectionID() == step.target })
 		// The committed switch starts the target before the host ack releases the
-		// previous child, then the previous child must be stopped and reaped.
+		// previous child, then the previous child must be stopped and reaped. Observe the
+		// stop first: indexOf() returns -1 while it is still pending, and comparing
+		// against -1 would report the desired order (start before stop) as a violation.
+		feedWaitFor(t, func() bool { return stub.indexOf("stop:"+previousOwner) >= 0 })
 		if stub.indexOf("start:"+step.target) > stub.indexOf("stop:"+previousOwner) {
 			t.Fatalf("target %s must start before the previous child is stopped: %v", step.target, stub.eventsSnapshot())
 		}
-		feedWaitFor(t, func() bool { return stub.indexOf("stop:"+previousOwner) >= 0 })
 		feedWaitFor(t, func() bool { return stub.activeCount() == 1 })
 		feedWaitFor(t, func() bool {
 			controller.mu.Lock()

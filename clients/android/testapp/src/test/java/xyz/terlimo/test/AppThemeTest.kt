@@ -71,7 +71,7 @@ class AppThemeTest {
 
     @Test fun everyUserFacingActivityResolvesTheStoredTheme() {
         for (name in listOf("MainActivity.kt", "RetentionSettingsActivity.kt",
-            "RoutingSettingsActivity.kt", "CaptchaActivity.kt", "QrCaptureActivity.kt")) {
+            "RoutingSettingsActivity.kt", "ManlCaptchaWebViewManager.kt", "QrCaptureActivity.kt")) {
             val src = source(name)
             assertTrue("$name missing attachBaseContext", src.contains("override fun attachBaseContext"))
             assertTrue("$name missing AppTheme.wrap", src.contains("super.attachBaseContext(AppTheme.wrap(newBase))"))

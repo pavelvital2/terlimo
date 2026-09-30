@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestClassifyTerminalVKJoinError(t *testing.T) {
@@ -121,5 +123,29 @@ func TestAuthErrorsFromSupersededCredentialsDoNotInvalidateFreshCache(t *testing
 	defer cache.mutex.RUnlock()
 	if cache.creds.Username != "" || cache.creds.Password != "" {
 		t.Fatal("current credential failures did not invalidate the cache")
+	}
+}
+
+func TestCaptchaRequestSkipsEmitForFinishedContext(t *testing.T) {
+	previousOutput := managedCaptchaOutput
+	previousChan := CaptchaResultChan
+	defer func() {
+		managedCaptchaOutput = previousOutput
+		CaptchaResultChan = previousChan
+	}()
+	emits := 0
+	managedCaptchaOutput = func(id, mode, redirect, token string) { emits++ }
+	CaptchaResultChan = make(chan CaptchaResult, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // realistic: the attempt is already over before the challenge is emitted
+
+	_, err := requestWebViewCaptcha(ctx, 0,
+		&VkCaptchaError{RedirectURI: "https://vk.com/captcha", SessionToken: "s"}, "auto", time.Second)
+	if err == nil {
+		t.Fatal("finished context must refuse the challenge")
+	}
+	if emits != 0 {
+		t.Fatalf("finished context emitted %d challenges, want 0", emits)
 	}
 }
