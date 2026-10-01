@@ -183,3 +183,7 @@ Migrations0034/0035 and routes are NOT deployed. Live API7e591453/node23c410d8 r
 ## 2026-10-01 Correct mirror payment source-plan serialization
 
 Root parity review initially misidentified the direction of an existing fix. Evidence from accepted live commit2827cf66 proves it removes redundant json.dumps(plan): db.py already registers jsonb encoder=json.dumps. The combined TEST package917049b0 correctly retained raw plan; two mirror payments.py lines were stale. This checkpoint restores parity with the existing fix, not a new product behavior. Executor ran test_s5_source_plan_shape.py and test_s5_paid_credit_source.py against combined package/real codec:5 PASS, including nonempty source plan and callback deduplication. Exact evidence SHA2568be00edd96213e504bc8446a4d15552c39412b4daede3ffb9d156c33792bbbf8. No live deployment performed during this correction.
+
+## 2026-10-01 TEST worker phase timing
+
+Source87e77ec798b3002961220ad14b70344c039c0894 based on0cebcfc1. Reviewed patch6dd89f8fd02d979c104f39a1592dc1b910c50041a9b8ccc2b4a8865887aa790a. Five targeted tests passed per executor; runtime3files installed TESTA06:30UTC, workerPID3543033, other servicePIDs unchanged. No scheduler/timeouts/admission changes, no fixtureDBwrites. Historical14.451s operation date corrected to01Oct viaDB reread. Observability source accepted; pending phone run and cause/fix NOT yet accepted. Privateoverlay/dirtycatalogtest excluded.

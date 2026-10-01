@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -25,6 +26,7 @@ import asyncpg
 
 from .config import Settings
 from .gateway_adapter import GatewayError, build_gateway_client
+from .operation_timing import log_phase, timed_rpc
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +440,10 @@ async def ensure_hour_grant(
         return "enqueued"
 
     remaining = (existing["not_after"] - now).total_seconds()
-    if not_after < existing["not_after"] - timedelta(seconds=1) or remaining < max_lease_seconds / 3:
+    if (
+        not_after < existing["not_after"] - timedelta(seconds=1)
+        or remaining < max_lease_seconds / 3
+    ):
         generation = existing["desired_generation"] + 1
         await connection.execute(
             """
@@ -656,7 +661,10 @@ def _readback_matches_apply(
 
 def _readback_matches_revoke(readback: dict[str, Any], *, expected_generation: int) -> bool:
     try:
-        return readback.get("revoked") is True and int(readback.get("generation", -1)) == expected_generation
+        return (
+            readback.get("revoked") is True
+            and int(readback.get("generation", -1)) == expected_generation
+        )
     except (TypeError, ValueError):
         return False
 
@@ -810,37 +818,45 @@ class GatewayControlHandlers:
         }
         try:
             if grant["lease_seq"] == 0:
-                readback = await client.grant_provision(
-                    password=password,
-                    grant_id=expected["grant_id"],
-                    registration_id=expected["registration_id"],
-                    node_id=node_id,
-                    public_key_spki=grant["public_key_spki_b64"],
-                    generation="1",
-                    lease_seq="1",
-                    operation_id=operation_id,
-                    expires_at=not_after_epoch,
+                readback = await timed_rpc(
+                    operation,
+                    "provision",
+                    client.grant_provision(
+                        password=password,
+                        grant_id=expected["grant_id"],
+                        registration_id=expected["registration_id"],
+                        node_id=node_id,
+                        public_key_spki=grant["public_key_spki_b64"],
+                        generation="1",
+                        lease_seq="1",
+                        operation_id=operation_id,
+                        expires_at=not_after_epoch,
+                    ),
                 )
                 gateway_generation = 1
             else:
-                readback = await client.refresh_lease(
-                    password=password,
-                    grant_id=expected["grant_id"],
-                    registration_id=expected["registration_id"],
-                    node_id=node_id,
-                    public_key_spki=grant["public_key_spki_b64"],
-                    generation=str(grant["gateway_generation"] or 1),
-                    lease_seq=str(grant["lease_seq"] + 1),
-                    expected_seq=str(grant["lease_seq"]),
-                    operation_id=operation_id,
-                    expires_at=not_after_epoch,
+                readback = await timed_rpc(
+                    operation,
+                    "refresh",
+                    client.refresh_lease(
+                        password=password,
+                        grant_id=expected["grant_id"],
+                        registration_id=expected["registration_id"],
+                        node_id=node_id,
+                        public_key_spki=grant["public_key_spki_b64"],
+                        generation=str(grant["gateway_generation"] or 1),
+                        lease_seq=str(grant["lease_seq"] + 1),
+                        expected_seq=str(grant["lease_seq"]),
+                        operation_id=operation_id,
+                        expires_at=not_after_epoch,
+                    ),
                 )
                 gateway_generation = int(grant["gateway_generation"] or 1)
         except GatewayError as error:
             if error.code not in TERMINAL_EXTERNAL_CODES:
                 raise
             try:
-                readback = await client.grant_get(password, node_id)
+                readback = await timed_rpc(operation, "get", client.grant_get(password, node_id))
             except GatewayError:
                 raise error
             if not _readback_matches_apply(
@@ -870,11 +886,14 @@ class GatewayControlHandlers:
             return ("failed", "worker_cap_mismatch")
 
         lease_seq = int(readback.get("lease_seq", grant["lease_seq"] + 1))
+        log_phase(operation, "readback_confirmed")
         # One short DB transaction publishes the whole apply result: grant state, confirmed cap,
         # proven target route, snapshot epoch and the coalesced profile operation. If the dirty
         # event cannot be enqueued, the state that would let a retry skip the snapshot is rolled
         # back too, so the standard apply retry (remote apply is idempotent by operation key)
         # re-publishes it. Network RPC/readback stay OUTSIDE any transaction.
+        publish_started = time.monotonic()
+        log_phase(operation, "publish_begin")
         async with connection.transaction():
             updated = await connection.fetchval(
                 """
@@ -894,6 +913,7 @@ class GatewayControlHandlers:
                 readback,
             )
             if updated is None:
+                log_phase(operation, "publish_superseded", publish_started)
                 return ("failed", "superseded_during_apply")
             await connection.execute(
                 "UPDATE gateways SET confirmed_max_workers = $2 WHERE id = $1",
@@ -937,6 +957,7 @@ class GatewayControlHandlers:
                     account_id=grant["account_id"],
                     binding_id=grant["binding_id"],
                 )
+        log_phase(operation, "publish_end", publish_started)
         return None
 
     async def revoke_grant(self, connection: asyncpg.Connection, operation: asyncpg.Record):

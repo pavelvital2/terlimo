@@ -209,7 +209,8 @@ async def test_ensure_grant_is_finite_and_technical_only(gateway_env):
     assert operations[0]["idempotency_key"] == f"grant:{payload['grant_id']}:gen:1:apply"
 
 
-async def test_worker_applies_and_marks_applied_only_after_readback(gateway_env):
+async def test_worker_applies_and_marks_applied_only_after_readback(gateway_env, caplog):
+    caplog.set_level("INFO", logger="terlimo_backend.operation_timing")
     gateway, settings, database, ids, database_url = gateway_env
     async with database.acquire() as connection:
         await ensure_grant(
@@ -221,6 +222,30 @@ async def test_worker_applies_and_marks_applied_only_after_readback(gateway_env)
         )
     assert await _run_once(database, settings, database_url) >= 1
     grant = await _grant_row(database_url)
+    operation = (await _outbox(database_url, APPLY_OPERATION))[0]
+    messages = [
+        record.message
+        for record in caplog.records
+        if record.name == "terlimo_backend.operation_timing"
+        and f"operation_id={operation['id']} " in record.message
+    ]
+    assert [message.split()[1] for message in messages] == [
+        "phase=claim",
+        "phase=handler_begin",
+        "phase=rpc_begin",
+        "phase=rpc_end",
+        "phase=readback_confirmed",
+        "phase=publish_begin",
+        "phase=publish_end",
+        "phase=handler_end",
+        "phase=finalize_begin",
+        "phase=finalize_end",
+    ]
+    assert "enqueue_at=none" not in messages[0]
+    assert "available_at=none" not in messages[0]
+    assert "result=done" in messages[-1]
+    assert grant["gateway_credential"] not in "\n".join(messages)
+    assert settings.gateway_admin_main_password not in "\n".join(messages)
     assert grant["state"] == "applied"
     assert grant["applied_generation"] == 1
     assert grant["lease_seq"] == 1
@@ -252,7 +277,8 @@ async def test_worker_applies_and_marks_applied_only_after_readback(gateway_env)
     assert "trial" not in " ".join(gateway.commands).lower()
 
 
-async def test_queued_accepted_is_not_applied_on_readback_mismatch(gateway_env):
+async def test_queued_accepted_is_not_applied_on_readback_mismatch(gateway_env, caplog):
+    caplog.set_level("INFO", logger="terlimo_backend.operation_timing")
     gateway, settings, database, ids, database_url = gateway_env
     async with database.acquire() as connection:
         await ensure_grant(
@@ -279,6 +305,20 @@ async def test_queued_accepted_is_not_applied_on_readback_mismatch(gateway_env):
     operation = (await _outbox(database_url, APPLY_OPERATION))[0]
     assert operation["status"] == "pending"
     assert operation["attempts"] == 1
+
+    messages = [
+        record.message
+        for record in caplog.records
+        if f"operation_id={operation['id']} " in record.message
+    ]
+    assert not any("phase=readback_confirmed" in message for message in messages)
+    assert not any("phase=publish_begin" in message for message in messages)
+    assert any(
+        "phase=handler_end" in message and "result=exception" in message for message in messages
+    )
+    assert any(
+        "phase=finalize_end" in message and "result=pending" in message for message in messages
+    )
 
 
 async def test_lost_response_retries_with_same_operation_identity(gateway_env):

@@ -24,12 +24,14 @@ import os
 import secrets
 import signal
 import socket
+import time
 from collections.abc import Awaitable, Callable
 
 import asyncpg
 
 from .config import Settings, load_settings
 from .db import Database
+from .operation_timing import log_phase
 
 logger = logging.getLogger(__name__)
 
@@ -151,10 +153,14 @@ class OutboxWorker:
 
     async def run_once(self) -> bool:
         """Claim and process at most one operation. Returns True when one was claimed."""
+        pool_started = time.monotonic()
         async with self._db.acquire() as connection:
+            pool_ms = (time.monotonic() - pool_started) * 1000
+            claim_started = time.monotonic()
             operation = await self._claim(connection)
             if operation is None:
                 return False
+            log_phase(operation, "claim", claim_started, pool_ms=pool_ms)
             await self._process(connection, operation)
             return True
 
@@ -200,6 +206,8 @@ class OutboxWorker:
         backoff_seconds: float = 0.0,
     ) -> bool:
         """Token-fenced finalization; returns False when the claim was already lost."""
+        started = time.monotonic()
+        log_phase(operation, "finalize_begin")
         finalized = await connection.fetchval(
             FINALIZE_SQL,
             operation["id"],
@@ -208,6 +216,7 @@ class OutboxWorker:
             error,
             float(backoff_seconds),
         )
+        log_phase(operation, "finalize_end", started, result=status if finalized else "fenced")
         return finalized is not None
 
     async def _renew_lease(self, operation: asyncpg.Record) -> None:
@@ -257,9 +266,12 @@ class OutboxWorker:
             return
 
         heartbeat = asyncio.create_task(self._renew_lease(operation))
+        handler_started = time.monotonic()
+        log_phase(operation, "handler_begin")
         try:
             outcome = await handler(connection, operation)
         except Exception as exc:
+            log_phase(operation, "handler_end", handler_started, result="exception")
             attempts = int(operation["attempts"])
             max_attempts = int(operation["max_attempts"])
             terminal = attempts >= max_attempts
@@ -286,6 +298,7 @@ class OutboxWorker:
                     operation["id"],
                 )
         else:
+            log_phase(operation, "handler_end", handler_started)
             outcome_status, outcome_reason = _handler_outcome(outcome)
             if outcome_status == "failed":
                 if await self._finalize(
