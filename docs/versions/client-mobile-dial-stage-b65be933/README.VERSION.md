@@ -1,29 +1,25 @@
-# Mobile service dial chronology — offline source candidate
+# Mobile service dial chronology — APK8827c0ba
 
-## Точная версия и scope
+## Точная версия и текущий результат
 
-Source code commit `b65be933351f973194b97954eb663bde0e5fc909`, base reviewed `c7feddd780dea786e36cedbe108232995dc036ff` (publicationfixf68 сохранён). Branch `laptop/mobile-dial-stage-20261001`, checkout `/home/pavel/terlimo-mobile-dial-stage-20261001`. Отдельный candidate, privateoverlay не копировался, donor origin не менялся/push не выполнялся. APK этой measurementверсии **не собрана**, native/packagedSHA/signature новойверсии не установлены. Installed ordinaryAPK070aafdd остаётся прежнимартефактом, егоhistoricalsource/install/device результаты не переносятся на новыйmeasurementcommit.
+Source code `b65be933351f973194b97954eb663bde0e5fc909`, documented HEAD `74db78c0da2f5b70dba577e572c98cbccb37b9ec`, base `c7feddd780dea786e36cedbe108232995dc036ff`. Canonical source snapshot `0c1264d4fe9caa1b6726da7e3ddd50cd7411bded`, branch `diag/mobile-dial-stage-20261001`, repository `pavelvital2/terlimo`. Publication fix сохранён.
 
-## Измерение и проверка отдельно
+APK `8827c0bad83e0a8e01c4bce67e33112fd82fcc6d74e1fd261dbaf6e6cd079331`; native `f07b657f685d5f5bcaac34710be2a29d7e4e548fdb6406c1e2e8e676943b4633`; packaged native `f7a5f4bc19e49d9faa48d195a1142a1acbba134b70aa1b9b4194d017582ac760`. Producer и Kotlin consumer включены. Go1.27/NDK28.2/Gradle9.1/JDK21, signature/strip/package parity по artifact-manifest. Frame diagnostics OFF; серверный API probe — отдельный runtime статус.
 
-| Поведение | Source | Проверка |
-|---|---|---|
-| Scope толькоmanagedServiceEstablish | contextvalue включает per-dial observer, VPNcaller его не получает | Go scope/cancellation/NilwrapperPASS; обычныеtimeouts/config/order не менялись |
-| Fixedchronology candidate/socket/TLS/client/Allocate/cert/semaphore/DTLS/firstwrite | Реализовано | Go bounds/safeerror/pass-throughPASS; Kotlinmatcher/budgetPASS |
-| Monotonic elapsed отначалаdial, никакихpayloadfields | Реализовано | Fixedrecordformat/code review; rawerror rejected, on-wiretrace отсутствует |
-| Bounded64events +FINISH/truncated, однаwriteпослерeturn | Реализовано | cap/singleemit/uniquecall/latefrozenracePASS |
-| FirstWrite span | ВключаетPermission ивесьfirstrelay.WriteTo, не равенpurepermissionlatency | Pass-through n/error/addr/bytes, singlefirstamong8concurrentcallsPASS; lateENDотбрасывается, отсутствующийEND=незавершённыйspan |
-| APK/artifact/device | Не собраны/не запускались | NOT TESTED; measurementизменение не лечит7573msсамопосебе |
+| Уровень | Подтверждённый результат |
+|---|---|
+| Source | Root review PASS; mobile-only bounded chronology, транспортные таймауты/порядок/return values сохранены |
+| Offline проверки | 7 Go race tests и 3 Kotlin JVM tests PASS; повторно не запускались |
+| Build | Native-first + APK producer/consumer PASS по artifact manifest |
+| Install | user0/readback exact APK PASS; appId10246/inode21342/firstInstallTime и state hashes сохранены |
+| Measurement | Call1: все17строк, FINISH8097ms/truncated0; DTLS8002ms TIMEOUT, Allocate92ms, firstWrite51ms |
+| Device catalog | **FAIL CATALOG_TIMEOUT15012ms**, attempt6af42be6; AUTH/ME/GW/ACCEPT отсутствуют |
+| Повтор внутри приложения | После994ms штатногоretry начался второйdial; FINISH отсутствует доhostteardown, capture incomplete |
+| Финал | Native/service/VPNOFF, activitynotresumed20:06:10.720170UTC; cachedUI24638 остаётся |
 
-7targetedGo tests-racePASS; 3purehostJVM unit testsPASS, безGradle/native/APKbuild/SDKdevice иwithoutnetworkfixtures. КонструкторTURNearlyfailure используетinvalidport+in-memoryPacketConn, никакихsocket/HTTP/DNSremote операций. Ранеепринятаяsuite не повторялась.
+Actual launcher20:05:08.001651UTC. Один операторский запуск, безRefresh/Connect/retry. Substage times монотонные, буферизованные logcat timestamps не время этапов. FirstWrite включает Permission и другую работу WriteTo; число retransmission не измерено. Missing FINISH не означает0ms, native truncation не описывает host/logcatloss. Измерение локализует DTLS этого запуска, не доказывает первопричину сети/сервера или причину прежнегоAUTHwait. Publication callback не достигнут: sourcePASS не переносится наdevicePASS.
 
-Nativecap64events/percall, summaryFINISH/truncated=0|1 отдельно. Приoverflowсохраняютсяпервые64, ordinalнеперенумеровывается, callIDatomicuint64непереиспользуетсяиз-забуфера. Наseal событияпозжеcapturedFINISHtime исключены, нетwaitingforfirstWrite/extraobservergoroutines. ENDотсутствуетприin-flightwrite, не выводить0ms. РезультатыBEGIN/OK/CANCELED/TIMEOUT/EOF/CLOSED/OTHER; transportenumNONE/UDP/TCP/TLS, толькочисла/фиксированныестадии. callIDprocess-local; PID/childattempt+соседнийserviceESTABLISHtrace даютсопоставление безновыхwirefields.
-
-Androidconsumer используетотдельныйbudget65lines/10s и260lines/child; старыеcaps/reservedterminalslots не подняты и не расходуются. Одинmaxnativebatchвмещается. Поздниеbatch при исчерпанномhostratebudget могутбытьотброшены: **missingFINISH означаетincompletecapture**; native truncationflag описывает nativebuffer, не host/logcat/delivery. Не утверждатьfulltraceприотсутствииFINISH/наличииtruncated=1.
-
-## Buildpath после source review
-
-Root переносит reviewedclient subtree вcanonicalpavelvital2/terlimo черезmonorepopublisher; Laptop не пушитdonor. Толькопослеreview отдельно назначить обычныйnative-first build: свежийGoNDKAndroidarm64→inputELFguard→Gradleordinarydebug→packagedstripidentity/signature/alignment. Нужны обе части новогоsource: nativeproducer И Kotlinallowlist; APKсо старымhostparserне покажетdialstage. НетновогоGradleproperty/diagflag, Piondep илитаймаута; fullframecaptureOFF. PrivateTESToverlay толькоштатнолокально поотдельнойbuildзадаче. Build/install/phone сегодня в этомэтапе не выполнялись.
+Подробные evidence: `device-run-8827c0ba/` и ROOT_REVIEW.md. В исходном присланном README остался текст offline стадии; он сохранён неизменным внутри device-run как исходное свидетельство. Этот текущий паспорт исправлен root по artifact/install/result receipts. Все101 ID ниже сохранены; непроверенные функции не объявляются отсутствующими или прошедшими проверку.
 
 ## Полный перечень функций и требований
 
@@ -33,9 +29,9 @@ Root переносит reviewedclient subtree вcanonicalpavelvital2/terlimo ч
 | ID | Функция / требование | Объём и приёмка | Участие компонента / реализация | Проверка точной версии / evidence |
 |---|---|---|---|---|
 | G01 | Пять вкладок: Главная, Подписка, Маршрутизация, Настройки, Помощь | Действующее ТЗ; AT21 | Не установлено | Не проверено в этом паспорте |
-| G02 | Старт на Главной; автоматический каталог до доступа; Connect только после проверки права и выбора | Действующее ТЗ; AT01, AT12, AT21 | Не установлено | Не проверено в этом паспорте |
+| G02 | Старт на Главной; автоматический каталог до доступа; Connect только после проверки права и выбора | Действующее ТЗ; AT01, AT12, AT21 | Автоматическая попытка с сохранённой подпиской подтверждена; до списка не дошла | Device FAIL CATALOG_TIMEOUT15012ms; DTLS timeout, ACCEPT отсутствует |
 | G03 | Повторный запуск, сохранённая подписка и отсутствие сети | Действующее ТЗ; AT09, AT31 | Не установлено | Не проверено в этом паспорте |
-| G04 | Идентификация установки и дополнительный сигнал устройства | Действующее ТЗ; AT12, AT31, AT38 | Не установлено | Не проверено в этом паспорте |
+| G04 | Идентификация установки и дополнительный сигнал устройства | Действующее ТЗ; AT12, AT31, AT38 | Identity и локальное состояние сохранены при install-r; остальная идентификация не проверена | PASS installation readback/state preservation; не full G04 PASS |
 | G05 | Первичный путь без персональной ссылки; отдельный разовый час с первого подключения для Telegram/оплаты | Действующее ТЗ; AT12, AT13, AT38 | Не установлено | Не проверено в этом паспорте |
 | G06 | Trial 7 дней после обязательного Telegram; отдельный разовый час не является trial и не включает его автоматически | Действующее ТЗ; AT13, AT20 | Не установлено | Не проверено в этом паспорте |
 | G07 | Telegram Start → подписка на канал → проверка → привязка | Действующее ТЗ; AT14, AT39 | Не установлено | Не проверено в этом паспорте |
