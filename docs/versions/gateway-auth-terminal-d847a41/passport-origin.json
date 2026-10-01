@@ -1,0 +1,6 @@
+{
+  "base_passport": "s5-auth-unix-diag-stage-20261001/README.VERSION.md",
+  "base_sha256": "58dbe2c5196183fc0940c447521b167bd707afd34c95714d5b0a8717b1c16169",
+  "full_requirement_section_sha256": "0009412df9360dba8321860a1d4c635d1ef41f0ac5005d0727d86ebf1ab4a3ae",
+  "preserved_byte_exact": true
+}

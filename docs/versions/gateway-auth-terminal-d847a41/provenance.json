@@ -1,0 +1,35 @@
+{
+  "status": "SOURCE_ONLY_NOT_BUILT_NOT_APPLIED_NOT_PUSHED",
+  "base_commit": "b3185dac8b0c44652ff9aeb961d4af492b53444b",
+  "base_tree": "742313b2fec0944e4e438aa2b691734a93243872",
+  "ordinary_f7_binary_sha256": "f7f17e84d7851bc556820709e3390f366fc0a03ade1756a7cfb90d9af86fb0e1",
+  "source_attribution": "Accepted build/apply receipts plus exact ordinary binary SHA and clean source; no embedded original VCS, literal original build flags unknown, no byte-rebuild repeated.",
+  "source_commit": "d847a41168c54f413e0a961e1ce198db116650b9",
+  "source_tree": "300b302ab44eb0655ce9bd931dd878bb68b0b157",
+  "source_checkout": "/tmp/terlimo-auth-terminal-error-20261001",
+  "branch": "source/auth-terminal-error-20261001",
+  "compiler_f7": "go1.26.5 linux/amd64 CGO0 GOAMD64v1",
+  "compiler_tests": "go version go1.26.8 linux/amd64",
+  "test_recipe": "GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 /home/pavel/.local/bin/go1.26 test -run ^TestServiceUnixTerminal -count=1 -v .",
+  "tests": "PASS 14 parity cases plus snapshot-before-post-call-cancel and no-process-start-window",
+  "test_reuse": "0cb8bf5 fixture/case table reused into new tests. Accepted old tests unchanged; base reference is exact b3185da body with same local fake-dial seam.",
+  "deps_unchanged": {
+    "go.mod": "bc822ed2c37a851aa072fae1b7eebf896dc4080341eea773afdfcb133b91e261",
+    "go.sum": "7a4f8f0e296f12386672024c52215c02839296e8636e7ce42cf53f62b436541c"
+  },
+  "reverse_patch_check": "PASS",
+  "diff_check": "PASS",
+  "runtime_changed": false,
+  "production_binary_built": false,
+  "build_stage_note": "Root future build must choose matching1.26.5 or explicitly record compiler patch version delta for1.26.8; no compiler download/install performed.",
+  "source_files": {
+    "client_test_service.go": {
+      "sha256": "9940ba2d4f5c6f839099da12e167a3b5649e190e7e189f0a47eb63b28a2da656",
+      "size_bytes": 32772
+    },
+    "service_unix_terminal.go": {
+      "sha256": "f7a3a1707a4d6f8597c4a88f0c7f8eb61b1454466d6504d7d92b4701a95c6e8c",
+      "size_bytes": 1437
+    }
+  }
+}

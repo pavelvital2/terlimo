@@ -460,17 +460,27 @@ func serviceWriteError(c net.Conn, id wlwire.ID, code string, retryable bool) {
 // returns either a validated response or a bounded transport error frame. The relay target
 // is fixed by configuration; the client never chooses a destination.
 func serviceRelay(ctx context.Context, req serviceRequest) (serviceResponse, *serviceErrorFrame, string, bool) {
+	dialer := net.Dialer{Timeout: serviceDialTimeout}
+	return serviceRelayWithDial(ctx, req, dialer.DialContext)
+}
+
+// The fixture seam uses the same runtime Unix DialContext and existing budgets.
+func serviceRelayWithDial(ctx context.Context, req serviceRequest, dial func(context.Context, string, string) (net.Conn, error)) (serviceResponse, *serviceErrorFrame, string, bool) {
+	entered := time.Now()
+	var ioStarted time.Time
 	var resp serviceResponse
-	if ctx.Err() != nil {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		serviceUnixTerminal(ctxErr, req.RequestID, "PRECTX", ctxErr, entered, ioStarted)
 		return resp, nil, "SERVICE_UNAVAILABLE", true
 	}
 	socket := serviceSocketPath()
 	if socket == "" || socket[0] != '/' {
+		serviceUnixTerminal(ctx.Err(), req.RequestID, "SOCKET_PATH", nil, entered, ioStarted)
 		return resp, nil, "SERVICE_UNAVAILABLE", true
 	}
-	dialer := net.Dialer{Timeout: serviceDialTimeout}
-	up, err := dialer.DialContext(ctx, "unix", socket)
+	up, err := dial(ctx, "unix", socket)
 	if err != nil {
+		serviceUnixTerminal(ctx.Err(), req.RequestID, "DIAL", err, entered, ioStarted)
 		return resp, nil, "SERVICE_UNAVAILABLE", true
 	}
 	defer up.Close()
@@ -479,8 +489,11 @@ func serviceRelay(ctx context.Context, req serviceRequest) (serviceResponse, *se
 	// single call.
 	stopCancel := context.AfterFunc(ctx, func() { _ = up.Close() })
 	defer stopCancel()
-	_ = up.SetDeadline(time.Now().Add(serviceIODeadline))
+	if deadlineErr := up.SetDeadline(time.Now().Add(serviceIODeadline)); deadlineErr == nil {
+		ioStarted = time.Now()
+	}
 	if err = json.NewEncoder(up).Encode(req); err != nil {
+		serviceUnixTerminal(ctx.Err(), req.RequestID, "ENCODE", err, entered, ioStarted)
 		return resp, nil, "SERVICE_UNAVAILABLE", true
 	}
 	// Exactly one newline-terminated frame per per-call Unix connection, bounded by
@@ -493,6 +506,7 @@ func serviceRelay(ctx context.Context, req serviceRequest) (serviceResponse, *se
 	case errors.Is(err, bufio.ErrBufferFull):
 		return resp, nil, "SERVICE_BAD_RESPONSE", true
 	default:
+		serviceUnixTerminal(ctx.Err(), req.RequestID, "READSLICE", err, entered, ioStarted)
 		return resp, nil, "SERVICE_UNAVAILABLE", true
 	}
 	line = line[:len(line)-1]
