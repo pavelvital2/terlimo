@@ -1,0 +1,17 @@
+{
+  "base_commit": "d847a41168c54f413e0a961e1ce198db116650b9",
+  "source_commit": "440579f235a5fd605c396c3bae41c22e2104a25f",
+  "branch": "source/dtls-preaccept-observer-20261002",
+  "isolated_worktree": "/tmp/terlimo-dtls-preaccept-observer-20261002",
+  "clean": true,
+  "artifact": "NOT_BUILT; existing bebec698 untouched",
+  "source_files": {
+    "udp_listener.go": "d81b6c88841e0701ef52a01fe93022ba53b3fad3d072e94eb77bdd0fd1fca3c9",
+    "udp_preaccept_observer.go": "a5de7b8cd8e2324346451a62cce1b796ecae22d29723ec9e26ac147a46dcd05a",
+    "udp_preaccept_observer_test.go": "df4fe6d6fbfa820cf7e978b2e9dd648ce7227417af4125251ba3563abbfc6fd6"
+  },
+  "patch_SHA256": "ae07a787ae08b15d59e672d089764dafcdbaab01b8ce3b862c24d78350a3bb7c",
+  "tests": "5 new targeted tests PASS under Go1.26.5 go test -race, offline GOPROXYoff; existing accepted suite not repeated",
+  "mutations": "isolated source files + private artifacts only; no live flags/network/DB/phone/artifact/build/deploy/restart",
+  "full101": "historical rows/order preserved, no productPASS promotion"
+}

@@ -512,6 +512,7 @@ type opportunisticUDPListener struct {
 	mu        sync.Mutex
 	accepting bool
 	conns     map[string]*opportunisticUDPConn
+	observer  *udpPreacceptObserver
 	readErr   error
 	closeErr  error
 
@@ -524,11 +525,15 @@ type opportunisticUDPConn struct {
 	remote   net.Addr
 	buffer   *packetio.Buffer
 
-	doneCh        chan struct{}
-	closeOnce     sync.Once
-	closed        atomic.Bool
-	accepted      bool
-	writeDeadline *deadline.Deadline
+	doneCh           chan struct{}
+	closeOnce        sync.Once
+	closed           atomic.Bool
+	accepted         bool
+	observerHash     string
+	observerSeq      uint64
+	observerRX       time.Time
+	observerReported atomic.Bool
+	writeDeadline    *deadline.Deadline
 }
 
 func listenOpportunisticUDP(
@@ -595,6 +600,7 @@ func listenOpportunisticUDP(
 		doneCh:        make(chan struct{}),
 		readDoneCh:    make(chan struct{}),
 		accepting:     true,
+		observer:      newUDPPreacceptObserver(),
 		conns:         make(map[string]*opportunisticUDPConn),
 	}
 	activeOpportunisticUDPWriteStats.Store(&writer.stats)
@@ -625,6 +631,7 @@ func (l *opportunisticUDPListener) Accept() (net.PacketConn, net.Addr, error) {
 			}
 			conn.accepted = true
 			l.mu.Unlock()
+			l.observer.record(conn.observerHash, conn.observerSeq, "ACCEPT_DEQUEUE", conn.observerRX)
 			return conn, conn.remote, nil
 
 		case <-l.doneCh:
@@ -664,6 +671,7 @@ func (l *opportunisticUDPListener) Close() error {
 		if shouldClose {
 			l.closeTransport()
 		}
+		l.observer.summary("END_LISTENER_CLOSE", true)
 	})
 
 	l.mu.Lock()
@@ -713,8 +721,10 @@ func (l *opportunisticUDPListener) readLoop() {
 		err = l.readLoopSingle()
 	}
 	if err == nil || errors.Is(err, net.ErrClosed) {
+		l.observer.summary("END_READ_CLOSED", true)
 		return
 	}
+	l.observer.summary("READ_ERROR", true)
 	l.mu.Lock()
 	l.readErr = err
 	l.mu.Unlock()
@@ -728,10 +738,14 @@ func (l *opportunisticUDPListener) readBatchLoop() error {
 	}
 	for {
 		n, err := l.batchRead.ReadBatch(messages, 0)
+		var received time.Time
+		if l.observer != nil {
+			received = time.Now()
+		}
 		for i := 0; i < n; i++ {
 			message := &messages[i]
 			if message.N > 0 && message.Addr != nil {
-				l.dispatchMessage(message.Addr, message.Buffers[0][:message.N])
+				l.dispatchMessageAt(message.Addr, message.Buffers[0][:message.N], received)
 			}
 			message.N = 0
 		}
@@ -748,33 +762,58 @@ func (l *opportunisticUDPListener) readLoopSingle() error {
 		if err != nil {
 			return err
 		}
-		l.dispatchMessage(remote, buffer[:n])
+		var received time.Time
+		if l.observer != nil {
+			received = time.Now()
+		}
+		l.dispatchMessageAt(remote, buffer[:n], received)
 	}
 }
 
+// Direct dispatch helper retains the same I/O path for offline checks.
 func (l *opportunisticUDPListener) dispatchMessage(remote net.Addr, payload []byte) {
-	conn, ok := l.connectionFor(remote, payload)
+	var received time.Time
+	if l.observer != nil {
+		received = time.Now()
+	}
+	l.dispatchMessageAt(remote, payload, received)
+}
+func (l *opportunisticUDPListener) dispatchMessageAt(remote net.Addr, payload []byte, received time.Time) {
+	hash := ""
+	if l.observer != nil {
+		hash = l.observer.receive(remote, received)
+	}
+	conn, ok, decision := l.connectionFor(remote, payload, hash, received)
+	var seq uint64
+	if conn != nil {
+		seq = conn.observerSeq
+	}
+	l.observer.record(hash, seq, decision, received)
 	if ok {
-		_, _ = conn.buffer.Write(payload)
+		_, err := conn.buffer.Write(payload)
+		if l.observer != nil {
+			l.observer.record(hash, seq, udpPreacceptBufferOutcome(err), received)
+		}
 	}
 }
 
 func (l *opportunisticUDPListener) connectionFor(
 	remote net.Addr,
 	payload []byte,
-) (*opportunisticUDPConn, bool) {
+	hash string, received time.Time,
+) (*opportunisticUDPConn, bool, string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	key := remote.String()
 	if conn, ok := l.conns[key]; ok && !conn.closed.Load() {
-		return conn, true
+		return conn, true, "EXISTING"
 	}
 	if !l.accepting {
-		return nil, false
+		return nil, false, "NOT_ACCEPTING"
 	}
 	if l.acceptFilter != nil && !l.acceptFilter(payload) {
-		return nil, false
+		return nil, false, "FILTER_DROP"
 	}
 
 	conn := &opportunisticUDPConn{
@@ -784,13 +823,18 @@ func (l *opportunisticUDPListener) connectionFor(
 		doneCh:        make(chan struct{}),
 		writeDeadline: deadline.New(),
 	}
+	if l.observer != nil && hash != "" {
+		conn.observerHash = hash
+		conn.observerRX = received
+		conn.observerSeq = l.observer.sequence()
+	}
 	select {
 	case l.acceptCh <- conn:
 		l.conns[key] = conn
-		return conn, true
+		return conn, true, "NEW_QUEUED"
 	default:
 		_ = conn.closeLocal()
-		return nil, false
+		return nil, false, "BACKLOG_DROP"
 	}
 }
 
@@ -830,6 +874,10 @@ func (c *opportunisticUDPConn) WriteTo(payload []byte, _ net.Addr) (int, error) 
 func (c *opportunisticUDPConn) Close() error {
 	err := c.closeLocal()
 	c.listener.removeConn(c)
+	if c.observerSeq != 0 && c.observerReported.CompareAndSwap(false, true) {
+		c.listener.observer.record(c.observerHash, c.observerSeq, "CONN_CLOSE", c.observerRX)
+		c.listener.observer.summary("CONN_CLOSE", false)
+	}
 	return err
 }
 

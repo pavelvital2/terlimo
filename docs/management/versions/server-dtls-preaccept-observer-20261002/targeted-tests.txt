@@ -1,0 +1,12 @@
+=== RUN   TestUDPPreacceptOFFAndTriggerDelivery
+--- PASS: TestUDPPreacceptOFFAndTriggerDelivery (0.00s)
+=== RUN   TestUDPPreacceptDispositionsAndHash
+--- PASS: TestUDPPreacceptDispositionsAndHash (0.00s)
+=== RUN   TestUDPPreacceptBoundsSummaryAndConcurrency
+--- PASS: TestUDPPreacceptBoundsSummaryAndConcurrency (0.00s)
+=== RUN   TestUDPPreacceptBatchTimestampAndReadError
+--- PASS: TestUDPPreacceptBatchTimestampAndReadError (0.00s)
+=== RUN   TestUDPPreacceptAdmissionOFFParity
+--- PASS: TestUDPPreacceptAdmissionOFFParity (0.00s)
+PASS
+ok  	wg-turn-client	1.082s
