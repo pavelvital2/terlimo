@@ -1430,6 +1430,23 @@ func managedCatalogResponse(raw []byte) (*wlbs.Catalog, error) {
 func (c *managedController) publishCatalog() { _ = c.publishCatalogContext(context.Background()) }
 
 func (c *managedController) publishCatalogContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if c.store.Snapshot() == nil {
+		return nil
+	}
+	if err := c.publishCatalogSnapshotContext(ctx); err != nil {
+		return err
+	}
+	return c.stateContext(ctx, "CatalogReady")
+}
+
+// A verified background snapshot updates metadata without changing the VPN phase.
+func (c *managedController) publishCatalogSnapshotContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	cat := c.store.Snapshot()
 	if cat == nil {
 		return nil
@@ -1457,7 +1474,7 @@ func (c *managedController) publishCatalogContext(ctx context.Context) error {
 	if err := c.bridge.sendContext(ctx, message); err != nil {
 		return err
 	}
-	return c.stateContext(ctx, "CatalogReady")
+	return nil
 }
 
 func managedWGConfig(raw, port string) (string, error) {

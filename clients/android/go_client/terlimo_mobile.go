@@ -63,6 +63,7 @@ type managedMobile struct {
 	verified      uint64
 	verifiedSig   chan struct{}
 	verifiedErr   error
+	runCtx        context.Context
 	ready         bool
 	projectionErr error
 	decision      *accountaccess.AdmissionDecision
@@ -527,6 +528,9 @@ func (m *managedMobile) refreshSessionAfterActivation() {
 // run owns the mobile lifecycle loop until the managed attempt ends. Existing host
 // lifecycle messages keep their meaning: a plain wake and a sleep->wake resume.
 func (m *managedMobile) run(ctx context.Context, bridge *managedBridge) {
+	m.mu.Lock()
+	m.runCtx = ctx
+	m.mu.Unlock()
 	defer m.stopTimer()
 	if m.runner != nil {
 		// §11/§29: coalesce manual refresh at bridge receipt (before any blocking
@@ -840,16 +844,28 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 	m.mu.Unlock()
 
 	selection := m.controller.selectionID()
-	cleared := false
 	if selection != "" && !catalogHasGateway(catalog, selection) {
 		decision := accountaccess.DecideAdmission(me, catalog, selection, m.now())
 		m.handleAdmission(decision)
 		m.controller.clearSelection()
 		m.releasePending()
-		cleared = true
 	}
 
 	err := m.applyVerified(&me, &catalog, m.proofNode())
+	if err == nil {
+		// Publish every verified snapshot, including an unchanged selection. The
+		// attempt context fences cancellation; this does not change the VPN phase.
+		m.mu.Lock()
+		publishCtx := m.runCtx
+		m.mu.Unlock()
+		if publishCtx == nil {
+			publishCtx = context.Background()
+		}
+		err = m.controller.publishCatalogSnapshotContext(publishCtx)
+		if err == nil {
+			err = publishCtx.Err()
+		}
+	}
 
 	m.mu.Lock()
 	m.verifiedErr = err
@@ -860,9 +876,6 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 		m.projectionErr = err
 	}
 	m.mu.Unlock()
-	if cleared {
-		m.controller.publishCatalog()
-	}
 	select {
 	case sig <- struct{}{}:
 	default:

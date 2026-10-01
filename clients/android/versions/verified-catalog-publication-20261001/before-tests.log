@@ -1,0 +1,14 @@
+=== RUN   TestMobileVerifiedCatalogReplacesBrowseDisplay
+    mobile_catalog_publication_test.go:31: later credential event did not replace browse: map[attempt_id:attempt catalog_expires_at: catalog_mode:browse issued_at: nodes:[map[country_code: name:STEP036 node_id:gw-0]] type:catalog v:1]
+--- FAIL: TestMobileVerifiedCatalogReplacesBrowseDisplay (0.00s)
+=== RUN   TestMobileVerifiedCatalogDoesNotAnnounceFailedProjection
+--- PASS: TestMobileVerifiedCatalogDoesNotAnnounceFailedProjection (0.00s)
+=== RUN   TestMobileVerifiedCatalogSendFailureNotReady
+    mobile_catalog_publication_test.go:67: failed bridge send was reported as a ready host catalog
+--- FAIL: TestMobileVerifiedCatalogSendFailureNotReady (0.00s)
+=== RUN   TestMobileLaterPublishFailureKeepsLastGoodReadyButReportsError
+    mobile_catalog_publication_test.go:91: initial host catalog missing
+--- FAIL: TestMobileLaterPublishFailureKeepsLastGoodReadyButReportsError (0.00s)
+FAIL
+FAIL	wg-turn-client	0.019s
+FAIL

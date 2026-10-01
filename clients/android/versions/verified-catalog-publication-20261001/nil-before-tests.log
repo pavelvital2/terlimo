@@ -1,0 +1,8 @@
+=== RUN   TestManagedCatalogPublisherNilSnapshotHasNoEvents
+    mobile_catalog_publication_test.go:171: nil snapshot announced CatalogReady
+--- FAIL: TestManagedCatalogPublisherNilSnapshotHasNoEvents (0.00s)
+=== RUN   TestManagedCatalogPublisherStartupAndCancellation
+--- PASS: TestManagedCatalogPublisherStartupAndCancellation (0.00s)
+FAIL
+FAIL	wg-turn-client	0.017s
+FAIL

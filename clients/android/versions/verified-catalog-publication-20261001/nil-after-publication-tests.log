@@ -1,0 +1,24 @@
+=== RUN   TestMobileVerifiedCatalogReplacesBrowseDisplay
+--- PASS: TestMobileVerifiedCatalogReplacesBrowseDisplay (0.02s)
+=== RUN   TestMobileVerifiedCatalogDoesNotAnnounceFailedProjection
+--- PASS: TestMobileVerifiedCatalogDoesNotAnnounceFailedProjection (0.00s)
+=== RUN   TestMobileVerifiedCatalogSendFailureNotReady
+--- PASS: TestMobileVerifiedCatalogSendFailureNotReady (0.01s)
+=== RUN   TestMobileLaterPublishFailureKeepsLastGoodReadyButReportsError
+--- PASS: TestMobileLaterPublishFailureKeepsLastGoodReadyButReportsError (0.01s)
+=== RUN   TestMobileCancelledAttemptDoesNotPublishCatalog
+--- PASS: TestMobileCancelledAttemptDoesNotPublishCatalog (0.00s)
+=== RUN   TestMobileCancelledDuringCatalogSendDoesNotBecomeReady
+--- PASS: TestMobileCancelledDuringCatalogSendDoesNotBecomeReady (0.00s)
+=== RUN   TestMobileVerifiedCatalogPreservesRuntimePhaseAndAttempt
+=== RUN   TestMobileVerifiedCatalogPreservesRuntimePhaseAndAttempt/Connected
+=== RUN   TestMobileVerifiedCatalogPreservesRuntimePhaseAndAttempt/KillSwitch
+--- PASS: TestMobileVerifiedCatalogPreservesRuntimePhaseAndAttempt (0.01s)
+    --- PASS: TestMobileVerifiedCatalogPreservesRuntimePhaseAndAttempt/Connected (0.00s)
+    --- PASS: TestMobileVerifiedCatalogPreservesRuntimePhaseAndAttempt/KillSwitch (0.01s)
+=== RUN   TestManagedCatalogPublisherNilSnapshotHasNoEvents
+--- PASS: TestManagedCatalogPublisherNilSnapshotHasNoEvents (0.00s)
+=== RUN   TestManagedCatalogPublisherStartupAndCancellation
+--- PASS: TestManagedCatalogPublisherStartupAndCancellation (0.01s)
+PASS
+ok  	wg-turn-client	1.124s

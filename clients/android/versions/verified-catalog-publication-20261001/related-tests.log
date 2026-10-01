@@ -1,0 +1,60 @@
+=== RUN   TestMobileCatalogPublicationSupportsArbitraryGateways
+--- PASS: TestMobileCatalogPublicationSupportsArbitraryGateways (4.14s)
+=== RUN   TestMobileSwitchTargetAdmissionFences
+--- PASS: TestMobileSwitchTargetAdmissionFences (0.07s)
+=== RUN   TestMobileSynchronizeSeamAwaitsOneRunnerCycle
+acctstage: AUTH_BEGIN 0
+acctstage: SERVICE_RESPONSE_RECEIVED 5
+acctstage: CHALLENGE_DECODED 6
+acctstage: SIGN_BEGIN 6
+acctstage: SIGN_END 8
+acctstage: SESSION_POST_BEGIN 8
+acctstage: SESSION_RESPONSE 12
+acctstage: SERVICE_RESPONSE_RECEIVED 15
+acctstage: CHALLENGE_DECODED 16
+acctstage: SIGN_BEGIN 16
+acctstage: SIGN_END 18
+acctstage: SESSION_POST_BEGIN 18
+acctstage: SESSION_RESPONSE 22
+cyclestage: ME_RESPONSE_2XX 24 1790875233271
+cyclestage: AFTER_ME_READ 25 1790875233272
+cyclestage: EMIT_BEGIN 25 1790875233272
+cyclestage: EMIT_END_OK 25 1790875233272
+cyclestage: GW_REFRESH_BEGIN 26 1790875233273
+cyclestage: GW_REQUEST_BEGIN 26 1790875233273
+cyclestage: GW_REQUEST_END_2XX 28 1790875233275
+refreshstage:manual_cycle_begin
+cyclestage: ME_RESPONSE_2XX 39 1790875233286
+cyclestage: AFTER_ME_READ 40 1790875233287
+cyclestage: GW_REFRESH_BEGIN 41 1790875233288
+cyclestage: GW_REQUEST_BEGIN 41 1790875233288
+cyclestage: GW_REQUEST_END_2XX 43 1790875233289
+refreshstage:manual_cycle_finish
+--- PASS: TestMobileSynchronizeSeamAwaitsOneRunnerCycle (0.08s)
+=== RUN   TestMobileIndefiniteRightStartsAndStopsAtCatalogDeadline
+acctstage: AUTH_BEGIN 0
+acctstage: SERVICE_RESPONSE_RECEIVED 3
+acctstage: CHALLENGE_DECODED 3
+acctstage: SIGN_BEGIN 3
+acctstage: SIGN_END 4
+acctstage: SESSION_POST_BEGIN 5
+acctstage: SESSION_RESPONSE 7
+acctstage: SERVICE_RESPONSE_RECEIVED 10
+acctstage: CHALLENGE_DECODED 10
+acctstage: SIGN_BEGIN 11
+acctstage: SIGN_END 12
+acctstage: SESSION_POST_BEGIN 12
+acctstage: SESSION_RESPONSE 17
+cyclestage: ME_RESPONSE_2XX 19 1790875233321
+cyclestage: AFTER_ME_READ 21 1790875233322
+cyclestage: EMIT_BEGIN 21 1790875233322
+cyclestage: EMIT_END_OK 21 1790875233322
+cyclestage: GW_REFRESH_BEGIN 21 1790875233322
+cyclestage: GW_REQUEST_BEGIN 21 1790875233323
+cyclestage: GW_REQUEST_END_2XX 23 1790875233324
+vpnstage: RUNTIME_CANCEL HOST_STOP
+--- PASS: TestMobileIndefiniteRightStartsAndStopsAtCatalogDeadline (0.41s)
+=== RUN   TestManagedBridgeCancellationWinsLateReply
+--- PASS: TestManagedBridgeCancellationWinsLateReply (0.00s)
+PASS
+ok  	wg-turn-client	5.754s

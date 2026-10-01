@@ -1,0 +1,12 @@
+{
+  "checkout": "/home/pavel/terlimo-verified-catalog-publication-20261001",
+  "source_commit": "f68d784473d0caa49cd127cc16f9e7c22f4232b0",
+  "HEAD": "c7feddd780dea786e36cedbe108232995dc036ff",
+  "tree": "b447cb30c8aca80a0a8ade086b3b0bacc8ce9313",
+  "base": "b7d01bbb415701c17cda36ac6118a06ce16094e4",
+  "branch": "laptop/verified-catalog-publication-20261001",
+  "clean": true,
+  "publication_owner": "whitelist",
+  "project_remote": "https://github.com/pavelvital2/terlimo.git",
+  "APK": null
+}
