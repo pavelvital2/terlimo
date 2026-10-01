@@ -146,7 +146,10 @@ func managedServiceEstablish(ctx context.Context, seed servicechannel.Seed) (net
 	tp := &TurnParams{WrapKey: key, Hashes: seed.VKHashes}
 	creds := &Credentials{User: user, Pass: pass, TurnURLs: urls, CacheStreamID: seed.StreamID}
 	fmt.Fprintln(os.Stderr, "svcstage: ESTABLISH_DIAL_BEGIN")
-	conn, cleanup, err := dialManagedTransport(ctx, tp, peer, creds, seed.DTLSSPKISHA256, 0, false, 0, false, nil)
+	trace := newServiceDialTrace()
+	dialCtx := context.WithValue(ctx, serviceDialKey{}, trace)
+	conn, cleanup, err := dialManagedTransport(dialCtx, tp, peer, creds, seed.DTLSSPKISHA256, 0, false, 0, false, nil)
+	trace.emit(err)
 	if err != nil {
 		return nil, nil, err
 	}

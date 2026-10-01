@@ -1,0 +1,16 @@
+=== RUN   TestServiceDialScopeAndContext
+--- PASS: TestServiceDialScopeAndContext (0.00s)
+=== RUN   TestServiceDialBoundsAndSafeOutput
+--- PASS: TestServiceDialBoundsAndSafeOutput (0.00s)
+=== RUN   TestServiceDialFirstWritePassThrough
+--- PASS: TestServiceDialFirstWritePassThrough (0.00s)
+=== RUN   TestServiceDialConcurrentWriteAndLateCompletion
+--- PASS: TestServiceDialConcurrentWriteAndLateCompletion (0.00s)
+=== RUN   TestServiceDialFinishBoundaryExcludesRacingFutureEnd
+--- PASS: TestServiceDialFinishBoundaryExcludesRacingFutureEnd (0.00s)
+=== RUN   TestServiceDialErrorClasses
+--- PASS: TestServiceDialErrorClasses (0.00s)
+=== RUN   TestServiceDialAllocateDefaultDelegation
+--- PASS: TestServiceDialAllocateDefaultDelegation (0.11s)
+PASS
+ok  	wg-turn-client	1.174s

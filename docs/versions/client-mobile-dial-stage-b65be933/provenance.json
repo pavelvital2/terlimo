@@ -1,0 +1,66 @@
+{
+  "base": "c7feddd780dea786e36cedbe108232995dc036ff",
+  "source_code_commit": "b65be933351f973194b97954eb663bde0e5fc909",
+  "final_head": "74db78c0da2f5b70dba577e572c98cbccb37b9ec",
+  "branch": "laptop/mobile-dial-stage-20261001",
+  "clean_tracked_worktree": true,
+  "patch_sha256": "637e799a387ba1a6ada3ee56d8588620a890693684e443d1155dffdb705a71c9",
+  "changed_files": [
+    "go_client/session.go",
+    "go_client/terlimo_service_dial_trace.go",
+    "go_client/terlimo_service_dial_trace_test.go",
+    "go_client/terlimo_servicechannel.go",
+    "go_client/terlimo_transport.go",
+    "testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt",
+    "testapp/src/test/java/xyz/terlimo/test/ServiceDialStderrTest.kt",
+    "versions/mobile-dial-stage-20261001/FEATURES-ID-CHECK.json",
+    "versions/mobile-dial-stage-20261001/README.VERSION.md"
+  ],
+  "source_hashes": {
+    "go_client/session.go": "4a8a53107399f5e693cd14686a4aa65a7daa78a8876a5ca3798db2644829e298",
+    "go_client/terlimo_service_dial_trace.go": "5be7cdb323c0cd69e29541313ba8d124270b3b92e1aeec7dc4e35ea7af210813",
+    "go_client/terlimo_service_dial_trace_test.go": "32bcbd77a125bc0f9b722a149b557ecc680807cf749d049aaeca729d3f621de1",
+    "go_client/terlimo_servicechannel.go": "e52fec0095b741db91af04138c9e79d8a19c6b5c9b53ec47a8ff44414f35b2e2",
+    "go_client/terlimo_transport.go": "ced459a27d35d6c6c6034254431f331f75f5da5564e1903791c4ece025abbe63",
+    "testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt": "0ba28a9073eda98b5f993aafb3555db9e6fefe499b6dad08ab341cc0fe011c4c",
+    "testapp/src/test/java/xyz/terlimo/test/ServiceDialStderrTest.kt": "3817c7e8acd272df206a7ccf09b3a072f4c5230623a891eaf1355667be0ce4d8",
+    "versions/mobile-dial-stage-20261001/FEATURES-ID-CHECK.json": "1568a83ed288b30cdbbcc9f81fbef4d7e7372ffcab85d2aacbe474cd482cb1f6",
+    "versions/mobile-dial-stage-20261001/README.VERSION.md": "495e89f5418ee7f1905283b8ffc055495e196e6d382411d97452a0fc33236aab"
+  },
+  "preserved_reviewed_blobs": [
+    {
+      "path": "go_client/terlimo_mobile.go",
+      "unchanged_blob": "cc392da43f8cfbb1e75eb5657fd0c13842897b93"
+    },
+    {
+      "path": "go_client/terlimo_runner.go",
+      "unchanged_blob": "f83d3cfe9a56526a462617abf90780f2e936a62e"
+    },
+    {
+      "path": "go_client/mobile_catalog_publication_test.go",
+      "unchanged_blob": "9fdeb0f77dc70112e6aecdda665b11fc36a25025"
+    },
+    {
+      "path": "go_client/turn_endpoint.go",
+      "unchanged_blob": "928966b2a5140721cba2764c0f8453f2cc269762"
+    },
+    {
+      "path": "go_client/go.mod",
+      "unchanged_blob": "c265e0dc4bb2cad1f920dc4b182b74bf63417dd3"
+    },
+    {
+      "path": "go_client/go.sum",
+      "unchanged_blob": "d23ad0fc823947916700de28d4c084a9bfd46784"
+    },
+    {
+      "path": "testapp/build.gradle.kts",
+      "unchanged_blob": "b20214d3be92a28b2bf8d124d44a4b6c1d6ab19d"
+    }
+  ],
+  "tests": {
+    "go": "7 targeted tests -race PASS1.174s",
+    "host_jvm": "3 JUnit tests PASS0.072s",
+    "no_live_network_or_device": true
+  },
+  "apk_native_build_install_run": false
+}

@@ -358,6 +358,12 @@ func allocateTURNOnConn(
 	creds *Credentials,
 	turnConn net.PacketConn,
 ) (*turn.Client, net.PacketConn, error) {
+	return allocateTURNOnConnObserved(endpoint, peer, creds, turnConn, nil, 0)
+}
+
+func allocateTURNOnConnObserved(endpoint turnEndpoint, peer *net.UDPAddr, creds *Credentials,
+	turnConn net.PacketConn, trace *serviceDialTrace, ordinal int,
+) (*turn.Client, net.PacketConn, error) {
 	turnAddr := endpoint.address()
 
 	// RequestedAddressFamily
@@ -368,6 +374,7 @@ func allocateTURNOnConn(
 		addrFamily = turn.RequestedAddressFamilyIPv6
 	}
 
+	trace.note(dialClientBegin, ordinal, endpoint.Transport, nil, true)
 	tc, err := turn.NewClient(&turn.ClientConfig{
 		STUNServerAddr:         turnAddr,
 		TURNServerAddr:         turnAddr,
@@ -377,6 +384,7 @@ func allocateTURNOnConn(
 		RequestedAddressFamily: addrFamily,
 		LoggerFactory:          &NullLoggerFactory{},
 	})
+	trace.note(dialClientEnd, ordinal, endpoint.Transport, err, false)
 	if err != nil {
 		_ = turnConn.Close()
 		return nil, nil, fmt.Errorf("TURN %s клиент %s: %w", endpoint.label(), turnAddr, err)
@@ -387,7 +395,9 @@ func allocateTURNOnConn(
 		return nil, nil, fmt.Errorf("TURN %s Listen %s: %w", endpoint.label(), turnAddr, err)
 	}
 
+	trace.note(dialAllocateBegin, ordinal, endpoint.Transport, nil, true)
 	relay, err := tc.Allocate()
+	trace.note(dialAllocateEnd, ordinal, endpoint.Transport, err, false)
 	if err != nil {
 		if isAuthError(err) {
 			handleAuthError(creds.CacheStreamID, creds.User, creds.Pass)

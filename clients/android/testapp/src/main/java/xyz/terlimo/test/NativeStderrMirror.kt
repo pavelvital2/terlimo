@@ -177,6 +177,15 @@ internal object NativeStderrCodes {
     /** Fixed error-class vocabulary of the svctrace correlation (never raw error text). */
     val SVCSTRACE_ERR = setOf("EOF", "CLOSED", "TIMEOUT", "CANCELED", "RESET", "REFUSED", "OTHER")
 
+    // Per-dial native buffer: at most 64 events + one FINISH. No payload fields.
+    private val DIALSTAGE = Regex("^dialstage: call=([1-9][0-9]{0,19}) candidate=(0|[1-9][0-9]{0,18}) transport=(NONE|UDP|TCP|TLS) stage=([A-Z_]{1,24}) result=(BEGIN|OK|CANCELED|TIMEOUT|EOF|CLOSED|OTHER) elapsed_ms=([0-9]{1,19})(?: truncated=([01]))?$")
+    private val DIALSTAGE_TOKENS = setOf(
+        "SOCKET_BEGIN", "SOCKET_END", "TLS_BEGIN", "TLS_END", "CLIENT_BEGIN", "CLIENT_END",
+        "ALLOCATE_BEGIN", "ALLOCATE_END", "CERT_BEGIN", "CERT_END", "SEMAPHORE_WAIT",
+        "SEMAPHORE_ACQUIRED", "SEMAPHORE_END", "DTLS_BEGIN", "DTLS_END",
+        "FIRST_WRITE_BEGIN", "FIRST_WRITE_END", "CANDIDATE_BEGIN", "CANDIDATE_END", "FINISH",
+    )
+
     /** One exact allowlisted line: its observable value and whether it owns the reserved slot. */
     data class Match(val value: String, val terminal: Boolean)
 
@@ -187,6 +196,22 @@ internal object NativeStderrCodes {
      * belongs to the fixed onboarding terminal vocabulary only.
      */
     fun match(line: String): Match? {
+        if (line.startsWith("dialstage: ")) {
+            if (line.length > 256) return null
+            val m = DIALSTAGE.matchEntire(line) ?: return null
+            val stage = m.groupValues[4]
+            val result = m.groupValues[5]
+            val finish = stage == "FINISH"
+            val begin = stage.endsWith("_BEGIN") || stage == "SEMAPHORE_WAIT"
+            if (stage !in DIALSTAGE_TOKENS || begin != (result == "BEGIN")) return null
+            if (finish != m.groupValues[7].isNotEmpty()) return null
+            if (finish != (m.groupValues[2] == "0" && m.groupValues[3] == "NONE")) return null
+            if (!finish && (m.groupValues[2] == "0" || m.groupValues[3] == "NONE")) return null
+            if (stage == "SEMAPHORE_ACQUIRED" && result != "OK") return null
+            return Match("dialstage:call=${m.groupValues[1]}:candidate=${m.groupValues[2]}:" +
+                "transport=${m.groupValues[3]}:stage=$stage:result=$result:elapsed_ms=${m.groupValues[6]}" +
+                (if (finish) ":truncated=${m.groupValues[7]}" else ""), terminal = false)
+        }
         if (line.length > MAX_LINE) return null
         ACCOUNT_ACCESS.matchEntire(line)?.groupValues?.get(1)?.takeIf { it in CODES }
             ?.let { return Match(it, terminal = false) }
@@ -276,6 +301,10 @@ internal object NativeStderrCodes {
  * [maxTotal] 64 + [maxStageTotal] 64 + [maxCycleTotal] 48 + [maxVkTotal] 24 + [maxTraceTotal]
  * 4096 = 4296 mirrored lines.
  *
+ * Mobile `dialstage:` has an independent 65-lines/window, 260-lines/child budget.
+ * One native capped batch (64 events + FINISH) fits without taking any old budget.
+ * Later batches can still be rate-limited: a missing FINISH means incomplete capture.
+ *
  * The §11/§29 manual-refresh chronology (`refreshstage:`) owns its own small bounded budget
  * ([maxRefreshPerWindow] / [maxRefreshTotal]) so a rapid tap pair (receive/accepted/coalesced/
  * manual_cycle_begin/finish) always fits without evicting or being evicted by the other streams.
@@ -296,6 +325,9 @@ internal class NativeStderrMirror(
     private val maxRefreshTotal: Int = 32,
     private val maxTracePerWindow: Int = 64,
     private val maxTraceTotal: Int = 4096,
+    // Independent budget: one entire bounded dial burst fits; old caps unchanged.
+    private val maxDialPerWindow: Int = 65,
+    private val maxDialTotal: Int = 260,
 ) {
     private var windowStartNanos = 0L
     private var windowCount = 0
@@ -312,6 +344,8 @@ internal class NativeStderrMirror(
     private var refreshTotal = 0
     private var traceWindowCount = 0
     private var traceTotal = 0
+    private var dialWindowCount = 0
+    private var dialTotal = 0
 
     fun accept(line: String, nowNanos: Long = System.nanoTime()): String? {
         val match = NativeStderrCodes.match(line) ?: return null
@@ -324,6 +358,13 @@ internal class NativeStderrMirror(
             usageWindowCount = 0
             refreshWindowCount = 0
             traceWindowCount = 0
+            dialWindowCount = 0
+        }
+        if (match.value.startsWith("dialstage:")) {
+            if (dialTotal >= maxDialTotal || dialWindowCount >= maxDialPerWindow) return null
+            dialWindowCount++
+            dialTotal++
+            return match.value
         }
         if (match.value.startsWith(TRACE_PREFIX)) {
             // Dedicated bounded correlation budget so session/class/port events are never

@@ -149,6 +149,7 @@ func DialBootstrapTransport(ctx context.Context, config BootstrapTransportConfig
 // GETCONF, READY, MUX, WireGuard packet or external MASQUE fallback is sent here.
 func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr, creds *Credentials,
 	pin string, workerID int, preferStream bool, retry int, observeVPN bool, onAllocated func()) (*dtls.Conn, func(), error) {
+	trace := mobileServiceDialTrace(ctx)
 	diagnostic := bootstrapTrace(ctx)
 	var vpnDiagnostic *managedDiagnostics
 	if managed := managedTransport(ctx); observeVPN && managed != nil {
@@ -165,8 +166,13 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 	var relay net.PacketConn
 	var allocationClose func()
 	lastCode := "TRANSPORT_FAILED"
-	for _, candidate := range candidates {
+	allocatedOrdinal := 0
+	var allocatedTransport turnTransport
+	for candidateIndex, candidate := range candidates {
+		ordinal := candidateIndex + 1
+		trace.note(dialCandidateBegin, ordinal, candidate.Transport, nil, true)
 		if ctx.Err() != nil {
+			trace.note(dialCandidateEnd, ordinal, candidate.Transport, ctx.Err(), false)
 			return nil, nil, context.Canceled
 		}
 		// Context controls dials. Closing the physical socket also interrupts a
@@ -176,8 +182,11 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		if candidate.Transport == turnTransportUDP {
 			network = "udp"
 		}
+		trace.note(dialSocketBegin, ordinal, candidate.Transport, nil, true)
 		raw, openErr := dialer.DialContext(ctx, network, candidate.address())
+		trace.note(dialSocketEnd, ordinal, candidate.Transport, openErr, false)
 		if openErr != nil {
+			trace.note(dialCandidateEnd, ordinal, candidate.Transport, openErr, false)
 			continue
 		}
 		stopRaw := context.AfterFunc(ctx, func() { _ = raw.Close() })
@@ -186,6 +195,7 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		if candidate.Transport == turnTransportUDP {
 			udp, ok := raw.(*net.UDPConn)
 			if !ok {
+				trace.note(dialCandidateEnd, ordinal, candidate.Transport, errors.New("TRANSPORT_FAILED"), false)
 				closeRaw()
 				continue
 			}
@@ -197,9 +207,12 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 			if candidate.Transport == turnTransportTLS {
 				secure := tls.Client(raw, turnTLSConfig(candidate, tp.TLSFrontSNI))
 				handshakeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+				trace.note(dialTLSBegin, ordinal, candidate.Transport, nil, true)
 				openErr = secure.HandshakeContext(handshakeCtx)
+				trace.note(dialTLSEnd, ordinal, candidate.Transport, openErr, false)
 				cancel()
 				if openErr != nil {
+					trace.note(dialCandidateEnd, ordinal, candidate.Transport, openErr, false)
 					closeRaw()
 					continue
 				}
@@ -210,8 +223,9 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 			packet = turn.NewSTUNConn(stream)
 		}
 		_ = raw.SetDeadline(time.Now().Add(10 * time.Second))
-		tc, allocated, allocErr := allocateTURNOnConn(candidate, peer, creds, packet)
+		tc, allocated, allocErr := allocateTURNOnConnObserved(candidate, peer, creds, packet, trace, ordinal)
 		if allocErr != nil {
+			trace.note(dialCandidateEnd, ordinal, candidate.Transport, allocErr, false)
 			closeRaw()
 			if isCredentialTURNError(allocErr) {
 				lastCode = "TURN_EXPIRED"
@@ -223,6 +237,8 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		}
 		_ = raw.SetDeadline(time.Time{})
 		relay = allocated
+		allocatedOrdinal, allocatedTransport = ordinal, candidate.Transport
+		trace.note(dialCandidateEnd, ordinal, candidate.Transport, nil, false)
 		allocationClose = func() { _ = relay.Close(); tc.Close(); closeRaw() }
 		break
 	}
@@ -232,6 +248,7 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 	if onAllocated != nil {
 		onAllocated()
 	}
+	relay = observeFirstServiceDialWrite(relay, trace, allocatedOrdinal, allocatedTransport)
 	pipeA, pipeB := connutil.AsyncPacketPipe()
 	connCtx, cancel := context.WithCancel(ctx)
 	diagnostic.setTransport(connCtx)
@@ -295,7 +312,9 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 			}
 		}
 	}()
+	trace.note(dialCertBegin, allocatedOrdinal, allocatedTransport, nil, true)
 	cert, err := selfsign.GenerateSelfSigned()
+	trace.note(dialCertEnd, allocatedOrdinal, allocatedTransport, err, false)
 	if err != nil {
 		cleanup()
 		return nil, nil, errors.New("TRANSPORT_FAILED")
@@ -314,20 +333,25 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		CipherSuites:          []dtls.CipherSuiteID{dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 		ConnectionIDGenerator: dtls.OnlySendCIDGenerator(), LoggerFactory: &NullLoggerFactory{},
 	}
+	trace.note(dialSemaphoreWait, allocatedOrdinal, allocatedTransport, nil, true)
 	select {
 	case handshakeSem <- struct{}{}:
+		trace.note(dialSemaphoreAcquired, allocatedOrdinal, allocatedTransport, nil, false)
 	case <-connCtx.Done():
+		trace.note(dialSemaphoreEnd, allocatedOrdinal, allocatedTransport, connCtx.Err(), false)
 		cleanup()
 		return nil, nil, context.Canceled
 	}
 	diagnostic.setStage("HANDSHAKE", false)
 	vpnDiagnostic.noteVPN(vpnStageHandshake, nil)
+	trace.note(dialDTLSBegin, allocatedOrdinal, allocatedTransport, nil, true)
 	conn, err = dtls.Client(pipeB, peer, dtlsConfig)
 	if err == nil {
 		handshakeCtx, stopHandshake := context.WithTimeout(connCtx, wrapHandshakeTimeout)
 		err = conn.HandshakeContext(handshakeCtx)
 		stopHandshake()
 	}
+	trace.note(dialDTLSEnd, allocatedOrdinal, allocatedTransport, err, false)
 	<-handshakeSem
 	if err != nil {
 		vpnDiagnostic.noteVPN(vpnStageHandshake, err)
