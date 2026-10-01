@@ -44,7 +44,11 @@ internal class NativeProcess(
     /** Mirrored, already-allowlisted fixed stderr code; display/diagnostic only. */
     private val onStderrCode: (String) -> Unit = {},
     private val spawn: (String) -> NativeChild =
-        { path -> ProcessNativeChild(ProcessBuilder(path, "--android-bridge").start()) }
+        { path ->
+            val builder = ProcessBuilder(path, "--android-bridge")
+            if (BuildConfig.SERVICE_FRAME_DIAG) builder.environment()["TERLIMO_SERVICE_FRAME_DIAG"] = "1"
+            ProcessNativeChild(builder.start())
+        }
 ) {
     @Volatile private var process: NativeChild? = null
     private var writer: BufferedOutputStream? = null

@@ -67,6 +67,7 @@ type Channel struct {
 	Observe func(string)
 	// Trace, when set, receives secret-free per-session correlation events. It never
 	// affects I/O and never carries IP/credential/token/payload or raw error text.
+	FrameCapture  *FrameCapture
 	Trace         func(TraceEvent)
 	mu            sync.Mutex
 	conn          net.Conn
@@ -178,6 +179,7 @@ func (c *Channel) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.closeLocked()
+	c.FrameCapture.Close()
 	return nil
 }
 
@@ -290,7 +292,7 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 				}
 			}
 		})
-		conn, cleanup, err := establishment.Establish(sessionCtx, seed)
+		conn, cleanup, err := establishment.Establish(WithFrameCapture(sessionCtx, c.FrameCapture), seed)
 		observationMu.Lock()
 		processed = true
 		if pendingQueued {
@@ -388,8 +390,12 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 			ElapsedMS: time.Since(start).Milliseconds(), ErrClass: outcomeClass, Port: port})
 		return nil, ErrBadResponse
 	}
-	for _, frame := range frames {
-		if _, err := c.conn.Write(frame); err != nil {
+	for index, frame := range frames {
+		n, writeErr := c.conn.Write(frame)
+		if c.FrameCapture != nil {
+			c.FrameCapture.frame(c.session, xid, id, index*wlwire.ServiceFragment, len(frame), n, writeErr)
+		}
+		if err := writeErr; err != nil {
 			c.closeLocked()
 			c.failed("FRAME_WRITE_FAILED", runCtx)
 			outcomeClass = traceErrClass(runCtx, err)

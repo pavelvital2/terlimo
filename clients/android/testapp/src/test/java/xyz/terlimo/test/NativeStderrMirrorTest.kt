@@ -4,6 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NativeStderrMirrorTest {
+    @Test fun acceptsBoundedServiceFramesOnly() {
+        val frame = "svcframe: phase=FRAME_WRITE gen=2 xid=13 conn=0 record=0 wire_id=0123456789abcdef0123456789abcdef offset=0 bytes=700 written=700 result=NONE reason=NONE elapsed_ms=123"
+        assertNotNull(NativeStderrCodes.code(frame))
+        assertNotNull(NativeStderrCodes.code(frame.replace("result=NONE", "result=CLOSED")))
+        assertNull(NativeStderrCodes.code(frame + " SECRET_TOKEN"))
+        assertNull(NativeStderrCodes.code(frame.replace("FRAME_WRITE", "PRIVATE_ERROR")))
+        assertNull(NativeStderrCodes.code(frame.replace("elapsed_ms=123", "elapsed_ms=120000")))
+        assertNull(NativeStderrCodes.code(frame.replace("0123456789abcdef0123456789abcdef", "SECRET")))
+        val mirror = NativeStderrMirror()
+        repeat(512) { assertNotNull(mirror.accept(frame)) }
+        val terminal = "svcframe: final=true truncated=true reason=LINE_LIMIT elapsed_ms=123 lines=512"
+        assertNotNull(mirror.accept(terminal))
+        assertNull(mirror.accept(frame))
+        assertNull(NativeStderrCodes.code(terminal.replace("lines=512", "lines=513")))
+    }
+
     @Test fun mirrorsOnlyExactAllowlistedContractLines() {
         // accountaccess keeps the historical bare-code value: the existing consumer format.
         assertEquals("SUBSCRIPTION_MISSING", NativeStderrCodes.code("accountaccess: SUBSCRIPTION_MISSING"))

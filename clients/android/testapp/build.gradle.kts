@@ -6,7 +6,11 @@ android {
     namespace = "xyz.terlimo.test"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
+    buildFeatures { buildConfig = true }
     defaultConfig {
+        // Explicit future diagnostic build only; normal builds remain OFF.
+        buildConfigField("boolean", "SERVICE_FRAME_DIAG",
+            (providers.gradleProperty("serviceFrameDiag").orNull == "1").toString())
         applicationId = "xyz.terlimo.test"
         minSdk = 28
         targetSdk = 35

@@ -21,6 +21,7 @@ import (
 	"github.com/pion/dtls/v3"
 	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
 	"github.com/pion/turn/v5"
+	"wg-turn-client/servicechannel"
 )
 
 // ManagedTransportConfig is private, per-Connect state. Authentication must use
@@ -233,12 +234,19 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		onAllocated()
 	}
 	pipeA, pipeB := connutil.AsyncPacketPipe()
+	pumpDiag := servicechannel.NewPumpDiag(ctx)
 	connCtx, cancel := context.WithCancel(ctx)
 	diagnostic.setTransport(connCtx)
 	var conn *dtls.Conn
 	var once sync.Once
 	var wg sync.WaitGroup
-	closeResources := func() { cancel(); _ = pipeA.Close(); _ = pipeB.Close(); allocationClose() }
+	closeResources := func() {
+		pumpDiag.Close("RESOURCE_CLOSE", nil)
+		cancel()
+		_ = pipeA.Close()
+		_ = pipeB.Close()
+		allocationClose()
+	}
 	stop := context.AfterFunc(connCtx, func() { once.Do(closeResources) })
 	cleanup := func() {
 		diagnostic.noteClose("CLEANUP", nil)
@@ -257,6 +265,7 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		for {
 			n, from, err := relay.ReadFrom(buf)
 			if err != nil {
+				pumpDiag.Close("RELAY_READ", err)
 				diagnostic.noteClose("RELAY_READ", err)
 				return
 			}
@@ -268,6 +277,7 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 				continue
 			}
 			if _, err = pipeA.WriteTo(plain[:n], peer); err != nil {
+				pumpDiag.Close("PIPE_WRITE", err)
 				diagnostic.noteClose("PIPE_WRITE", err)
 				return
 			}
@@ -276,24 +286,7 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		buf := make([]byte, readBufSize)
-		obfsConfig, state := NewObfsConfig(), NewObfsState()
-		for {
-			n, _, err := pipeA.ReadFrom(buf)
-			if err != nil {
-				diagnostic.noteClose("PIPE_READ", err)
-				return
-			}
-			wrapped, err := obfsWrapPacket(tp.WrapKey, buf[:n], obfsConfig, state)
-			if err != nil {
-				diagnostic.noteClose("UNKNOWN", err)
-				return
-			}
-			if _, err = relay.WriteTo(wrapped, peer); err != nil {
-				diagnostic.noteClose("RELAY_WRITE", err)
-				return
-			}
-		}
+		runManagedOutboundPump(pipeA, relay, peer, tp.WrapKey, diagnostic, pumpDiag)
 	}()
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
@@ -349,6 +342,43 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 	// connection; explicitly close it even if a host callback is still pending.
 	stopDTLS := context.AfterFunc(connCtx, func() { _ = conn.Close() })
 	return conn, func() { cleanup(); stopDTLS() }, nil
+}
+
+// Same outbound loop, factored only for offline observation tests; no extra reads/writes.
+func runManagedOutboundPump(pipeA, relay net.PacketConn, peer net.Addr, wrapKey []byte, diagnostic *bootstrapDiagnostic, pumpDiag *servicechannel.PumpDiag) {
+	buf := make([]byte, readBufSize)
+	obfsConfig, state := NewObfsConfig(), NewObfsState()
+	var record uint64
+	for {
+		n, _, err := pipeA.ReadFrom(buf)
+		if err != nil {
+			pumpDiag.Close("PIPE_READ", err)
+			diagnostic.noteClose("PIPE_READ", err)
+			return
+		}
+		if pumpDiag != nil {
+			record++
+			pumpDiag.Record("PUMP_DEQUEUE", record, n, n, nil)
+		}
+		wrapped, err := obfsWrapPacket(wrapKey, buf[:n], obfsConfig, state)
+		if pumpDiag != nil {
+			pumpDiag.Record("WRAP", record, n, len(wrapped), err)
+		}
+		if err != nil {
+			pumpDiag.Close("WRAP", err)
+			diagnostic.noteClose("UNKNOWN", err)
+			return
+		}
+		written, writeErr := relay.WriteTo(wrapped, peer)
+		if pumpDiag != nil {
+			pumpDiag.Record("TURN_WRITE", record, len(wrapped), written, writeErr)
+		}
+		if err = writeErr; err != nil {
+			pumpDiag.Close("RELAY_WRITE", err)
+			diagnostic.noteClose("RELAY_WRITE", err)
+			return
+		}
+	}
 }
 
 func runManagedSession(ctx context.Context, tp *TurnParams, peer *net.UDPAddr, d *Dispatcher,

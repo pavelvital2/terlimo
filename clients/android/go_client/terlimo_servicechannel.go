@@ -59,6 +59,7 @@ func newMobileTransportAndStore(start managedStart, persist servicechannel.Persi
 		}
 	}
 	channel := servicechannel.NewChannel(servicechannel.EstablishFunc(managedServiceEstablish))
+	channel.FrameCapture = servicechannel.NewFrameCapture(os.Getenv("TERLIMO_SERVICE_FRAME_DIAG") == "1", os.Stderr)
 	doer, err := servicechannel.NewDoer(start.MobileBaseURL, seeds, channel)
 	if err != nil {
 		return nil, nil, err

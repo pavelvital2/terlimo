@@ -24,6 +24,9 @@ internal object NativeStderrCodes {
     private val ACCOUNT_ACCESS = Regex("^accountaccess: ([A-Z_]{1,64})$")
     private val ONBOARDING = Regex("^onboarding: ([A-Z_]{1,64})$")
     private val ACCTSTAGE = Regex("^acctstage: ([A-Z_]{1,64}) ([0-9]{1,7})$")
+    // Dedicated bounded service-only capture; no arbitrary fields/errors are admitted.
+    private val SVCFRAME = Regex("^svcframe: phase=(FRAME_WRITE|PUMP_DEQUEUE|WRAP|TURN_WRITE|CONNECTION_CLOSE) gen=([0-9]{1,10}) xid=([0-9]{1,10}) conn=([0-9]{1,10}) record=([0-9]{1,10}) wire_id=(-|[0-9a-f]{32}) offset=([0-9]{1,7}) bytes=([0-9]{1,7}) written=([0-9]{1,7}) result=(NONE|CANCELED|TIMEOUT|OTHER|EOF|CLOSED|RESET|REFUSED) reason=(NONE|RESOURCE_CLOSE|RELAY_READ|PIPE_WRITE|PIPE_READ|WRAP|RELAY_WRITE) elapsed_ms=([0-9]{1,6})$")
+    private val SVCFRAME_FINAL = Regex("^svcframe: final=true truncated=(true|false) reason=(WINDOW_END|LINE_LIMIT|CAPTURE_CLOSE) elapsed_ms=([0-9]{1,9}) lines=([0-9]{1,3})$")
     private val SVCSTAGE = Regex("^svcstage: ([A-Z_]{1,64})$")
     private val SVCSTRACE = Regex("^svctrace: gen=([0-9]{1,10}) class=([A-Z_]{1,16}) event=([A-Z_]{1,16}) reused=([01]) port=([0-9]{1,5})(?: xid=([0-9]{1,10}))?(?: elapsed_ms=([0-9]{1,9}))?(?: req=([0-9]{1,3}))?(?: idle_ms=([0-9]{1,10}))?(?: err=([A-Z]{1,8}))?$")
     private val PLANSDIAG = Regex("^plansdiag: (BEGIN|OK|TRANSPORT|API_ERROR|NO_CLIENT)$")
@@ -187,6 +190,19 @@ internal object NativeStderrCodes {
      * belongs to the fixed onboarding terminal vocabulary only.
      */
     fun match(line: String): Match? {
+        if (line.startsWith("svcframe:")) {
+            if (line.length > 320) return null
+            SVCFRAME_FINAL.matchEntire(line)?.let { m ->
+                if (m.groupValues[4].toInt() <= 512)
+                    return Match(line.replace(" ", ":"), terminal = false)
+            }
+            SVCFRAME.matchEntire(line)?.let { m ->
+                if (m.groupValues[12].toInt() < 120000 &&
+                    m.groupValues[8].toInt() <= 65536 && m.groupValues[9].toInt() <= 65536)
+                    return Match(line.replace(" ", ":"), terminal = false)
+            }
+            return null
+        }
         if (line.length > MAX_LINE) return null
         ACCOUNT_ACCESS.matchEntire(line)?.groupValues?.get(1)?.takeIf { it in CODES }
             ?.let { return Match(it, terminal = false) }
@@ -312,6 +328,7 @@ internal class NativeStderrMirror(
     private var refreshTotal = 0
     private var traceWindowCount = 0
     private var traceTotal = 0
+    private var frameTotal = 0
 
     fun accept(line: String, nowNanos: Long = System.nanoTime()): String? {
         val match = NativeStderrCodes.match(line) ?: return null
@@ -324,6 +341,11 @@ internal class NativeStderrMirror(
             usageWindowCount = 0
             refreshWindowCount = 0
             traceWindowCount = 0
+        }
+        if (match.value.startsWith("svcframe:")) {
+            if (frameTotal >= 513) return null
+            frameTotal++
+            return match.value
         }
         if (match.value.startsWith(TRACE_PREFIX)) {
             // Dedicated bounded correlation budget so session/class/port events are never
