@@ -1,0 +1,28 @@
+{
+  "utc": "2026-10-01T18:57:16.149328+00:00",
+  "source_commit": "d847a41168c54f413e0a961e1ce198db116650b9",
+  "source_tree": "300b302ab44eb0655ce9bd931dd878bb68b0b157",
+  "canonical_snapshot": "da91c171f3c43739f3ef095b61eb47ff6d26d3d6",
+  "canonical_layout_limit": "Build source is exact isolated ordinary-base d847a41, NOT cumulative monorepo gateway tree with optional broad diagnostics.",
+  "artifact": "/home/pavel/step036-receipts/private/s5-auth-terminal-build-test-20261001/wdtt-server-auth-terminal-d847a41-go1.26.5",
+  "artifact_sha256": "bebec6980ed3a41242cd7ac0455839bf4dd2c2297c8875df00ae781f0b8bb1ff",
+  "artifact_size_bytes": 13980291,
+  "architecture": "ELF64 AMD64 little-endian",
+  "compiler": "go1.26.5",
+  "compiler_matches_f7": true,
+  "normal_build_count": 1,
+  "targeted_tests": "14 parity cases+2 snapshot/window PASS under matching compiler",
+  "recipe": "GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 /home/pavel/step036-receipts/private/s5-auth-terminal-build-test-20261001/toolchain-cache/golang.org/toolchain@v0.0.1-go1.26.5.linux-amd64/bin/go build -o /home/pavel/step036-receipts/private/s5-auth-terminal-build-test-20261001/wdtt-server-auth-terminal-d847a41-go1.26.5 .",
+  "recipe_cwd": "/tmp/terlimo-auth-terminal-error-20261001",
+  "module_dependency_buildinfo_exact_matches_f7": true,
+  "deps_sha": {
+    "go.mod": "bc822ed2c37a851aa072fae1b7eebf896dc4080341eea773afdfcb133b91e261",
+    "go.sum": "7a4f8f0e296f12386672024c52215c02839296e8636e7ce42cf53f62b436541c"
+  },
+  "ordinary_marker_present": true,
+  "broad_diag_source_absent": true,
+  "source_only_functional_delta": "ordinary bounded Unix terminal failure logging/hooks; no changed successful return/protocol/cancel/timeouts",
+  "source_identity_limit": "Accepted f7 build/apply receipts bind b3185da source; embedded historical vcs/original literal build command unknown. No byte rebuild of old artifact.",
+  "embedded_vcs_fields_present": false,
+  "backup_f7_sha256": "f7f17e84d7851bc556820709e3390f366fc0a03ade1756a7cfb90d9af86fb0e1"
+}

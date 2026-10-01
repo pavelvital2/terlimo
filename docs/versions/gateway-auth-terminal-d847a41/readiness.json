@@ -1,0 +1,40 @@
+{
+  "utc": "2026-10-01T18:57:28.477424+00:00",
+  "result": "TESTA_NODE_READY_NOT_PRODUCT_PASS",
+  "source_commit": "d847a41168c54f413e0a961e1ce198db116650b9",
+  "canonical_snapshot": "da91c171f3c43739f3ef095b61eb47ff6d26d3d6",
+  "artifact_sha256": "bebec6980ed3a41242cd7ac0455839bf4dd2c2297c8875df00ae781f0b8bb1ff",
+  "running_exe_sha256": "bebec6980ed3a41242cd7ac0455839bf4dd2c2297c8875df00ae781f0b8bb1ff",
+  "pids": {
+    "node": 4000938,
+    "api": 3935646,
+    "relay": 3935648,
+    "worker": 3976236,
+    "evidence": 2537357,
+    "mgmt": 2537359,
+    "pg": 1031
+  },
+  "old_node_pid": 3935653,
+  "neighbors_unchanged": true,
+  "actual_executable": "/home/pavel/step036-device-stage/pkg/bin/wdtt-server-s5-usage-59bf41c",
+  "netns": "net:[4026532254]",
+  "udp_ports_owned_by_node": {
+    "57500": true,
+    "56002": true
+  },
+  "unix_endpoint": "/run/terlimo-test-a/service-relay.sock",
+  "unix_socket": {
+    "uid": 1000,
+    "gid": 1000,
+    "mode": "0o600"
+  },
+  "env_values_unchanged_except_systemd_invocation": true,
+  "all_other_diag_flags_off": true,
+  "unit_launcher_sha_unchanged": true,
+  "log_sink": "/home/pavel/step036-device-stage/pkg/logs/gateway-usage.log",
+  "observation_start_offset": 12786997,
+  "startup_errors": 0,
+  "rollback_binary": "/home/pavel/step036-receipts/private/s5-auth-terminal-build-test-20261001/backup/node.rollback.f7",
+  "rollback_sha256": "f7f17e84d7851bc556820709e3390f366fc0a03ade1756a7cfb90d9af86fb0e1",
+  "no_phone_synthetic_auth_or_dbwrites": true
+}

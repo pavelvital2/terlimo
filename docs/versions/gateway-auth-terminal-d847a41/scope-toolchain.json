@@ -1,0 +1,18 @@
+{
+  "utc": "2026-10-01T18:54:05.136458+00:00",
+  "authorization": "whitelist-20261001-auth-terminal-build-test-v1",
+  "goal": "matching compiler tests+one ordinary build+node-only idle TESTA apply/readiness",
+  "source_commit": "d847a41168c54f413e0a961e1ce198db116650b9",
+  "canonical_snapshot": "da91c171f3c43739f3ef095b61eb47ff6d26d3d6",
+  "forbidden": "no phone/syntheticAUTH/sync/DBwrite/envflags/timeouts/network/neighbors/production changes; no monorepo broad diag tree",
+  "rollback": "exact f7 saved plus node-only restore if startup not healthy; leave healthy candidate after readiness",
+  "toolchain_acquisition": "standard GOTOOLCHAIN=go1.26.5 with isolated GOMODCACHE, GOPROXY=https://proxy.golang.org,direct and GOSUMDB=sum.golang.org; no TLS/sumdb disable",
+  "toolchain_go_sha256": "8da5fd321795754b994c64e3eb8a5a14ff47bd285559a7e876f3c79abafc67f9",
+  "toolchain_ziphash": "h1:/yCM7qVQu6sYYUewQ39rtTtRMYMHdbP9oNjgp+lEV9w=",
+  "source_clean": true,
+  "source_head": "d847a41168c54f413e0a961e1ce198db116650b9",
+  "deps_sha": {
+    "go.mod": "bc822ed2c37a851aa072fae1b7eebf896dc4080341eea773afdfcb133b91e261",
+    "go.sum": "7a4f8f0e296f12386672024c52215c02839296e8636e7ce42cf53f62b436541c"
+  }
+}

@@ -1,39 +1,29 @@
-# Шлюз — ordinary Unix terminal error log (SOURCE ONLY)
+# Шлюз — ordinary Unix terminal logging: TEST READY
 
-## Статус и provenance
+## Точная версия и текущий уровень проверки
 
-- Только локальная source delta; candidate deploy binary не собирался, TEST/runtime/product PASS не заявляется. Live services/flags/phone/DB/timeouts не менялись.
-- База ordinary f7: commit b3185dac8b0c44652ff9aeb961d4af492b53444b, tree742313b2fec0944e4e438aa2b691734a93243872. Accepted build/apply receipts связывают её с binary f7f17e84d7851bc556820709e3390f366fc0a03ade1756a7cfb90d9af86fb0e1. Старое имя59bf41c не обозначает source текущей версии.
-- Предел: embedded VCS revision и буквальная original build command не записаны; связь по clean source+receipts+exactbinarySHA, без byte-rebuild доказательства. Ранее принятый source comparison не повторялся.
-- Новый source commit фиксируется в отдельном provenance.json. Root выполняет review и canonical snapshot push pavelvital2/terlimo; donor remote/push не менялся.
+- Source `d847a41168c54f413e0a961e1ce198db116650b9`, isolated ordinary source base `b3185dac8b0c44652ff9aeb961d4af492b53444b`; canonical publish root `da91c171f3c43739f3ef095b61eb47ff6d26d3d6` branch diag/auth-terminal-error-20261001. Cumulative monorepo gateway tree не использован для build.
+- Artifact `wdtt-server-auth-terminal-d847a41-go1.26.5`, SHA256 `bebec6980ed3a41242cd7ac0455839bf4dd2c2297c8875df00ae781f0b8bb1ff`, 13980291bytes, ELF64/LinuxAMD64/CGO0/GOAMD64v1/Go1.26.5. Actual running `/proc/4000938/exe` совпадает с artifactSHA. Source identity и artifact identity разделены.
+- Matching toolchain получен штатным Go механизмом в isolated cache, обычные TLS/sumdb проверки включены. System Go не менялся. Dependency buildinfo совпал сf7, go.mod/go.sum exactunchanged. Ровно одна normal build; matching compiler targeted14+2PASS, полныйsuite не повторялся. Recipe/buildinfo/teststdout/provenance сохранены рядом сartifact.
+- TESTA apply/readiness UTC `2026-10-01T18:57:28.477424+00:00`: oldnode3935653→newnode4000938, existingunit/launcher/path сохранены; candidate оставлен готовым без второго restore/restart. Existing filename59bf41c не идентификатор source версии.
+- API/relay/worker/evidence/mgmt/PG PID без изменений; env/diagflags/timeout/network/DB не менялись. Netns `net:[4026532254]`, nodeUDP57500/56002 и relayUnix endpoint `/run/terlimo-test-a/service-relay.sock` verified, startuperrors0. SyntheticAUTH/sync/phone не выполнялись.
+- Уровень: source tests/build/TEST install/readiness PASS; product AUTH/catalog outcome и первичная причина прежнего10858ms SERVICE_UNAVAILABLE этим этапом не проверены. Root далее назначает один обычный APK070aafdd run.
 
-## Ровно новая функция / сохранённая совместимость
+## Полная функциональность и совместимость этой delta
 
-Обычный standard node log.Printf только при SERVICE_UNAVAILABLE exits serviceRelay: PRECTX/SOCKET_PATH/DIAL/ENCODE/READSLICE. Один record `[SVCUNIX] terminal stage=... outcome=... ctx=... elapsed_ms=... io_elapsed_ms=... request_id=...` на один такой exit. Никаких frame/API/relay probes, short startup window, global capture counter, watcher/daemon. Успех, parsed remote error и прежние SERVICE_BAD_RESPONSE exits новых logs не получают.
+Только ordinary error-only `[SVCUNIX] terminal` в пяти SERVICE_UNAVAILABLE exits PRECTX/SOCKET_PATH/DIAL/ENCODE/READSLICE: fixed error class/context snapshot/total+IOelapsed/технический request_id. Success/parsedremoteerror/SERVICE_BAD_RESPONSE не добавляют log. Snapshot ctx.Err непосредственно на error branch до defers/forced watcher unblock/cancelRelay. Нет process-start window120s/512 budget или новых probes/observer; остальные frame/API/relay diagnosticsOFF. Payload/headers/token/path/rawerror не логируются. Protocol/returns/watcher/cancellation/15sIO+3sdial+5serrorwrite unchanged. Маркер покажет состояние terminal error, не обещает backend-latency repair и не доказывает первопричину совпавших EOF/cancel.14 baseline paritycases+snapshot-before-postcancel/no-startwindow tests PASS.
 
-В terminal вызов передаётся snapshot ctx.Err непосредственно на error branch, до defer close/stopCancel и до caller forced watcher unblock/cancelRelay. PRECTX использует одно чтение ctx.Err. Outcomes — Unix-applicable fixed classes из0cb8bf5: DEADLINE/CANCELED/CLOSED/EOF/TIMEOUT/OTHER; frame-specific DTLS BUFFER_TOO_SMALL/INVALID не добавлены к Unix transport. Request ID только32 lowercase hex, иначе `-`. Raw error strings/path/payload/headers/credential/token не логируются.
+## Source/build provenance и пределы
 
-Total elapsed начинается на входе serviceRelayWithDial; io elapsed после успешного существующего SetDeadline. При отсутствии успешного deadline io=-1; ошибки SetDeadline как и раньше не меняют return behavior. Terminal timings не являются историческим resource profile или временем backend-only. ctxCANCELED показывает состояние в точке ошибки, но не исключает совпадение первичной ошибки и cancellation; не доказывает, где upstream ждал до отмены.
+Ordinaryf7SHA f7f17e84d7851bc556820709e3390f366fc0a03ade1756a7cfb90d9af86fb0e1 связан сb3185da через accepted build/apply receipts+clean source, не embedded historicalVCS/byte-rebuild. MatchingGo1.26.5 устраняет прежнюю compiler patchdelta1.26.8; неизвестныеliteraloriginalbuildflags не восстановлены выдумкой. Future/current recipe exact вbuild-manifest, actual buildinfo отдельно. Broad90da diagnosticartifact не использован/не пересобран.
 
-Runtime wrapper использует тот же net.Dialer.DialContext; минимальный function seam нужен fake IO tests (без нового глобального dial override). Return tuples/parse validation/frames/authority/idempotency/crypto/cancellation/watcher/close/protocol не меняются. Dial3s/UnixIO15s/errorwrite5s прежние. Success получает только timing reads, без нового log. На ошибке одна синхронная строка через обычный logger; новых sinks/лог-конфигурации нет.
+## Exact rollback
 
-## Адресная проверка
+Private `/home/pavel/step036-receipts/private/s5-auth-terminal-build-test-20261001/backup/node.rollback.f7` SHA f7f17e84d7851bc556820709e3390f366fc0a03ade1756a7cfb90d9af86fb0e1; exact unit/launcher/env snapshots рядом, env содержит секреты и не передаётся. При отдельно необходимом idle node-only rollback: штатный stop того же terlimo-test-a-node.service, install backup root0755 во временный sibling и atomicmv в текущий executablepath, start node, проверитьprocSHA/netns/UDP/endpoints/neighbors/env. При startupfailure такойrollback был предусмотрен; он не понадобился. DB/neighbors/flags не откатывать. Сейчас healthy candidate оставлен для root-assigned run.
 
-Reuse fixture/case table accepted0cb8bf5 Unix failure tests, без изменения старых test files:14 случаев PRECTX cancel/deadline, socket path, dial, encode, EOF, timeout/deadline, cancellation close, failed SetDeadline, buffer/parse error, success, parsed remote error. Before-reference copied byte-equivalent из b3185da serviceRelay с тем же единственным fake dial seam. Проверяются неизменные return tuples, wire bytes, read/write calls/sizes, connection close и deadline15s; exact один failure log, отсутствие raw secrets/success log. Отдельно cancel, вызванный logger writer/post-call, не превращает snapshot NONE в CANCELED; marker с entered час назад не gated, malformed request ID скрыт. Результат и toolchain — targeted-tests.txt/provenance.json. Полный suite не запускается; это не воспроизведение product AUTH failure.
+## Исторические уровни полного101-ID паспорта
 
-## Source/build связь следующего candidate
-
-f7 buildinfo: Go1.26.5, compiler gc, CGO_ENABLED0, GOOSlinux, GOARCHamd64, GOAMD64v1, buildmodeexe; module wg-turn-client, PionDTLSv3.1.5/transportv4.1.0. go.mod/go.sum НЕ изменены. Source delta только terminal log/hooks + offline fixtures/паспорт; широкие frame diagnostics d2f7622/0cb8bf5 не переносились.
-
-Адресные tests используют уже установленный Go1.26.8 /home/pavel/.local/bin/go1.26, GOTOOLCHAIN=local, CGO0/linux/amd64/v1. Go1.26.5 ранее отсутствовал в проверенных местах; сейчас toolchain не скачивался/не устанавливался. Это явная compiler patch-version delta противf7, не утверждение одинакового generated binary. Для будущего root build: предпочесть Go1.26.5 с прежними flags/неизменными deps; если root выберет доступный1.26.8, отдельно записать compiler delta и candidate buildinfo/SHA. Реконструированный recipe `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 <approved-go> build -o <staged> .`; буквальные неизвестные historical options не выдумываются. Сейчас source-only, future build/apply — следующий root gate.
-
-## Rollback
-
-Локально вернуть изменённый client_test_service.go из b3185da, удалить новые service_unix_terminal.go/test и этот паспорт либо отложить isolated commit/worktree. Live rollback сейчас не выполняется, изменений нет. При будущей установке сохраняется exact currentf7 binary и штатный launcher/env; root назначает node-only idle restore backup binary без изменения DB/таймаутов/соседей.
-
-## Исторические уровни полного паспорта
-
-Ниже byte-exact полный101-ID перечень из существующего gateway README.VERSION Unix AUTH. Его строки и исторические уровни не повышаются. Diagnostic binary90da/short120s capture НЕ candidate этого source. Новый ordinary failure logger ещё не установлен и не доказывает product recovery.
+Ниже полный gateway requirementsection сохранён byteexact; исторические уровни не повышаются из-за readiness. Новая loggingdelta не является product/catalogPASS.
 
 ## Полный перечень функций и требований
 

@@ -1,0 +1,8 @@
+{
+  "utc": "2026-10-01T18:59:55.508716+00:00",
+  "same_ready_pid": 4000938,
+  "automatic_restarts": 0,
+  "startup_failure_keyword_lines": 0,
+  "keyword_limit": "Counts exact panic/fatal/error/failed words; no raw logs/payload shared.",
+  "full_passport_sha256": "428b50cdf3772580599dd286735d6a7cef54356b759a862399bd9f6d2ffddff6"
+}
