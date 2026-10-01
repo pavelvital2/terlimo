@@ -191,3 +191,7 @@ Source87e77ec798b3002961220ad14b70344c039c0894 based on0cebcfc1. Reviewed patch6
 ## 2026-10-01 Relay phase diagnostic — source accepted
 
 Source a9ac989eb2e3a14494d74f25f9ebf0f541ca5688, base87e77ec. Full patch SHA2569a1ecd14168337b2365ad4eacb308696ce3ce07565db5176f57a07200be713a6 reviewed by root. Only service_relay.py plus targeted tests. Default OFF; explicit environment flag enables Unix/connector/request/body phase timing with no payload logging or wire/timeout/admission changes. Executor:16 targeted tests PASS105.62s, ruff/diffcheck PASS. Persistent session and cancellation/error/cap contracts checked. This is diagnostic source, not a latency fix or phone PASS; TEST deployment pending. Live dirty catalogtest and environment snapshots excluded.
+
+## 2026-10-01 Relay standalone INFO correction
+
+Preflight proved root effective WARNING/no handler: initial probe would emit no INFO. Source5309aeaccc0d43a3e9cb0ed6f1b90285e99de319 reviewed: two-line basicConfig(INFO) only when explicit probe enabled. Existing stderr sink is /home/pavel/step036-device-stage/pkg/logs/service-relay.log, not journal. Two fresh subprocess tests PASS; prior16cases not repeated. Runtime SHA b7cdf1c9c882e8776812da6a984f05235e5851031c0e1f033c1749f360c27888. No deployment occurred before this correction.

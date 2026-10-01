@@ -1,7 +1,12 @@
 """Bounded relay probe: fixed metadata, original IO and cancellation behavior."""
 
 import asyncio
+import json
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +15,35 @@ from aiohttp import ClientError, ClientSession, TCPConnector, web
 from terlimo_backend import service_relay as module
 
 SECRET = "never-log-payload-url-header-exception"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_main_info_sink_is_enabled_only_for_explicit_probe(enabled):
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    env.pop("TERLIMO_SERVICE_RELAY_PHASE_PROBE", None)
+    if enabled:
+        env["TERLIMO_SERVICE_RELAY_PHASE_PROBE"] = "1"
+    script = '''
+import json, logging, os
+from types import SimpleNamespace
+from terlimo_backend import config, service_relay as module
+config.load_settings = lambda **kwargs: SimpleNamespace()
+class Relay:
+    def __init__(self, settings):
+        self._phase_probe_enabled = os.environ.get("TERLIMO_SERVICE_RELAY_PHASE_PROBE") == "1"
+module.ServiceRelay = Relay
+module.asyncio.run = lambda coroutine: coroutine.close()
+module.main()
+module.logger.info("probe visibility sentinel")
+print(json.dumps({"info": module.logger.isEnabledFor(logging.INFO),
+    "handlers": len(logging.getLogger().handlers)}))
+'''
+    result = subprocess.run([sys.executable, "-c", script], env=env,
+        capture_output=True, text=True, check=True)
+    state = json.loads(result.stdout)
+    assert state["info"] is enabled
+    assert state["handlers"] == int(enabled)
+    assert ("probe visibility sentinel" in result.stderr) is enabled
 
 
 @pytest.fixture

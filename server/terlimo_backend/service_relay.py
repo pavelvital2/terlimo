@@ -623,6 +623,8 @@ def main() -> None:
 
     settings = load_settings(require_database=False)
     relay = ServiceRelay(settings)
+    if relay._phase_probe_enabled:
+        logging.basicConfig(level=logging.INFO)
 
     async def _serve_until_signal() -> None:
         loop = asyncio.get_running_loop()
