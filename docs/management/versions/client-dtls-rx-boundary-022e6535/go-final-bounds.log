@@ -1,0 +1,4 @@
+=== RUN   TestDialIOFullBatchAndLineBounds
+--- PASS: TestDialIOFullBatchAndLineBounds (0.00s)
+PASS
+ok  	wg-turn-client	1.046s

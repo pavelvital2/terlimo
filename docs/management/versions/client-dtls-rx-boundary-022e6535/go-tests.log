@@ -1,0 +1,12 @@
+=== RUN   TestDialIOEndpointNormalization
+--- PASS: TestDialIOEndpointNormalization (0.00s)
+=== RUN   TestDialIORecordsMalformedCoalescedFragments
+--- PASS: TestDialIORecordsMalformedCoalescedFragments (0.00s)
+=== RUN   TestDialIOHandoffAndTXPassThrough
+--- PASS: TestDialIOHandoffAndTXPassThrough (0.00s)
+=== RUN   TestDialIOTailCountersSealRace
+--- PASS: TestDialIOTailCountersSealRace (0.01s)
+=== RUN   TestDialIOFullBatchAndLineBounds
+--- PASS: TestDialIOFullBatchAndLineBounds (0.00s)
+PASS
+ok  	wg-turn-client	1.068s

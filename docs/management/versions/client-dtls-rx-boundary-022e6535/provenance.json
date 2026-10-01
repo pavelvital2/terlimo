@@ -1,0 +1,36 @@
+{
+  "base": "74db78c0da2f5b70dba577e572c98cbccb37b9ec",
+  "source_code_commit": "022e6535325cd44fe4dcd8eb8b9aab50f7d2d500",
+  "head": "0e735935bbb46480fede8d7e4be1e77f2b4ab438",
+  "branch": "laptop/dtls-rx-boundary-20261001",
+  "checkout": "/home/pavel/terlimo-dtls-rx-boundary-20261001",
+  "patch_sha256": "153e2369cfed0ba21a7a246b1b77bd73140aaa77f10efe0a375b7f318864f566",
+  "clean_tracked_tree": true,
+  "donor_origin": "https://github.com/Ivan4537/WDTT-Plus.git",
+  "pushed": false,
+  "changed_file_sha256": {
+    "go_client/terlimo_service_dial_io.go": "2d39ad5adc2ac1078442ca7aee6a3a82aefe8fc55c69dce27afd57091d2e9fd2",
+    "go_client/terlimo_service_dial_io_test.go": "e5ba008ef53bafde96f03ddc11056647ed1f52c4a35c7c7d53da33c32083dc4d",
+    "go_client/terlimo_service_dial_trace.go": "7cbacc79187a8c010fc9a1cfe6b4d45679169c043dd1ee834ff4cf119d9b33c8",
+    "go_client/terlimo_transport.go": "8f362e14e7fec3de6db429e36d0d197a280d0985d000b2b96ee2b65bef965162",
+    "testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt": "1ff24996748615b583d5e4b54a3741632683fc92abaf8205cc3f806714948ba4",
+    "testapp/src/test/java/xyz/terlimo/test/ServiceDialIOTest.kt": "8b992e40523725dd998ab42e2553d173e83fe8190b3f49bf50e104045b0863fd",
+    "testapp/src/test/java/xyz/terlimo/test/ServiceDialStderrTest.kt": "4fffea63a9c1ae6a5bf0144d8923a3321090df5e18091008175ee71adbc21ca2",
+    "versions/dtls-rx-boundary-20261001/FEATURES-ID-CHECK.json": "1568a83ed288b30cdbbcc9f81fbef4d7e7372ffcab85d2aacbe474cd482cb1f6",
+    "versions/dtls-rx-boundary-20261001/PION-RECEIVE.md": "c62298bc4d9a6242a0b14ce4706406f739fa7786985c5cf021aebb14769f6799",
+    "versions/dtls-rx-boundary-20261001/README.VERSION.md": "fb8530bcdfb85d26807f711106eaa3a17101d00f20e5f3dbbec483b316f957ed"
+  },
+  "unchanged_blobs": {
+    "go_client/go.mod": "c265e0dc4bb2cad1f920dc4b182b74bf63417dd3",
+    "go_client/go.sum": "d23ad0fc823947916700de28d4c084a9bfd46784",
+    "go_client/terlimo_mobile.go": "cc392da43f8cfbb1e75eb5657fd0c13842897b93",
+    "go_client/terlimo_runner.go": "f83d3cfe9a56526a462617abf90780f2e936a62e",
+    "go_client/session.go": "e10e1227af42c8d58dbf5ac2d7e3b608e07c9c91",
+    "go_client/mobile_catalog_publication_test.go": "9fdeb0f77dc70112e6aecdda665b11fc36a25025",
+    "go_client/turn_endpoint.go": "928966b2a5140721cba2764c0f8453f2cc269762",
+    "testapp/build.gradle.kts": "b20214d3be92a28b2bf8d124d44a4b6c1d6ab19d"
+  },
+  "new_native_apk": "NOT_BUILT",
+  "new_device": "NOT_TESTED",
+  "private_overlay_copied": false
+}

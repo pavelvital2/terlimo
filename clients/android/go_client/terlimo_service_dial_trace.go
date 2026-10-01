@@ -63,6 +63,7 @@ type serviceDialTrace struct {
 	count     int
 	truncated bool
 	sealed    bool
+	io        dialIO
 }
 
 func newServiceDialTrace() *serviceDialTrace {
@@ -146,6 +147,7 @@ func (t *serviceDialTrace) finish(err error, output io.Writer) {
 		}
 	}
 	truncated := t.truncated
+	ioSnapshot := t.io
 	t.mu.Unlock()
 	// Concurrent write boundaries may acquire the mutex in a different order.
 	sort.SliceStable(events, func(i, j int) bool { return events[i].elapsed < events[j].elapsed })
@@ -153,6 +155,7 @@ func (t *serviceDialTrace) finish(err error, output io.Writer) {
 	for _, ev := range events {
 		fmt.Fprintf(&b, "dialstage: call=%d candidate=%d transport=%s stage=%s result=%s elapsed_ms=%d\n", t.call, ev.candidate, serviceDialTransportName(ev.candidate, ev.transport), serviceDialStageNames[ev.stage], ev.result, ev.elapsed.Milliseconds())
 	}
+	writeDialIO(&b, t.call, ioSnapshot, elapsed)
 	flag := 0
 	if truncated {
 		flag = 1

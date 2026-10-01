@@ -186,6 +186,13 @@ internal object NativeStderrCodes {
         "FIRST_WRITE_BEGIN", "FIRST_WRITE_END", "CANDIDATE_BEGIN", "CANDIDATE_END", "FINISH",
     )
 
+    // 64 stage events + endpoint + RX/TX counters + 8 tail records + FINISH = 76.
+    private val DIALIO_PREFIX = "^dialio: call=([1-9][0-9]{0,19}) candidate=([1-9][0-9]{0,18}) transport=(UDP|TCP|TLS) "
+    private val DIALIO_ENDPOINT = Regex(DIALIO_PREFIX + "kind=ENDPOINT hash=([0-9a-f]{64}|NONE)$")
+    private val DIALIO_RX = Regex(DIALIO_PREFIX + "kind=RX rx=([0-9]{1,20}) readerr=([0-9]{1,20}) peer=([0-9]{1,20}) unwrap=([0-9]{1,20}) handoff=([0-9]{1,20}) pipeerr=([0-9]{1,20}) first_ms=([0-9]{1,19}) last_ms=([0-9]{1,19}) late=([01])$")
+    private val DIALIO_TX = Regex(DIALIO_PREFIX + "kind=TX tx=([0-9]{1,20}) txerr=([0-9]{1,20}) wraperr=([0-9]{1,20}) readerr=([0-9]{1,20}) invalid=([0-9]{1,20}) limited=([0-9]{1,20}) truncated=([01])$")
+    private val DIALIO_RECORD = Regex(DIALIO_PREFIX + "kind=RECORD ct=(20|21|22|23) epoch=([0-9]{1,5}) seq=([0-9]{1,15}) len=([0-9]{1,5}) elapsed_ms=([0-9]{1,19})$")
+
     /** One exact allowlisted line: its observable value and whether it owns the reserved slot. */
     data class Match(val value: String, val terminal: Boolean)
 
@@ -196,6 +203,13 @@ internal object NativeStderrCodes {
      * belongs to the fixed onboarding terminal vocabulary only.
      */
     fun match(line: String): Match? {
+        if (line.startsWith("dialio: ")) {
+            if (line.length > 314) return null
+            if (DIALIO_ENDPOINT.matchEntire(line) == null && DIALIO_RX.matchEntire(line) == null &&
+                DIALIO_TX.matchEntire(line) == null && DIALIO_RECORD.matchEntire(line) == null) return null
+            // Fixed numeric/hash fields only; exact matching rejects raw data and unknown fields.
+            return Match(line.replace("dialio: ", "dialio:").replace(" ", ":"), terminal = false)
+        }
         if (line.startsWith("dialstage: ")) {
             if (line.length > 256) return null
             val m = DIALSTAGE.matchEntire(line) ?: return null
@@ -301,8 +315,8 @@ internal object NativeStderrCodes {
  * [maxTotal] 64 + [maxStageTotal] 64 + [maxCycleTotal] 48 + [maxVkTotal] 24 + [maxTraceTotal]
  * 4096 = 4296 mirrored lines.
  *
- * Mobile `dialstage:` has an independent 65-lines/window, 260-lines/child budget.
- * One native capped batch (64 events + FINISH) fits without taking any old budget.
+ * Mobile `dialstage:`/`dialio:` share an independent 76-lines/window, 304-lines/child budget.
+ * One native capped batch (64 events + 11 IO lines + FINISH) fits without taking any old budget.
  * Later batches can still be rate-limited: a missing FINISH means incomplete capture.
  *
  * The §11/§29 manual-refresh chronology (`refreshstage:`) owns its own small bounded budget
@@ -325,9 +339,9 @@ internal class NativeStderrMirror(
     private val maxRefreshTotal: Int = 32,
     private val maxTracePerWindow: Int = 64,
     private val maxTraceTotal: Int = 4096,
-    // Independent budget: one entire bounded dial burst fits; old caps unchanged.
-    private val maxDialPerWindow: Int = 65,
-    private val maxDialTotal: Int = 260,
+    // Independent budget: one entire bounded dial burst fits; other stream caps unchanged.
+    private val maxDialPerWindow: Int = 76,
+    private val maxDialTotal: Int = 304,
 ) {
     private var windowStartNanos = 0L
     private var windowCount = 0
@@ -360,7 +374,7 @@ internal class NativeStderrMirror(
             traceWindowCount = 0
             dialWindowCount = 0
         }
-        if (match.value.startsWith("dialstage:")) {
+        if (match.value.startsWith("dialstage:") || match.value.startsWith("dialio:")) {
             if (dialTotal >= maxDialTotal || dialWindowCount >= maxDialPerWindow) return null
             dialWindowCount++
             dialTotal++

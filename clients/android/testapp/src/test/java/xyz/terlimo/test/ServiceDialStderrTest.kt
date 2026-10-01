@@ -31,6 +31,7 @@ class ServiceDialStderrTest {
         val mirror = NativeStderrMirror()
         repeat(64) { assertNotNull(mirror.accept(line("SOCKET_END", "OK", candidate="${it + 1}"), 0)) }
         assertNotNull(mirror.accept(line("FINISH", "OK", candidate="0", transport="NONE", extra=" truncated=1"), 0))
+        repeat(11) { assertNotNull(mirror.accept(line("SOCKET_BEGIN", "BEGIN", call="2"), 0)) }
         assertNull(mirror.accept(line("SOCKET_BEGIN", "BEGIN", call="2"), 0))
         // Existing service and trace budgets were neither raised nor consumed.
         assertNotNull(mirror.accept("svcstage: ESTABLISH_DIAL_READY", 0))

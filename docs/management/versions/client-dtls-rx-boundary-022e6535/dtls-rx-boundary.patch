@@ -1,0 +1,941 @@
+diff --git a/go_client/terlimo_service_dial_io.go b/go_client/terlimo_service_dial_io.go
+new file mode 100644
+index 0000000..2de9471
+--- /dev/null
++++ b/go_client/terlimo_service_dial_io.go
+@@ -0,0 +1,227 @@
++package main
++
++import (
++	"crypto/sha256"
++	"encoding/binary"
++	"fmt"
++	"net"
++	"net/netip"
++	"strings"
++	"time"
++)
++
++const dialRecordCap = 8 // last records survive early retransmissions
++const dialRecordsPerDatagram = 8
++
++type dialIOKind uint8
++
++const (
++	ioRX dialIOKind = iota
++	ioReadError
++	ioPeerDrop
++	ioUnwrapDrop
++	ioHandoff
++	ioHandoffError
++	ioTX
++	ioTXError
++	ioWrapError
++	ioTXReadError
++	ioKindCount
++)
++
++type dialRecord struct {
++	elapsed time.Duration
++	ct      uint8
++	epoch   uint16
++	seq     uint64
++	length  uint16
++}
++type dialIO struct {
++	candidate                  int
++	transport                  turnTransport
++	endpoint                   string
++	endpointValid              bool
++	counts                     [ioKindCount]uint64
++	firstRX, lastRX, latest    time.Duration
++	records                    [dialRecordCap]dialRecord
++	recordCount, recordNext    int
++	recordTruncated            bool
++	parseInvalid, parseLimited uint64
++}
++
++// Call only on the PacketConn returned by TURN Allocate, before wrapping it.
++// Pion TURN UDPConn.LocalAddr is its XOR-RELAYED-ADDRESS, not the socket address.
++func allocationEndpointHash(addr net.Addr) (string, bool) {
++	u, ok := addr.(*net.UDPAddr)
++	if !ok || u == nil || u.Zone != "" || u.Port < 1 || u.Port > 65535 {
++		return "", false
++	}
++	ip, err := netip.ParseAddr(u.IP.String())
++	if err != nil {
++		return "", false
++	}
++	host := ip.String() // UDPAddr textual host, normalized as Python ipaddress
++	sum := sha256.Sum256([]byte(fmt.Sprintf("whitelist-dtls-join-v1|%s|%d", host, u.Port)))
++	return fmt.Sprintf("%x", sum), true
++}
++func (t *serviceDialTrace) allocation(addr net.Addr, candidate int, tr turnTransport) {
++	if t == nil {
++		return
++	}
++	elapsed := time.Since(t.started)
++	hash, valid := allocationEndpointHash(addr)
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if t.sealed {
++		return
++	}
++	t.io.candidate, t.io.transport = candidate, tr
++	t.io.endpoint, t.io.endpointValid = hash, valid
++	t.io.latest = elapsed
++}
++func (t *serviceDialTrace) ioNote(kind dialIOKind) {
++	if t == nil {
++		return
++	}
++	elapsed := time.Since(t.started)
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if t.sealed {
++		return
++	}
++	t.io.counts[kind]++
++	if kind == ioRX {
++		if t.io.counts[ioRX] == 1 {
++			t.io.firstRX = elapsed
++		}
++		if elapsed > t.io.lastRX {
++			t.io.lastRX = elapsed
++		}
++		if elapsed < t.io.firstRX {
++			t.io.firstRX = elapsed
++		}
++	}
++	if elapsed > t.io.latest {
++		t.io.latest = elapsed
++	}
++}
++
++// Headers only. No reassembly, decryption, or handshake type inference: epoch>0
++// content type 22 is encrypted handshake, never proof of a Finished message.
++// Fragmented handshakes are ordinary records and need no payload inspection.
++func parseDialRecords(data []byte, elapsed time.Duration) (out [dialRecordsPerDatagram]dialRecord, count int, invalid, limited bool) {
++	for len(data) > 0 {
++		if count == len(out) {
++			return out, count, false, true
++		}
++		if len(data) < 13 || (data[0] < 20 || data[0] > 23) || data[1] != 0xfe || (data[2] != 0xfd && data[2] != 0xff) {
++			return out, count, true, false
++		}
++		n := int(binary.BigEndian.Uint16(data[11:13]))
++		if n > len(data)-13 {
++			return out, count, true, false
++		}
++		var seq uint64
++		for _, b := range data[5:11] {
++			seq = seq<<8 | uint64(b)
++		}
++		out[count] = dialRecord{elapsed, data[0], binary.BigEndian.Uint16(data[3:5]), seq, uint16(n)}
++		count++
++		data = data[13+n:]
++	}
++	return
++}
++func (t *serviceDialTrace) records(data []byte) {
++	if t == nil {
++		return
++	}
++	elapsed := time.Since(t.started)
++	parsed, n, invalid, limited := parseDialRecords(data, elapsed)
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if t.sealed {
++		return
++	}
++	if invalid {
++		t.io.parseInvalid++
++	}
++	if limited {
++		t.io.parseLimited++
++	}
++	for _, rec := range parsed[:n] {
++		if t.io.recordCount == dialRecordCap {
++			t.io.recordTruncated = true
++		} else {
++			t.io.recordCount++
++		}
++		t.io.records[t.io.recordNext] = rec
++		t.io.recordNext = (t.io.recordNext + 1) % dialRecordCap
++	}
++	if elapsed > t.io.latest {
++		t.io.latest = elapsed
++	}
++}
++
++// Same receive policy and n/error/address semantics as the original pump.
++func serviceRelayHandoff(t *serviceDialTrace, from, peer net.Addr, key, wire, plain []byte, pipe net.PacketConn) error {
++	t.ioNote(ioRX)
++	if from == nil || from.String() != peer.String() {
++		t.ioNote(ioPeerDrop)
++		return nil
++	}
++	n, err := obfsUnwrapPacket(key, wire, plain)
++	if err != nil {
++		t.ioNote(ioUnwrapDrop)
++		return nil
++	}
++	t.records(plain[:n])
++	_, err = pipe.WriteTo(plain[:n], peer)
++	if err != nil {
++		t.ioNote(ioHandoffError)
++	} else {
++		t.ioNote(ioHandoff)
++	}
++	return err
++}
++func writeDialIO(b *strings.Builder, call uint64, s dialIO, finish time.Duration) {
++	if s.candidate == 0 {
++		return
++	} // no allocation/pumps observed
++	prefix := fmt.Sprintf("dialio: call=%d candidate=%d transport=%s ", call, s.candidate, serviceDialTransportName(s.candidate, s.transport))
++	hash := s.endpoint
++	if !s.endpointValid {
++		hash = "NONE"
++	}
++	fmt.Fprintf(b, "%skind=ENDPOINT hash=%s\n", prefix, hash)
++	// Counters are a seal-time snapshot. If a boundary raced after FINISH capture
++	// but before seal, late=1 explicitly prevents claiming a strict FINISH cutoff.
++	late := 0
++	if s.latest > finish {
++		late = 1
++	}
++	c := s.counts
++	fmt.Fprintf(b, "%skind=RX rx=%d readerr=%d peer=%d unwrap=%d handoff=%d pipeerr=%d first_ms=%d last_ms=%d late=%d\n", prefix, c[ioRX], c[ioReadError], c[ioPeerDrop], c[ioUnwrapDrop], c[ioHandoff], c[ioHandoffError], s.firstRX.Milliseconds(), s.lastRX.Milliseconds(), late)
++	truncated := 0
++	if s.recordTruncated {
++		truncated = 1
++	}
++	fmt.Fprintf(b, "%skind=TX tx=%d txerr=%d wraperr=%d readerr=%d invalid=%d limited=%d truncated=%d\n", prefix, c[ioTX], c[ioTXError], c[ioWrapError], c[ioTXReadError], s.parseInvalid, s.parseLimited, truncated)
++	start := (s.recordNext - s.recordCount + dialRecordCap) % dialRecordCap
++	for i := 0; i < s.recordCount; i++ {
++		r := s.records[(start+i)%dialRecordCap]
++		if r.elapsed > finish {
++			continue
++		}
++		fmt.Fprintf(b, "%skind=RECORD ct=%d epoch=%d seq=%d len=%d elapsed_ms=%d\n", prefix, r.ct, r.epoch, r.seq, r.length, r.elapsed.Milliseconds())
++	}
++}
++
++func serviceRelayWrite(t *serviceDialTrace, relay net.PacketConn, data []byte, peer net.Addr) (int, error) {
++	n, err := relay.WriteTo(data, peer)
++	if err != nil {
++		t.ioNote(ioTXError)
++	} else {
++		t.ioNote(ioTX)
++	}
++	return n, err
++}
+diff --git a/go_client/terlimo_service_dial_io_test.go b/go_client/terlimo_service_dial_io_test.go
+new file mode 100644
+index 0000000..d97293b
+--- /dev/null
++++ b/go_client/terlimo_service_dial_io_test.go
+@@ -0,0 +1,226 @@
++package main
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/binary"
++	"errors"
++	"fmt"
++	"net"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++)
++
++func ioRecord(ct byte, epoch uint16, seq uint64, payload []byte) []byte {
++	b := make([]byte, 13+len(payload))
++	b[0], b[1], b[2] = ct, 0xfe, 0xfd
++	binary.BigEndian.PutUint16(b[3:], epoch)
++	for i := 10; i >= 5; i-- {
++		b[i] = byte(seq)
++		seq >>= 8
++	}
++	binary.BigEndian.PutUint16(b[11:], uint16(len(payload)))
++	copy(b[13:], payload)
++	return b
++}
++func TestDialIOEndpointNormalization(t *testing.T) {
++	for _, tc := range []struct{ host, canonical string }{{"192.0.2.1", "192.0.2.1|3478"}, {"2001:0DB8:0000:0:0:0:0:1", "2001:db8::1|3478"}} {
++		got, ok := allocationEndpointHash(&net.UDPAddr{IP: net.ParseIP(tc.host), Port: 3478})
++		want := fmt.Sprintf("%x", sha256.Sum256([]byte("whitelist-dtls-join-v1|"+tc.canonical)))
++		if !ok || got != want {
++			t.Fatal(got, want)
++		}
++	}
++	for _, addr := range []net.Addr{nil, &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 3478}, &net.UDPAddr{Port: 3478}, &net.UDPAddr{IP: net.ParseIP("::1"), Port: 0}, &net.UDPAddr{IP: net.ParseIP("fe80::1"), Port: 1, Zone: "eth0"}} {
++		if _, ok := allocationEndpointHash(addr); ok {
++			t.Fatal("invalid endpoint accepted")
++		}
++	}
++}
++func TestDialIORecordsMalformedCoalescedFragments(t *testing.T) {
++	// A fragmented plaintext handshake plus encrypted handshake record: headers only.
++	fragment := make([]byte, 15)
++	fragment[0] = 11
++	fragment[3] = 20
++	fragment[8] = 5
++	fragment[11] = 3
++	b := append(ioRecord(22, 0, 7, fragment), ioRecord(22, 1, 123, []byte{0x14, 0xaa, 0xbb})...)
++	r, n, bad, limit := parseDialRecords(b, time.Millisecond)
++	if bad || limit || n != 2 || r[0].length != 15 || r[1].epoch != 1 || r[1].seq != 123 {
++		t.Fatal(r, n, bad, limit)
++	}
++	for i := 0; i < 13; i++ {
++		_, _, bad, _ := parseDialRecords(b[:i], 0)
++		if i > 0 && !bad {
++			t.Fatal("short record")
++		}
++	}
++	for _, data := range [][]byte{{25, 0xfe, 0xfd}, append(ioRecord(20, 0, 1, []byte{1}), 1), ioRecord(99, 0, 0, nil)} {
++		_, _, bad, _ := parseDialRecords(data, 0)
++		if !bad {
++			t.Fatal("malformed accepted")
++		}
++	}
++	many := bytes.Repeat(ioRecord(20, 0, 0, []byte{1}), 9)
++	_, n, bad, limit = parseDialRecords(many, 0)
++	if n != 8 || bad || !limit {
++		t.Fatal(n, bad, limit)
++	}
++	// Deterministic malformed length/version coverage; parser never reads payload fields.
++	for n := 0; n < 256; n++ {
++		data := bytes.Repeat([]byte{byte(n)}, n)
++		parseDialRecords(data, 0)
++	}
++}
++
++type ioFakeConn struct {
++	net.PacketConn
++	calls int
++	data  []byte
++	addr  net.Addr
++	n     int
++	err   error
++}
++
++func (f *ioFakeConn) WriteTo(b []byte, a net.Addr) (int, error) {
++	f.calls++
++	f.data = append([]byte(nil), b...)
++	f.addr = a
++	return f.n, f.err
++}
++func TestDialIOHandoffAndTXPassThrough(t *testing.T) {
++	tr := newServiceDialTrace()
++	peer := &net.UDPAddr{IP: net.ParseIP("192.0.2.4"), Port: 4000}
++	key := make([]byte, wrapKeyLen)
++	plain := ioRecord(20, 0, 1, []byte{1})
++	wire, err := obfsWrapPacket(key, plain, NewObfsConfig(), NewObfsState())
++	if err != nil {
++		t.Fatal(err)
++	}
++	f := &ioFakeConn{n: 3}
++	buf := make([]byte, 100)
++	for _, from := range []net.Addr{nil, &net.UDPAddr{IP: net.ParseIP("192.0.2.5"), Port: 4000}} {
++		if err := serviceRelayHandoff(tr, from, peer, key, wire, buf, f); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := serviceRelayHandoff(tr, peer, peer, key, []byte{1}, buf, f); err != nil {
++		t.Fatal(err)
++	}
++	if err := serviceRelayHandoff(tr, peer, peer, key, wire, buf, f); err != nil || f.calls != 1 || !bytes.Equal(f.data, plain) || f.addr != peer {
++		t.Fatal("handoff semantics")
++	}
++	sentinel := errors.New("private raw error")
++	f.err = sentinel
++	if err := serviceRelayHandoff(tr, peer, peer, key, wire, buf, f); err != sentinel {
++		t.Fatal("pipe error identity")
++	}
++	n, err := serviceRelayWrite(tr, f, wire, peer)
++	if n != 3 || err != sentinel || f.addr != peer || !bytes.Equal(f.data, wire) {
++		t.Fatal("TX pass-through")
++	}
++	f.err = nil
++	serviceRelayWrite(tr, f, wire, peer)
++	c := tr.io.counts
++	if c[ioRX] != 5 || c[ioPeerDrop] != 2 || c[ioUnwrapDrop] != 1 || c[ioHandoff] != 1 || c[ioHandoffError] != 1 || c[ioTXError] != 1 || c[ioTX] != 1 {
++		t.Fatal(c)
++	}
++	// Nil observer: exact same operations/outcomes without modifying connections.
++	before := f.calls
++	if err := serviceRelayHandoff(nil, peer, peer, key, wire, buf, f); err != nil || f.calls != before+1 {
++		t.Fatal("nil RX")
++	}
++	n, err = serviceRelayWrite(nil, f, wire, peer)
++	if n != 3 || err != nil {
++		t.Fatal("nil TX")
++	}
++}
++func TestDialIOTailCountersSealRace(t *testing.T) {
++	tr := newServiceDialTrace()
++	tr.allocation(&net.UDPAddr{IP: net.ParseIP("192.0.2.1"), Port: 3478}, 1, turnTransportUDP)
++	for i := 0; i < 100; i++ {
++		tr.ioNote(ioRX)
++		tr.records(ioRecord(22, 1, uint64(i), []byte{1}))
++	}
++	if tr.io.counts[ioRX] != 100 || tr.io.recordCount != 8 || !tr.io.recordTruncated {
++		t.Fatal(tr.io)
++	}
++	var out bytes.Buffer
++	tr.finish(nil, &out)
++	if !strings.Contains(out.String(), "seq=99") || strings.Contains(out.String(), "seq=0 ") || !strings.Contains(out.String(), "rx=100") || !strings.Contains(out.String(), "truncated=1") || strings.Contains(out.String(), "192.0.2.1") {
++		t.Fatal(out.String())
++	}
++	before := out.String()
++	var wg sync.WaitGroup
++	for i := 0; i < 8; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			for j := 0; j < 100; j++ {
++				tr.ioNote(ioRX)
++				tr.records(ioRecord(22, 1, 200, nil))
++				tr.finish(nil, &out)
++			}
++		}()
++	}
++	wg.Wait()
++	if before != out.String() || tr.io.counts[ioRX] != 100 {
++		t.Fatal("late mutation")
++	}
++	tr = newServiceDialTrace()
++	tr.allocation(&net.UDPAddr{IP: net.ParseIP("::1"), Port: 1}, 1, turnTransportUDP)
++	for i := 0; i < 8; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			for j := 0; j < 100; j++ {
++				tr.ioNote(ioRX)
++				tr.records(ioRecord(20, 0, 1, []byte{1}))
++			}
++		}()
++	}
++	tr.finish(nil, &bytes.Buffer{})
++	wg.Wait()
++	// Distinguish a snapshot racing past pre-lock FINISH cutoff; don't invent strict times.
++	var b strings.Builder
++	s := dialIO{candidate: 1, transport: turnTransportUDP, latest: 2 * time.Millisecond}
++	s.records[0] = dialRecord{elapsed: 2 * time.Millisecond}
++	s.recordCount = 1
++	s.recordNext = 1
++	writeDialIO(&b, 1, s, time.Millisecond)
++	if !strings.Contains(b.String(), "late=1") || strings.Contains(b.String(), "kind=RECORD") {
++		t.Fatal(b.String())
++	}
++}
++func TestDialIOFullBatchAndLineBounds(t *testing.T) {
++	tr := newServiceDialTrace()
++	tr.allocation(&net.UDPAddr{IP: net.ParseIP("::1"), Port: 1}, 1, turnTransportUDP)
++	for i := 0; i < serviceDialEventCap; i++ {
++		tr.note(dialSocketEnd, 1, turnTransportUDP, nil, false)
++	}
++	for i := 0; i < dialRecordCap; i++ {
++		tr.records(ioRecord(22, 1, uint64(i), []byte{1}))
++	}
++	var b bytes.Buffer
++	tr.finish(nil, &b)
++	lines := strings.Split(strings.TrimSpace(b.String()), "\n")
++	if len(lines) != 76 {
++		t.Fatal(len(lines))
++	}
++	// Maximum fixed numeric field widths still fit the new consumer's 314 cap.
++	s := dialIO{candidate: int(^uint(0) >> 1), transport: turnTransportTLS, endpoint: strings.Repeat("f", 64), endpointValid: true, firstRX: time.Duration(1<<63 - 1), lastRX: time.Duration(1<<63 - 1)}
++	for i := range s.counts {
++		s.counts[i] = ^uint64(0)
++	}
++	s.parseInvalid = ^uint64(0)
++	s.parseLimited = ^uint64(0)
++	var w strings.Builder
++	writeDialIO(&w, ^uint64(0), s, time.Duration(1<<63-1))
++	for _, line := range strings.Split(strings.TrimSpace(w.String()), "\n") {
++		if len(line) > 314 {
++			t.Fatal(len(line))
++		}
++	}
++}
+diff --git a/go_client/terlimo_service_dial_trace.go b/go_client/terlimo_service_dial_trace.go
+index ada0b51..ca065b1 100644
+--- a/go_client/terlimo_service_dial_trace.go
++++ b/go_client/terlimo_service_dial_trace.go
+@@ -63,6 +63,7 @@ type serviceDialTrace struct {
+ 	count     int
+ 	truncated bool
+ 	sealed    bool
++	io        dialIO
+ }
+ 
+ func newServiceDialTrace() *serviceDialTrace {
+@@ -146,6 +147,7 @@ func (t *serviceDialTrace) finish(err error, output io.Writer) {
+ 		}
+ 	}
+ 	truncated := t.truncated
++	ioSnapshot := t.io
+ 	t.mu.Unlock()
+ 	// Concurrent write boundaries may acquire the mutex in a different order.
+ 	sort.SliceStable(events, func(i, j int) bool { return events[i].elapsed < events[j].elapsed })
+@@ -153,6 +155,7 @@ func (t *serviceDialTrace) finish(err error, output io.Writer) {
+ 	for _, ev := range events {
+ 		fmt.Fprintf(&b, "dialstage: call=%d candidate=%d transport=%s stage=%s result=%s elapsed_ms=%d\n", t.call, ev.candidate, serviceDialTransportName(ev.candidate, ev.transport), serviceDialStageNames[ev.stage], ev.result, ev.elapsed.Milliseconds())
+ 	}
++	writeDialIO(&b, t.call, ioSnapshot, elapsed)
+ 	flag := 0
+ 	if truncated {
+ 		flag = 1
+diff --git a/go_client/terlimo_transport.go b/go_client/terlimo_transport.go
+index 80d03bf..1b5704f 100644
+--- a/go_client/terlimo_transport.go
++++ b/go_client/terlimo_transport.go
+@@ -248,6 +248,9 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
+ 	if onAllocated != nil {
+ 		onAllocated()
+ 	}
++	if trace != nil {
++		trace.allocation(relay.LocalAddr(), allocatedOrdinal, allocatedTransport)
++	}
+ 	relay = observeFirstServiceDialWrite(relay, trace, allocatedOrdinal, allocatedTransport)
+ 	pipeA, pipeB := connutil.AsyncPacketPipe()
+ 	connCtx, cancel := context.WithCancel(ctx)
+@@ -274,17 +277,11 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
+ 		for {
+ 			n, from, err := relay.ReadFrom(buf)
+ 			if err != nil {
++				trace.ioNote(ioReadError)
+ 				diagnostic.noteClose("RELAY_READ", err)
+ 				return
+ 			}
+-			if from == nil || from.String() != peer.String() {
+-				continue
+-			}
+-			n, err = obfsUnwrapPacket(tp.WrapKey, buf[:n], plain)
+-			if err != nil {
+-				continue
+-			}
+-			if _, err = pipeA.WriteTo(plain[:n], peer); err != nil {
++			if err = serviceRelayHandoff(trace, from, peer, tp.WrapKey, buf[:n], plain, pipeA); err != nil {
+ 				diagnostic.noteClose("PIPE_WRITE", err)
+ 				return
+ 			}
+@@ -298,15 +295,17 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
+ 		for {
+ 			n, _, err := pipeA.ReadFrom(buf)
+ 			if err != nil {
++				trace.ioNote(ioTXReadError)
+ 				diagnostic.noteClose("PIPE_READ", err)
+ 				return
+ 			}
+ 			wrapped, err := obfsWrapPacket(tp.WrapKey, buf[:n], obfsConfig, state)
+ 			if err != nil {
++				trace.ioNote(ioWrapError)
+ 				diagnostic.noteClose("UNKNOWN", err)
+ 				return
+ 			}
+-			if _, err = relay.WriteTo(wrapped, peer); err != nil {
++			if _, err = serviceRelayWrite(trace, relay, wrapped, peer); err != nil {
+ 				diagnostic.noteClose("RELAY_WRITE", err)
+ 				return
+ 			}
+diff --git a/testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt b/testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt
+index b7d6655..66e5453 100644
+--- a/testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt
++++ b/testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt
+@@ -186,6 +186,13 @@ internal object NativeStderrCodes {
+         "FIRST_WRITE_BEGIN", "FIRST_WRITE_END", "CANDIDATE_BEGIN", "CANDIDATE_END", "FINISH",
+     )
+ 
++    // 64 stage events + endpoint + RX/TX counters + 8 tail records + FINISH = 76.
++    private val DIALIO_PREFIX = "^dialio: call=([1-9][0-9]{0,19}) candidate=([1-9][0-9]{0,18}) transport=(UDP|TCP|TLS) "
++    private val DIALIO_ENDPOINT = Regex(DIALIO_PREFIX + "kind=ENDPOINT hash=([0-9a-f]{64}|NONE)$")
++    private val DIALIO_RX = Regex(DIALIO_PREFIX + "kind=RX rx=([0-9]{1,20}) readerr=([0-9]{1,20}) peer=([0-9]{1,20}) unwrap=([0-9]{1,20}) handoff=([0-9]{1,20}) pipeerr=([0-9]{1,20}) first_ms=([0-9]{1,19}) last_ms=([0-9]{1,19}) late=([01])$")
++    private val DIALIO_TX = Regex(DIALIO_PREFIX + "kind=TX tx=([0-9]{1,20}) txerr=([0-9]{1,20}) wraperr=([0-9]{1,20}) readerr=([0-9]{1,20}) invalid=([0-9]{1,20}) limited=([0-9]{1,20}) truncated=([01])$")
++    private val DIALIO_RECORD = Regex(DIALIO_PREFIX + "kind=RECORD ct=(20|21|22|23) epoch=([0-9]{1,5}) seq=([0-9]{1,15}) len=([0-9]{1,5}) elapsed_ms=([0-9]{1,19})$")
++
+     /** One exact allowlisted line: its observable value and whether it owns the reserved slot. */
+     data class Match(val value: String, val terminal: Boolean)
+ 
+@@ -196,6 +203,13 @@ internal object NativeStderrCodes {
+      * belongs to the fixed onboarding terminal vocabulary only.
+      */
+     fun match(line: String): Match? {
++        if (line.startsWith("dialio: ")) {
++            if (line.length > 314) return null
++            if (DIALIO_ENDPOINT.matchEntire(line) == null && DIALIO_RX.matchEntire(line) == null &&
++                DIALIO_TX.matchEntire(line) == null && DIALIO_RECORD.matchEntire(line) == null) return null
++            // Fixed numeric/hash fields only; exact matching rejects raw data and unknown fields.
++            return Match(line.replace("dialio: ", "dialio:").replace(" ", ":"), terminal = false)
++        }
+         if (line.startsWith("dialstage: ")) {
+             if (line.length > 256) return null
+             val m = DIALSTAGE.matchEntire(line) ?: return null
+@@ -301,8 +315,8 @@ internal object NativeStderrCodes {
+  * [maxTotal] 64 + [maxStageTotal] 64 + [maxCycleTotal] 48 + [maxVkTotal] 24 + [maxTraceTotal]
+  * 4096 = 4296 mirrored lines.
+  *
+- * Mobile `dialstage:` has an independent 65-lines/window, 260-lines/child budget.
+- * One native capped batch (64 events + FINISH) fits without taking any old budget.
++ * Mobile `dialstage:`/`dialio:` share an independent 76-lines/window, 304-lines/child budget.
++ * One native capped batch (64 events + 11 IO lines + FINISH) fits without taking any old budget.
+  * Later batches can still be rate-limited: a missing FINISH means incomplete capture.
+  *
+  * The §11/§29 manual-refresh chronology (`refreshstage:`) owns its own small bounded budget
+@@ -325,9 +339,9 @@ internal class NativeStderrMirror(
+     private val maxRefreshTotal: Int = 32,
+     private val maxTracePerWindow: Int = 64,
+     private val maxTraceTotal: Int = 4096,
+-    // Independent budget: one entire bounded dial burst fits; old caps unchanged.
+-    private val maxDialPerWindow: Int = 65,
+-    private val maxDialTotal: Int = 260,
++    // Independent budget: one entire bounded dial burst fits; other stream caps unchanged.
++    private val maxDialPerWindow: Int = 76,
++    private val maxDialTotal: Int = 304,
+ ) {
+     private var windowStartNanos = 0L
+     private var windowCount = 0
+@@ -360,7 +374,7 @@ internal class NativeStderrMirror(
+             traceWindowCount = 0
+             dialWindowCount = 0
+         }
+-        if (match.value.startsWith("dialstage:")) {
++        if (match.value.startsWith("dialstage:") || match.value.startsWith("dialio:")) {
+             if (dialTotal >= maxDialTotal || dialWindowCount >= maxDialPerWindow) return null
+             dialWindowCount++
+             dialTotal++
+diff --git a/testapp/src/test/java/xyz/terlimo/test/ServiceDialIOTest.kt b/testapp/src/test/java/xyz/terlimo/test/ServiceDialIOTest.kt
+new file mode 100644
+index 0000000..377ceeb
+--- /dev/null
++++ b/testapp/src/test/java/xyz/terlimo/test/ServiceDialIOTest.kt
+@@ -0,0 +1,21 @@
++package xyz.terlimo.test
++import org.junit.Assert.*
++import org.junit.Test
++class ServiceDialIOTest {
++ private val prefix="dialio: call=1 candidate=1 transport=UDP "
++ private val endpoint=prefix+"kind=ENDPOINT hash="+"f".repeat(64)
++ private val rx=prefix+"kind=RX rx=1 readerr=0 peer=0 unwrap=0 handoff=1 pipeerr=0 first_ms=10 last_ms=10 late=0"
++ private val tx=prefix+"kind=TX tx=1 txerr=0 wraperr=0 readerr=0 invalid=0 limited=0 truncated=0"
++ private val record=prefix+"kind=RECORD ct=22 epoch=1 seq=123 len=50 elapsed_ms=10"
++ @Test fun strictFixedFields() {
++  listOf(endpoint,rx,tx,record,endpoint.replace("f".repeat(64),"NONE")).forEach {assertNotNull(NativeStderrCodes.match(it))}
++  listOf(endpoint+" host=private",rx+" secret=private",record.replace("ct=22","ct=25"),record.replace("kind=RECORD","kind=FINISHED"),endpoint.replace("f".repeat(64),"192.0.2.1:3"),rx.replace("late=0","late=2"),prefix+"kind=TX "+"X".repeat(400)).forEach {assertNull(NativeStderrCodes.match(it))}
++ }
++ @Test fun complete76LineBatchFitsSharedDialBudget() {
++  val m=NativeStderrMirror()
++  repeat(64){assertNotNull(m.accept("dialstage: call=1 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=1",0))}
++  listOf(endpoint,rx,tx).forEach {assertNotNull(m.accept(it,0))};repeat(8){assertNotNull(m.accept(record,0))}
++  assertNotNull(m.accept("dialstage: call=1 candidate=0 transport=NONE stage=FINISH result=OK elapsed_ms=20 truncated=1",0))
++  assertNull(m.accept(endpoint,0));assertNotNull(m.accept("svcstage: ESTABLISH_DIAL_READY",0));assertNotNull(m.accept(endpoint,10_000_000_000L))
++ }
++}
+diff --git a/testapp/src/test/java/xyz/terlimo/test/ServiceDialStderrTest.kt b/testapp/src/test/java/xyz/terlimo/test/ServiceDialStderrTest.kt
+index 8b50671..8c0d3de 100644
+--- a/testapp/src/test/java/xyz/terlimo/test/ServiceDialStderrTest.kt
++++ b/testapp/src/test/java/xyz/terlimo/test/ServiceDialStderrTest.kt
+@@ -31,6 +31,7 @@ class ServiceDialStderrTest {
+         val mirror = NativeStderrMirror()
+         repeat(64) { assertNotNull(mirror.accept(line("SOCKET_END", "OK", candidate="${it + 1}"), 0)) }
+         assertNotNull(mirror.accept(line("FINISH", "OK", candidate="0", transport="NONE", extra=" truncated=1"), 0))
++        repeat(11) { assertNotNull(mirror.accept(line("SOCKET_BEGIN", "BEGIN", call="2"), 0)) }
+         assertNull(mirror.accept(line("SOCKET_BEGIN", "BEGIN", call="2"), 0))
+         // Existing service and trace budgets were neither raised nor consumed.
+         assertNotNull(mirror.accept("svcstage: ESTABLISH_DIAL_READY", 0))
+diff --git a/versions/dtls-rx-boundary-20261001/FEATURES-ID-CHECK.json b/versions/dtls-rx-boundary-20261001/FEATURES-ID-CHECK.json
+new file mode 100644
+index 0000000..855c607
+--- /dev/null
++++ b/versions/dtls-rx-boundary-20261001/FEATURES-ID-CHECK.json
+@@ -0,0 +1,110 @@
++{
++  "count": 101,
++  "unique": 101,
++  "same_order": true,
++  "missing": [],
++  "extra": [],
++  "IDs": [
++    "G01",
++    "G02",
++    "G03",
++    "G04",
++    "G05",
++    "G06",
++    "G07",
++    "G08",
++    "G09",
++    "G10",
++    "G11",
++    "G12",
++    "G13",
++    "G14",
++    "G15",
++    "G16",
++    "G17",
++    "G18",
++    "G19",
++    "G20",
++    "G21",
++    "G22",
++    "G23",
++    "G24",
++    "G25",
++    "G26",
++    "G27",
++    "G28",
++    "G29",
++    "G30",
++    "G31",
++    "G32",
++    "G33",
++    "G34",
++    "G35",
++    "G36",
++    "G37",
++    "G38",
++    "G39",
++    "G40",
++    "G41",
++    "G42",
++    "G43",
++    "G44",
++    "G45",
++    "G46",
++    "G47",
++    "G48",
++    "G49",
++    "G50",
++    "G51",
++    "G52",
++    "G53",
++    "G54",
++    "G55",
++    "G56",
++    "G57",
++    "G58",
++    "G59",
++    "G60",
++    "G61",
++    "G62",
++    "G63",
++    "G64",
++    "G65",
++    "G66",
++    "G67",
++    "G68",
++    "G69",
++    "G70",
++    "G71",
++    "G72",
++    "G73",
++    "G74",
++    "VK-BOOT",
++    "VK-UPDATE",
++    "VK-RECOVERY",
++    "CAT-BROWSE",
++    "PAY-H2H",
++    "REF-CODE",
++    "REF-LEDGER",
++    "ADMIN-USERS",
++    "ADMIN-RIGHTS",
++    "ADMIN-DEVICES",
++    "ADMIN-PLANS",
++    "ADMIN-NODES",
++    "ADMIN-REF",
++    "ADMIN-AUDIT",
++    "DESIGN",
++    "CAPTCHA",
++    "DIAGNOSTICS",
++    "UPDATE-ROLLBACK",
++    "DIST01",
++    "DIST02",
++    "DIST03",
++    "DIST04",
++    "DIST05",
++    "POST-WDTT-01",
++    "POST-WDTT-02",
++    "POST-WDTT-03",
++    "POST-WDTT-04"
++  ]
++}
+diff --git a/versions/dtls-rx-boundary-20261001/PION-RECEIVE.md b/versions/dtls-rx-boundary-20261001/PION-RECEIVE.md
+new file mode 100644
+index 0000000..609eeed
+--- /dev/null
++++ b/versions/dtls-rx-boundary-20261001/PION-RECEIVE.md
+@@ -0,0 +1,11 @@
++# Exact deployed Pion final-flight receive boundary
++
++Primary local module DTLS github.com/pion/dtls/v3@v3.1.5; unchanged go.mod/go.sum and previous packaged-buildinfo prove deployed dependency. Module SHA in primary-source-sha256.json; no dependency modification.
++
++Client RX pump still relay.ReadFrom → exact peer.String equality (mismatch continue) → obfsUnwrapPacket (error continue) → pipeA.WriteTo. cbeuw/connutil@v1.0.1/packet_pipe.go:25/41 writes the asynchronous packet buffer; success is queue handoff, not proof Pion consumed it. DTLS uses pipeB as nextConn; conn.go:921 readAndBuffer calls nextConn.ReadFromContext then ContentAwareUnpackDatagram and handleIncomingPacket per record. Broken datagram can fail unpack; header parse errors are silently dropped (:1035). Futureepoch>remote+1 discarded; next epoch queued (:1042), bounded encrypted queue (:1008). Replay check (:1060) can discard duplicates. Uninitialized cipher queues; missing negotiated CID, decrypt/authentication error or unexpected CID silently discard (:1074–1135). CCS requires initialized cipher and advances remoteepoch (:1184), encrypted handshake must be decrypted and fragmentBuffer assembled/cached (:1137). fullPullMap in handshake_cache.go:77/120 requires epoch/type/role/message sequence and unmarshalling; missing/gap means keep waiting. flight5handler.go:20/28 requires server Finished at initialEpoch+1, computes server transcript VerifyData at:52 and compares at:56; mismatch is fatal, success returns flight5. handshaker.go:324 plus conn.go:1291 mark completed.
++
++OnlySendCIDGenerator (connection_id.go:32) returns nil for incoming CID request. Metadata parser intentionally supports ordinary DTLS1.0/1.2 outer record headers types20–23; unsupported CID/type/version/malformed outer records are counted as parser invalid, never dropped from the transport. Fragmented/coalesced handshake records are inspected as record headers only; no handshake-body parsing, reassembly, decrypt, payload capture or Finished inference. Epoch>0/ct22 is encrypted handshake metadata, not evidence of message type.
++
++TURN allocation provenance: turn/v5 client.go:453 gets relayed attribute from Allocate response, :489/496 passes relayed.IP/Port to UDPConn. internal/client/udp_conn.go:290 LocalAddr returns relayedAddr. Observer is called only on that allocation result before first-write wrapper, not net socket or TURN serverhost; nil/VPN skips even LocalAddr lookup. UDPAddr type/IP/port validation and canonical text normalization, then SHA256(whitelist-dtls-join-v1|ip|port), no raw endpoint output.
++
++No concrete product/library defect established by these source checks; no correctness patch, transport-policy or timeout change. New counters/metadata stop at handoff boundary and cannot explain a Pion decrypt/verify drop by themselves. No runtime evidence created in this task.
+diff --git a/versions/dtls-rx-boundary-20261001/README.VERSION.md b/versions/dtls-rx-boundary-20261001/README.VERSION.md
+new file mode 100644
+index 0000000..71820e1
+--- /dev/null
++++ b/versions/dtls-rx-boundary-20261001/README.VERSION.md
+@@ -0,0 +1,152 @@
++# Mobile service dial chronology — offline source candidate
++
++## Точная версия и scope
++
++Source code commit `b65be933351f973194b97954eb663bde0e5fc909`, base reviewed `c7feddd780dea786e36cedbe108232995dc036ff` (publicationfixf68 сохранён). Branch `laptop/mobile-dial-stage-20261001`, checkout `/home/pavel/terlimo-mobile-dial-stage-20261001`. Отдельный candidate, privateoverlay не копировался, donor origin не менялся/push не выполнялся. APK этой measurementверсии **не собрана**, native/packagedSHA/signature новойверсии не установлены. Installed ordinaryAPK070aafdd остаётся прежнимартефактом, егоhistoricalsource/install/device результаты не переносятся на новыйmeasurementcommit.
++
++## Измерение и проверка отдельно
++
++| Поведение | Source | Проверка |
++|---|---|---|
++| Scope толькоmanagedServiceEstablish | contextvalue включает per-dial observer, VPNcaller его не получает | Go scope/cancellation/NilwrapperPASS; обычныеtimeouts/config/order не менялись |
++| Fixedchronology candidate/socket/TLS/client/Allocate/cert/semaphore/DTLS/firstwrite | Реализовано | Go bounds/safeerror/pass-throughPASS; Kotlinmatcher/budgetPASS |
++| Monotonic elapsed отначалаdial, никакихpayloadfields | Реализовано | Fixedrecordformat/code review; rawerror rejected, on-wiretrace отсутствует |
++| Bounded64events +FINISH/truncated, однаwriteпослерeturn | Реализовано | cap/singleemit/uniquecall/latefrozenracePASS |
++| FirstWrite span | ВключаетPermission ивесьfirstrelay.WriteTo, не равенpurepermissionlatency | Pass-through n/error/addr/bytes, singlefirstamong8concurrentcallsPASS; lateENDотбрасывается, отсутствующийEND=незавершённыйspan |
++| APK/artifact/device | Не собраны/не запускались | NOT TESTED; measurementизменение не лечит7573msсамопосебе |
++
++7targetedGo tests-racePASS; 3purehostJVM unit testsPASS, безGradle/native/APKbuild/SDKdevice иwithoutnetworkfixtures. КонструкторTURNearlyfailure используетinvalidport+in-memoryPacketConn, никакихsocket/HTTP/DNSremote операций. Ранеепринятаяsuite не повторялась.
++
++Nativecap64events/percall, summaryFINISH/truncated=0|1 отдельно. Приoverflowсохраняютсяпервые64, ordinalнеперенумеровывается, callIDatomicuint64непереиспользуетсяиз-забуфера. Наseal событияпозжеcapturedFINISHtime исключены, нетwaitingforfirstWrite/extraobservergoroutines. ENDотсутствуетприin-flightwrite, не выводить0ms. РезультатыBEGIN/OK/CANCELED/TIMEOUT/EOF/CLOSED/OTHER; transportenumNONE/UDP/TCP/TLS, толькочисла/фиксированныестадии. callIDprocess-local; PID/childattempt+соседнийserviceESTABLISHtrace даютсопоставление безновыхwirefields.
++
++Androidconsumer используетотдельныйbudget65lines/10s и260lines/child; старыеcaps/reservedterminalslots не подняты и не расходуются. Одинmaxnativebatchвмещается. Поздниеbatch при исчерпанномhostratebudget могутбытьотброшены: **missingFINISH означаетincompletecapture**; native truncationflag описывает nativebuffer, не host/logcat/delivery. Не утверждатьfulltraceприотсутствииFINISH/наличииtruncated=1.
++
++## Buildpath после source review
++
++Root переносит reviewedclient subtree вcanonicalpavelvital2/terlimo черезmonorepopublisher; Laptop не пушитdonor. Толькопослеreview отдельно назначить обычныйnative-first build: свежийGoNDKAndroidarm64→inputELFguard→Gradleordinarydebug→packagedstripidentity/signature/alignment. Нужны обе части новогоsource: nativeproducer И Kotlinallowlist; APKсо старымhostparserне покажетdialstage. НетновогоGradleproperty/diagflag, Piondep илитаймаута; fullframecaptureOFF. PrivateTESToverlay толькоштатнолокально поотдельнойbuildзадаче. Build/install/phone сегодня в этомэтапе не выполнялись.
++
++## Полный перечень функций и требований
++
++
++Срез действующего объёма: G01–G74 и дополнения. Все строки сохранены в каждом паспорте для проверки совместного продукта. Для данного компонента указывать его участие; «не относится» допустимо только с объяснением. «Не установлено» означает отсутствие привязанного свидетельства, а не отсутствие кода. Полный критерий — в указанном ТЗ/AT; новые решения добавляются, отложенные требования не удаляются. Исторические паспорта сохраняют свой срез.
++
++| ID | Функция / требование | Объём и приёмка | Участие компонента / реализация | Проверка точной версии / evidence |
++|---|---|---|---|---|
++| G01 | Пять вкладок: Главная, Подписка, Маршрутизация, Настройки, Помощь | Действующее ТЗ; AT21 | Не установлено | Не проверено в этом паспорте |
++| G02 | Старт на Главной; автоматический каталог до доступа; Connect только после проверки права и выбора | Действующее ТЗ; AT01, AT12, AT21 | Не установлено | Не проверено в этом паспорте |
++| G03 | Повторный запуск, сохранённая подписка и отсутствие сети | Действующее ТЗ; AT09, AT31 | Не установлено | Не проверено в этом паспорте |
++| G04 | Идентификация установки и дополнительный сигнал устройства | Действующее ТЗ; AT12, AT31, AT38 | Не установлено | Не проверено в этом паспорте |
++| G05 | Первичный путь без персональной ссылки; отдельный разовый час с первого подключения для Telegram/оплаты | Действующее ТЗ; AT12, AT13, AT38 | Не установлено | Не проверено в этом паспорте |
++| G06 | Trial 7 дней после обязательного Telegram; отдельный разовый час не является trial и не включает его автоматически | Действующее ТЗ; AT13, AT20 | Не установлено | Не проверено в этом паспорте |
++| G07 | Telegram Start → подписка на канал → проверка → привязка | Действующее ТЗ; AT14, AT39 | Не установлено | Не проверено в этом паспорте |
++| G08 | Один trial; сохранение первоначальных дат и истории повторного использования | Действующее ТЗ; AT13, AT14 | Не установлено | Не проверено в этом паспорте |
++| G09 | Повторная установка и возврат в существующий аккаунт | Действующее ТЗ; AT12, AT31, AT39 | Не установлено | Не проверено в этом паспорте |
++| G10 | Дата/тип подписки и устройства; Connect только после загрузки/выбора | Действующее ТЗ; AT21 | Не установлено | Не проверено в этом паспорте |
++| G11 | Кэш каталога и выбранного узла; offline-first отображение | Действующее ТЗ; AT09 | Частично: native snapshot публикация/выбор реализованы; весь Android offline-first отдельно не проверен | PASS targeted real-bridge/race tests; phone не проверено |
++| G12 | Ручное обновление при обычном VPN и удерживаемой блокировке | Действующее ТЗ; AT07, AT09, AT40 | Частично: snapshot не меняет Connected/KillSwitch, manual runner сохранён; реальный VPN refresh не проверен | PASS фазовые/runner offline tests; phone не проверено |
++| G13 | Произвольное число шлюзов без нового APK; >=3 и большой каталог, без продуктового лимита A/B | Действующее ТЗ; AT09, AT29 | Не установлено | Не проверено в этом паспорте |
++| G14 | Карточка: страна, название, доступность, ping, выбор тапом | Действующее ТЗ; AT07, AT21 | Не установлено | Не проверено в этом паспорте |
++| G15 | Общий/точечный настоящий ping, без автоматического запуска | Действующее ТЗ; AT10 | Не установлено | Не проверено в этом паспорте |
++| G16 | Ping во время блокировки/активной сессии; сортировка всех узлов | Действующее ТЗ; AT07, AT10 | Не установлено | Не проверено в этом паспорте |
++| G17 | Connected только после рабочей readiness | Действующее ТЗ; AT01, AT30 | Не установлено | Не проверено в этом паспорте |
++| G18 | Не оставлять ложное зелёное состояние при последующей потере доступа | Действующее ТЗ; AT01, AT30 | Не установлено | Не проверено в этом паспорте |
++| G19 | Постоянное уведомление, открытие приложения и Disconnect | Действующее ТЗ; AT04, AT11, AT22 | Не установлено | Не проверено в этом паспорте |
++| G20 | Явный Disconnect снимает защиту, сохраняет каталог/выбор | Действующее ТЗ; AT04, AT09 | Не установлено | Не проверено в этом паспорте |
++| G21 | Сворачивание, экран off, свайп Recents без прекращения загрузок | Действующее ТЗ; AT08 | Не установлено | Не проверено в этом паспорте |
++| G22 | Wi-Fi ↔ LTE/5G без ручного переподключения и смены сервера | Действующее ТЗ; AT06 | Не установлено | Не проверено в этом паспорте |
++| G23 | Автовосстановление после длительной полной потери сети | Действующее ТЗ; AT05 | Не установлено | Не проверено в этом паспорте |
++| G24 | Kill Switch при всех отказах/revoke/expiry, без прямой утечки | Действующее ТЗ; AT02, AT20, AT41 | Не установлено | Не проверено в этом паспорте |
++| G25 | Смена любого доступного шлюза на любой другой без ручного Disconnect; stable ID и сохранение после reorder | Действующее ТЗ; AT07 | Не установлено | Не проверено в этом паспорте |
++| G26 | Новый сервер не работает: остаёмся заблокированы, доступны выбор/ping/refresh | Действующее ТЗ; AT07, AT10 | Не установлено | Не проверено в этом паспорте |
++| G27 | Все/выбранные через VPN/выбранные мимо VPN | Действующее ТЗ; AT03 | Не установлено | Не проверено в этом паспорте |
++| G28 | Поиск, скрытие системных приложений, массовый белый список | Действующее ТЗ; AT03, AT21 | Не установлено | Не проверено в этом паспорте |
++| G29 | Исключённые приложения работают напрямую при падении VPN | Действующее ТЗ; AT03, AT22 | Не установлено | Не проверено в этом паспорте |
++| G30 | Пустой include-only и момент применения новых правил | Действующее ТЗ; AT03, AT21 | Не установлено | Не проверено в этом паспорте |
++| G31 | Качество по рабочим потокам; корректные workers и потоки | Действующее ТЗ; AT11, AT34 | Не установлено | Не проверено в этом паспорте |
++| G32 | Текущий входящий/исходящий трафик и скорость без speedtest | Действующее ТЗ; AT11 | Не установлено | Не проверено в этом паспорте |
++| G33 | Подписка, остаток и X из Y; базовые 2 устройства, расширение после R1 | Действующее ТЗ; AT15, AT21 | Не установлено | Не проверено в этом паспорте |
++| G34 | Список устройств, платформа, имя, текущее устройство | Действующее ТЗ; AT15 | Не установлено | Не проверено в этом паспорте |
++| G35 | Тот же Telegram добавляет устройство; последний слот не удваивается | Действующее ТЗ; AT14, AT15, AT35, AT39 | Не установлено | Не проверено в этом паспорте |
++| G36 | Удаление устройства освобождает слот и прекращает его доступ | Действующее ТЗ; AT15, AT20, AT35, AT41 | Не установлено | Не проверено в этом паспорте |
++| G37 | Суммарный трафик всех устройств: сегодня/7/30 дней | Действующее ТЗ; AT25, AT36 | Не установлено | Не проверено в этом паспорте |
++| G38 | Общий Backend для будущих платформ; сохранение legacy прав при переходе | Действующее ТЗ; AT15, AT25, AT28, AT39 | Не установлено | Не проверено в этом паспорте |
++| G39 | Четыре напоминания: за 3, 2, 1 день и в день окончания; без дублей, сброс серии после продления | Действующее ТЗ; AT23 | Не установлено | Не проверено в этом паспорте |
++| G40 | Expiry прекращает data-доступ и меняет состояние VPN; публичный каталог до доступа не даёт прав | Действующее ТЗ; AT02, AT20, AT21, AT40 | Не установлено | Не проверено в этом паспорте |
++| G41 | Expiry/revoke без прямой утечки; отдельный час и ограниченное платёжное окно по действующему дополнению | Действующее ТЗ; AT13, AT18, AT20 | Не установлено | Не проверено в этом паспорте |
++| G42 | Покупка 30 дней / 3 месяца / 6 месяцев с серверной суммой; R1 базовые 2 устройства | Действующее ТЗ; AT16, AT37 | Не установлено | Не проверено в этом паспорте |
++| G43 | Только Platega в текущем выпуске; методы СБП/карта/криптовалюта проверяются в допустимой конфигурации | Действующее ТЗ; AT16 | Не установлено | Не проверено в этом паспорте |
++| G44 | Существующая платёжная state-machine и статусы | Действующее ТЗ; AT16, AT17 | Не установлено | Не проверено в этом паспорте |
++| G45 | Продление добавляет срок к остатку и обновляет managed доступ | Действующее ТЗ; AT17, AT19, AT41 | Не установлено | Не проверено в этом паспорте |
++| G46 | Покупка кнопками рабочего бота в приложении, ссылка во внешнем браузере; ограниченный checkout и серверная проверка | Действующее ТЗ; AT18, AT40 | Не установлено | Не проверено в этом паспорте |
++| G47 | После продления: новый срок, refresh, восстановление прежнего узла | Действующее ТЗ; AT19 | Не установлено | Не проверено в этом паспорте |
++| G48 | Системная/светлая/тёмная тема | Действующее ТЗ; AT26 | Не установлено | Не проверено в этом паспорте |
++| G49 | Автоподключение при запуске к последнему серверу | Действующее ТЗ; AT22 | Не установлено | Не проверено в этом паспорте |
++| G50 | Always-on для VPN после перезагрузки | Действующее ТЗ; AT22 | Не установлено | Не проверено в этом паспорте |
++| G51 | Предупреждение энергосбережения и переход к системной настройке | Действующее ТЗ; AT08, AT26 | Не установлено | Не проверено в этом паспорте |
++| G52 | Автообновление каталога: off / дважды в день / ежедневно / еженедельно | Действующее ТЗ; AT27 | Не установлено | Не проверено в этом паспорте |
++| G53 | Помощь, ссылки, политика, условия, версия, инструкции | Действующее ТЗ; AT21, AT26 | Не установлено | Не проверено в этом паспорте |
++| G54 | Односторонние служебные сообщения, непрочитанные, красная точка | Действующее ТЗ; AT24 | Не установлено | Не проверено в этом паспорте |
++| G55 | Плановая замена VPS через каталог и предварительное уведомление | Действующее ТЗ; AT07, AT24, AT28 | Не установлено | Не проверено в этом паспорте |
++| G56 | Connect без исходного интернета не запускает VPN | Действующее ТЗ; AT01, AT05 | Не установлено | Не проверено в этом паспорте |
++| G57 | Понятные причины, повтор/другой сервер/поддержка | Действующее ТЗ; AT21, AT29, AT30 | Не установлено | Не проверено в этом паспорте |
++| G58 | Не добавлять лишнюю автоматику и лишние функции первой версии | Действующее ТЗ; AT32 | Не установлено | Не проверено в этом паспорте |
++| G59 | Создание единого TERLIMO Backend из подходящего существующего кода | Действующее ТЗ; AT00, AT33, AT40, AT41 | Не установлено | Не проверено в этом паспорте |
++| G60 | Доказуемая идентичность сборок и защищённая одноразовая миграция production | Действующее ТЗ; AT28, AT31, AT33, AT34 | Не установлено | Не проверено в этом паспорте |
++| G61 | Единый центральный Backend, собственная БД и внутренняя бизнес-логика | Действующее ТЗ; AT42, AT43 | Не установлено | Не проверено в этом паспорте |
++| G62 | Шлюз хранит только технические разрешения и техническую телеметрию | Действующее ТЗ; AT42, AT41 | Не установлено | Не проверено в этом паспорте |
++| G63 | Android первым, расширяемый клиентский API без разработки desktop в R1 | Действующее ТЗ; AT42, AT49 | Не установлено | Не проверено в этом паспорте |
++| G64 | Обязательный Telegram; вспомогательный бот с одной общей бизнес-логикой | Действующее ТЗ; AT14, AT39, AT49 | Не установлено | Не проверено в этом паспорте |
++| G65 | 2 устройства в базовом плане; отложенное расширение без потери старых прав | Действующее ТЗ; AT15, AT50 | Не установлено | Не проверено в этом паспорте |
++| G66 | Перенос аккаунтов, сроков, прав и истории trial по Telegram | Действующее ТЗ; AT44, AT45, AT48 | Не установлено | Не проверено в этом паспорте |
++| G67 | Единственный писатель коммерческого состояния при cutover | Действующее ТЗ; AT46, AT47 | Не установлено | Не проверено в этом паспорте |
++| G68 | Распределение исполнения и независимая приёмка по действующим указаниям владельца; не функция продукта | Действующее ТЗ; AT00, AT51 | Не установлено | Не проверено в этом паспорте |
++| G69 | Backup/restore и технические точки отката до и после cutover | Действующее ТЗ; AT47, AT52 | Не установлено | Не проверено в этом паспорте |
++| G70 | Учет pending/late платежей, возвратов и балансов при переносе | Действующее ТЗ; AT46, AT53 | Не установлено | Не проверено в этом паспорте |
++| G71 | Окончательное отключение старого сервиса только по доказанным условиям | Действующее ТЗ; AT48, AT52 | Не установлено | Не проверено в этом паспорте |
++| G72 | План переноса кода MiniShop/адаптера без лишней смены стека | Действующее ТЗ; AT43, AT54 | Не установлено | Не проверено в этом паспорте |
++| G73 | Разделение TEST/production, build identity, секреты и release gates | Действующее ТЗ; AT28, AT33, AT52 | Не установлено | Не проверено в этом паспорте |
++| G74 | Функциональные доказательства и запрет самоприёмки coding-агента | Действующее ТЗ; AT51, AT55 | Не установлено | Не проверено в этом паспорте |
++| VK-BOOT | Встроенный служебный VK-путь для control/каталога без зависимости от direct HTTPS | До выпуска; 14_OWNER_VK_BOOTSTRAP_AND_RECOVERY.md | Не установлено | Не проверено в этом паспорте |
++| VK-UPDATE | Обновление штатных VK-данных при успешном соединении | До выпуска; 14_OWNER_VK_BOOTSTRAP_AND_RECOVERY.md | Не установлено | Не проверено в этом паспорте |
++| VK-RECOVERY | Аварийная собственная VK-ссылка без смены адресата и авторизации | Live-проверка зависит от ссылки владельца; 14_OWNER_VK_BOOTSTRAP_AND_RECOVERY.md | Не установлено | Не проверено в этом паспорте |
++| CAT-BROWSE | Каталог при первом открытии до часа/trial/оплаты, без запуска часов и выдачи VPN | До выпуска; 19_OWNER_CATALOG_BEFORE_ACCESS.md | Не установлено | Не проверено в этом паспорте |
++| PAY-H2H | Собственный экран СБП QR/ссылка через Platega H2H и служебный канал | Целевое улучшение; текущий порядок — дополнение22; 15_OWNER_SBP_PRIMARY_AND_CHECKOUT_RESERVE.md | Не установлено | Не проверено в этом паспорте |
++| REF-CODE | Пригласить друга: код/ссылка, получение и ручной ввод в приложении, работа без сайта | Утверждённый сценарий; 16_OWNER_REFERRAL_INVITATION.md | Не установлено | Не проверено в этом паспорте |
++| REF-LEDGER | Связь пригласившего/приглашённого, журнал и отсутствие повторных начислений | Реальные бонусы ждут выбора бизнес-параметров; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| ADMIN-USERS | Веб-панель: поиск/карточка пользователей, подписки, устройства и история | После дизайна, до внешних пользователей; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| ADMIN-RIGHTS | Выдача срока/бессрочного доступа, продление/приостановка/отзыв; подтверждение применения шлюзами | После дизайна, до выпуска; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| ADMIN-DEVICES | Удаление привязки и ключей с освобождением слота, сохранением срока и других устройств | После дизайна, до выпуска; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| ADMIN-PLANS | Тарифы: цена, срок, лимит устройств и доступность предложения | После дизайна, до выпуска; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| ADMIN-NODES | Панель состояния шлюзов, включение в каталог и управление штатными VK-данными | После дизайна, до выпуска; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| ADMIN-REF | Управление реферальными кампаниями/кодами/ссылками и журналом; параметры бонусов по решению владельца | Бизнес-параметры не утверждены; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| ADMIN-AUDIT | Разделение административных прав, журнал кто/когда/что/результат/причина | До выпуска; 17_OWNER_ADMIN_REFERRALS_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| DESIGN | Макет каждого окна/состояния после функционала, согласование и реализация по макетам | Функционал → дизайн → панель; 21_OWNER_PANEL_AFTER_DESIGN.md | Не установлено | Не проверено в этом паспорте |
++| CAPTCHA | Завершение CAPTCHA по официальному поведению, отмена/ошибки и корректный бюджет операции | До выпуска, локальные изменения; 23_OWNER_WDTT_V20_ADOPTION.md | Не установлено | Не проверено в этом паспорте |
++| DIAGNOSTICS | Диагностика без секретов, различимые причины отказа, сохранение работающих частей | До выпуска; 23_OWNER_WDTT_V20_ADOPTION.md | Не установлено | Не проверено в этом паспорте |
++| UPDATE-ROLLBACK | ID обновления, согласованная проверенная резервная копия, post-check и допустимый откат | Этап эксплуатации/выпуска; 23_OWNER_WDTT_V20_ADOPTION.md | Не установлено | Не проверено в этом паспорте |
++| DIST01 | Самостоятельная установка и настройка центрального сервера без агента | После коммерческого запуска; 18_OWNER_STANDALONE_DISTRIBUTIONS.md | Не установлено | Не проверено в этом паспорте |
++| DIST02 | Установка чистого шлюза, регистрация Backend, фактическое подключение клиента | После коммерческого запуска; 18_OWNER_STANDALONE_DISTRIBUTIONS.md | Не установлено | Не проверено в этом паспорте |
++| DIST03 | Штатная установка и сценарии каждого выпускаемого клиента; отдельная готовность ОС | Android для первых пользователей; остальные дистрибутивы позже; 18_OWNER_STANDALONE_DISTRIBUTIONS.md | Не установлено | Не проверено в этом паспорте |
++| DIST04 | Перезагрузка, совместимые обновления, backup/restore и допустимый откат | Упаковка позже; рабочие backup/restore до запуска; 18_OWNER_STANDALONE_DISTRIBUTIONS.md | Не установлено | Не проверено в этом паспорте |
++| DIST05 | Чистая среда без агентов/ключей/сессий и скрытых ручных операций | После коммерческого запуска; 18_OWNER_STANDALONE_DISTRIBUTIONS.md | Не установлено | Не проверено в этом паспорте |
++| POST-WDTT-01 | Адаптивный uplink2/pacing/framing/ACK | Отложено после первого production; 23_OWNER_WDTT_V20_ADOPTION.md | Не установлено | Не проверено в этом паспорте |
++| POST-WDTT-02 | Выбор UDP/TCP/TLS/MASQUE и восстановление workers | Отложено после первого production; 23_OWNER_WDTT_V20_ADOPTION.md | Не установлено | Не проверено в этом паспорте |
++| POST-WDTT-03 | Заимствования TURN allocation/native shutdown | Отложено после первого production; 23_OWNER_WDTT_V20_ADOPTION.md | Не установлено | Не проверено в этом паспорте |
++| POST-WDTT-04 | Полный встроенный вход VK/генерация хешей | Отложено после первого production; 23_OWNER_WDTT_V20_ADOPTION.md | Не установлено | Не проверено в этом паспорте |
++
++
++
++Набор101ID/order сохранён. Source measurementtestsнеявляютсяполнымproductPASS. Acceptedpublicationsourceкодсохранёнbyte-for-byte вterlimo_mobile.go/terlimo_runner.go/mobile_catalog_publication_test.go; повторпрежнихpublicationtestsне выполнялся.
++
++
++## DTLS RX/TX boundary — source only 2026-10-01
++
++Base74db78c0da2f5b70dba577e572c98cbccb37b9ec. This source adds allocationendpoint hash and bounded RX/TX pump summaries + final8 received/unwrapped DTLS record headers; no payload/address/key/credentials logging. No new APK/native/install/device test: NOT_TESTED for this source. Historical artifact/test entries above belong prior source, not this addition. Publication root only clients/android in pavelvital2/terlimo.
++
++Scope still managedServiceEstablish only. Fixed64 stage events + allocationhash + RXsummary + TXsummary + last8record samples + FINISH ≤76lines. Host dedicated dial budget76/10s,304/child, other budgets unchanged. Exact new IOgrammar max314bytes incl worst numericfield widths (stage cap256 unchanged). Caps increased by11lines/window and44/child from65/260; no hot-path output/new goroutine/read/write/wait. Single batch at existing finish. Successive bursts can still hit host rate caps; missing FINISH means incompletecapture.
++
++RXcounts successful relay reads; peer mismatch/unwrapfailure counters; handoffOK/pipeerror; first/lastRX monotonicms (rx=0 means no receive, not a zero-duration span). TX relayWrite OK/error plus wrap/read errors; parser invalid/limited; tailtruncated explicit. Counters are seal-time snapshot including existing cleanup and independent of ring truncation; latest timestamp after captured FINISH sets late=1 so this is not claimed a strict FINISH cutoff. Samples afterFINISH omitted; sealed events ignored. Socketstillrunning/newattemptwithoutFINISH remains unobserved/incomplete.
++
++Parser bounds8records/datagram, tail8records; accepts outerheaders ofcoalesced/fragmentedDTLS records but doesn't parse/reassemble handshake bodies. UnsupportedCID/version/type/malformed lengths incrementinvalid and never affect forwarding; excessrecords setlimited. Tailring preserves recentrecords after earlyretransmissions, counts never depend on samples. Encrypted ct22 not calledFinished. Successful pipeWrite means asynchronous handoff, not Pionreceipt/decrypt/verify. See PION-RECEIVE.md. Meaningful new offline Go-race/JVM checks; prior suites not repeated. All101featureIDs retained in order.
++
++Source code commit: 022e6535325cd44fe4dcd8eb8b9aab50f7d2d500. New5Go-race tests PASS1.068s; final exact314bytecap check PASS1.046s; 2purehostJVM tests PASS0.076s. No Android/native/APK compilation or device actions.

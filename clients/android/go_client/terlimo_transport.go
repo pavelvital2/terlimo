@@ -248,6 +248,9 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 	if onAllocated != nil {
 		onAllocated()
 	}
+	if trace != nil {
+		trace.allocation(relay.LocalAddr(), allocatedOrdinal, allocatedTransport)
+	}
 	relay = observeFirstServiceDialWrite(relay, trace, allocatedOrdinal, allocatedTransport)
 	pipeA, pipeB := connutil.AsyncPacketPipe()
 	connCtx, cancel := context.WithCancel(ctx)
@@ -274,17 +277,11 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		for {
 			n, from, err := relay.ReadFrom(buf)
 			if err != nil {
+				trace.ioNote(ioReadError)
 				diagnostic.noteClose("RELAY_READ", err)
 				return
 			}
-			if from == nil || from.String() != peer.String() {
-				continue
-			}
-			n, err = obfsUnwrapPacket(tp.WrapKey, buf[:n], plain)
-			if err != nil {
-				continue
-			}
-			if _, err = pipeA.WriteTo(plain[:n], peer); err != nil {
+			if err = serviceRelayHandoff(trace, from, peer, tp.WrapKey, buf[:n], plain, pipeA); err != nil {
 				diagnostic.noteClose("PIPE_WRITE", err)
 				return
 			}
@@ -298,15 +295,17 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 		for {
 			n, _, err := pipeA.ReadFrom(buf)
 			if err != nil {
+				trace.ioNote(ioTXReadError)
 				diagnostic.noteClose("PIPE_READ", err)
 				return
 			}
 			wrapped, err := obfsWrapPacket(tp.WrapKey, buf[:n], obfsConfig, state)
 			if err != nil {
+				trace.ioNote(ioWrapError)
 				diagnostic.noteClose("UNKNOWN", err)
 				return
 			}
-			if _, err = relay.WriteTo(wrapped, peer); err != nil {
+			if _, err = serviceRelayWrite(trace, relay, wrapped, peer); err != nil {
 				diagnostic.noteClose("RELAY_WRITE", err)
 				return
 			}

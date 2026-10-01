@@ -1,0 +1,10 @@
+{
+  "/home/pavel/go/pkg/mod/github.com/pion/dtls/v3@v3.1.5/conn.go": "c6a3c9313d888e375a10198ba2bb3441866ee7cdbc6402e5bb6e73228b2740ca",
+  "/home/pavel/go/pkg/mod/github.com/pion/dtls/v3@v3.1.5/flight5handler.go": "8d6f6ba6d607036dccb15e5b63eaac4bc5752328ebc56da078be93aaf71a9b0a",
+  "/home/pavel/go/pkg/mod/github.com/pion/dtls/v3@v3.1.5/handshaker.go": "fb36af7fe5fc7d132bb556dfde2686f30b1a66c585470b845adcee74314c80dc",
+  "/home/pavel/go/pkg/mod/github.com/pion/dtls/v3@v3.1.5/handshake_cache.go": "0c8fdbe2cce5d5bcb721dadc1bb69fc44aef6e9863afa056dbc44195d19aa8b0",
+  "/home/pavel/go/pkg/mod/github.com/pion/dtls/v3@v3.1.5/connection_id.go": "4b40417994c9b308951f37f51a2b2475805dd8216e225a37b05ca95b95e1fb1a",
+  "/home/pavel/go/pkg/mod/github.com/pion/turn/v5@v5.0.13/client.go": "355563559dae6d247a19eaf5bcccf887f8d4f5812d70d31f3543b841bcddc52e",
+  "/home/pavel/go/pkg/mod/github.com/pion/turn/v5@v5.0.13/internal/client/udp_conn.go": "2a51477da27bf0074fdadf8616647a5717ac9df7956d0d8d3261c6be9c706c71",
+  "/home/pavel/go/pkg/mod/github.com/cbeuw/connutil@v1.0.1/packet_pipe.go": "c4c69aae6f921e925cc94c8173ae05dc1c3afb0482792fd0172c3425e41e1975"
+}
