@@ -356,8 +356,19 @@ func (r *Runner) cycle(ctx context.Context) (*CatalogResponse, *BrowseCatalogRes
 	}
 	if sync.Receipt != nil && sync.Receipt.Response != nil &&
 		sync.Receipt.Response.AccessApplicationState == "pending" {
-		if _, err := r.config.Coordinator.PollAccessOperation(ctx); err != nil {
+		polled, err := r.config.Coordinator.PollAccessOperation(ctx)
+		if err != nil {
 			return catalog, nil, err
+		}
+		// A pending receipt can become recoverable during this poll. Hand the
+		// durable server marker back to the existing coordinator now rather than
+		// spending another ME/catalog cycle (and a possible transport rotation).
+		// SyncAccess retains subject/revision/key fences and owns the one rotation;
+		// an operation result never substitutes for a verified catalog below.
+		if !polled.Stale && polled.Receipt != nil && polled.Receipt.RecoveryRequired {
+			if _, err := r.config.Coordinator.SyncAccess(ctx); err != nil {
+				return catalog, nil, err
+			}
 		}
 	}
 	if pendingCatalog || plan.outstanding {
