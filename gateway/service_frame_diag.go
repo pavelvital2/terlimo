@@ -62,20 +62,10 @@ func (d *serviceFrameDiag) emit(phase, result, reason string, size int) {
 	c := d.capture
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed {
+	elapsed, allowed := c.allowLineLocked()
+	if !allowed {
 		return
 	}
-	elapsed := time.Since(c.started)
-	if elapsed >= serviceFrameDiagWindow || c.lines >= serviceFrameDiagLines {
-		c.closed = true
-		why := "LINE_LIMIT"
-		if elapsed >= serviceFrameDiagWindow {
-			why = "WINDOW_END"
-		}
-		log.Printf("[SVCFRAME] truncated=true reason=%s elapsed_ms=%d lines=%d", why, elapsed.Milliseconds(), c.lines)
-		return
-	}
-	c.lines++
 	wireID := "-"
 	if d.hasID {
 		wireID = hex.EncodeToString(d.wireID[:])
@@ -140,4 +130,58 @@ func serviceFrameDiagErrIfOn(d *serviceFrameDiag, err error) string {
 		return ""
 	}
 	return serviceFrameDiagErr(err)
+}
+
+// Caller holds mu through the log write; every diagnostic shares this one budget.
+func (c *serviceFrameCaptureState) allowLineLocked() (time.Duration, bool) {
+	if c.closed {
+		return 0, false
+	}
+	elapsed := time.Since(c.started)
+	if elapsed >= serviceFrameDiagWindow || c.lines >= serviceFrameDiagLines {
+		c.closed = true
+		why := "LINE_LIMIT"
+		if elapsed >= serviceFrameDiagWindow {
+			why = "WINDOW_END"
+		}
+		log.Printf("[SVCFRAME] truncated=true reason=%s elapsed_ms=%d lines=%d", why, elapsed.Milliseconds(), c.lines)
+		return 0, false
+	}
+	c.lines++
+	return elapsed, true
+}
+
+// Exactly one fixed-field marker at an existing SERVICE_UNAVAILABLE return.
+// No timers, classification or formatting on the nil/OFF path.
+func (c *serviceFrameCaptureState) unixTerminal(ctx context.Context, requestID, stage string, err error, entered, ioStarted time.Time) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, allowed := c.allowLineLocked(); !allowed {
+		return
+	}
+	wireID := "-"
+	if serviceRequestID.MatchString(requestID) {
+		wireID = requestID
+	}
+	ctxClass := "NONE"
+	if errors.Is(ctx.Err(), context.Canceled) {
+		ctxClass = "CANCELED"
+	} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		ctxClass = "DEADLINE"
+	}
+	outcome := "OTHER"
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		outcome = "DEADLINE"
+	} else if err != nil {
+		outcome = serviceFrameDiagErr(err)
+	}
+	ioElapsed := int64(-1) // No successfully set Unix deadline yet.
+	if !ioStarted.IsZero() {
+		ioElapsed = time.Since(ioStarted).Milliseconds()
+	}
+	log.Printf("[SVCFRAME] phase=unix_terminal stage=%s outcome=%s ctx=%s elapsed_ms=%d io_elapsed_ms=%d wire_id=%s",
+		stage, outcome, ctxClass, time.Since(entered).Milliseconds(), ioElapsed, wireID)
 }
