@@ -1,0 +1,242 @@
+{
+  "verdict": "measurement call1 complete PASS; catalog FAIL CATALOG_TIMEOUT; subsequent automatic dial capture incomplete",
+  "source_head": "74db78c0da2f5b70dba577e572c98cbccb37b9ec",
+  "apk_sha256": "8827c0bad83e0a8e01c4bce67e33112fd82fcc6d74e1fd261dbaf6e6cd079331",
+  "scheduled_t0": "2026-10-01T20:05:08.000018+00:00",
+  "actual_t0": "2026-10-01T20:05:08.001651+00:00",
+  "launch_lateness_ms": 1.633,
+  "new_pid": 24638,
+  "attempt": "6af42be6-d3ca-466f-8c6b-5fb373ed5f30",
+  "child_generation": 1,
+  "old_process_absent": true,
+  "launcher_count": 1,
+  "manual_refresh_connect_retry": false,
+  "automatic_cycle_retry_seen": true,
+  "automatic_retry_sleep_ms_log_delta": 994,
+  "dial_begin_count": 2,
+  "complete_call_count": 1,
+  "call1": {
+    "candidate": 1,
+    "transport": "UDP",
+    "socket_ms": 0,
+    "socket_rounding": "sub-millisecond value rounded down; not missing boundary",
+    "turn_client_ms": 1,
+    "allocate_ms": 92,
+    "cert_ms": 1,
+    "semaphore_wait_ms": 0,
+    "first_write_ms": 51,
+    "first_write_is_pure_permission": false,
+    "dtls_ms": 8002,
+    "dtls_result": "TIMEOUT",
+    "finish_ms": 8097,
+    "finish_result": "OTHER",
+    "native_truncated": false,
+    "captured_event_count": 17,
+    "tls": "not applicable for UDP"
+  },
+  "second_dial": "DIAL_BEGIN observed after built-in retry; no buffered events/FINISH before child stop; incomplete, no durations inferred",
+  "catalog_arm_device_utc_ms": 1790885109739,
+  "catalog_timeout_device_utc_ms": 1790885124751,
+  "catalog_elapsed_monotonic_ms": 15012,
+  "phase": "ImportVerified",
+  "accept_seen": false,
+  "auth_write_read_seen": false,
+  "me_gateway_seen": false,
+  "vk_fetch_ms": 984,
+  "first_establish_fail_elapsed_ms": 9076,
+  "child_exit": {
+    "device_epoch": 1790885124.866,
+    "code": 141,
+    "first_observation": "HOST_STOP",
+    "stop_reason": "TEARDOWN"
+  },
+  "teardown_complete_epoch": 1790885124.955,
+  "clock": {
+    "host_before_ms": 1790885080680,
+    "device_utc_ms": 1790885079843,
+    "host_after_ms": 1790885080771,
+    "device_minus_host_min_ms": -928,
+    "device_minus_host_max_ms": -837
+  },
+  "server_clock": "not calibrated",
+  "final_idle": {
+    "utc": "2026-10-01T20:06:10.720170+00:00",
+    "identity": {
+      "appId": "10246",
+      "ceDataInode": "21342",
+      "firstInstallTime": "2026-09-24 20:15:13"
+    },
+    "service_off": true,
+    "native_absent": true,
+    "vpn_off": true,
+    "test_processes": [
+      "24638 xyz.terlimo.test            xyz.terlimo.test"
+    ],
+    "test_activity_resumed": false
+  },
+  "collector": {
+    "collector_exit": -15,
+    "capture_end_utc": "2026-10-01T20:05:30.972767+00:00",
+    "stop_reason": "ChildExit+5s",
+    "child_exit_device_epoch": 1790885124.866,
+    "terminal_line": "         1790885124.782 24638 24638 W WDTT/Terminal: boundary=stop phase=ImportVerified attempt=6af42be6-d3ca-466f-8c6b-5fb373ed5f30 code=CATALOG_TIMEOUT exception=-"
+  },
+  "host_budget_loss": "no indication for complete call1 (17 lines below65); cannot infer absence of loss for missing second FINISH",
+  "observer_overhead": "no DIAL_READY on failed call; buffered batch observed5119.015..5119.019 before ESTABLISH_FAILED5119.019/EXCHANGE_END5119.021; logcat times do not isolate observer overhead; native monotonic spans captured before emission",
+  "dial_events": [
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "CANDIDATE_BEGIN",
+      "result": "BEGIN",
+      "elapsed_ms": "0",
+      "observed_device_epoch": 1790885119.015
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "SOCKET_BEGIN",
+      "result": "BEGIN",
+      "elapsed_ms": "0",
+      "observed_device_epoch": 1790885119.015
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "SOCKET_END",
+      "result": "OK",
+      "elapsed_ms": "0",
+      "observed_device_epoch": 1790885119.016
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "CLIENT_BEGIN",
+      "result": "BEGIN",
+      "elapsed_ms": "0",
+      "observed_device_epoch": 1790885119.016
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "CLIENT_END",
+      "result": "OK",
+      "elapsed_ms": "1",
+      "observed_device_epoch": 1790885119.016
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "ALLOCATE_BEGIN",
+      "result": "BEGIN",
+      "elapsed_ms": "2",
+      "observed_device_epoch": 1790885119.016
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "ALLOCATE_END",
+      "result": "OK",
+      "elapsed_ms": "94",
+      "observed_device_epoch": 1790885119.017
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "CANDIDATE_END",
+      "result": "OK",
+      "elapsed_ms": "94",
+      "observed_device_epoch": 1790885119.017
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "CERT_BEGIN",
+      "result": "BEGIN",
+      "elapsed_ms": "94",
+      "observed_device_epoch": 1790885119.017
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "CERT_END",
+      "result": "OK",
+      "elapsed_ms": "95",
+      "observed_device_epoch": 1790885119.017
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "SEMAPHORE_WAIT",
+      "result": "BEGIN",
+      "elapsed_ms": "95",
+      "observed_device_epoch": 1790885119.018
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "SEMAPHORE_ACQUIRED",
+      "result": "OK",
+      "elapsed_ms": "95",
+      "observed_device_epoch": 1790885119.018
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "DTLS_BEGIN",
+      "result": "BEGIN",
+      "elapsed_ms": "95",
+      "observed_device_epoch": 1790885119.018
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "FIRST_WRITE_BEGIN",
+      "result": "BEGIN",
+      "elapsed_ms": "96",
+      "observed_device_epoch": 1790885119.018
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "FIRST_WRITE_END",
+      "result": "OK",
+      "elapsed_ms": "147",
+      "observed_device_epoch": 1790885119.019
+    },
+    {
+      "call": "1",
+      "candidate": "1",
+      "transport": "UDP",
+      "stage": "DTLS_END",
+      "result": "TIMEOUT",
+      "elapsed_ms": "8097",
+      "observed_device_epoch": 1790885119.019
+    },
+    {
+      "call": "1",
+      "candidate": "0",
+      "transport": "NONE",
+      "stage": "FINISH",
+      "result": "OTHER",
+      "elapsed_ms": "8097",
+      "truncated": "0",
+      "observed_device_epoch": 1790885119.019
+    }
+  ]
+}

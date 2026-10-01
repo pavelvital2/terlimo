@@ -1,0 +1,15 @@
+{
+  "utc": "2026-10-01T20:06:10.720170+00:00",
+  "identity": {
+    "appId": "10246",
+    "ceDataInode": "21342",
+    "firstInstallTime": "2026-09-24 20:15:13"
+  },
+  "service_off": true,
+  "native_absent": true,
+  "vpn_off": true,
+  "test_processes": [
+    "24638 xyz.terlimo.test            xyz.terlimo.test"
+  ],
+  "test_activity_resumed": false
+}

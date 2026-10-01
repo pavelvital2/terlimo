@@ -1,0 +1,55 @@
+{
+  "source_head": "74db78c0da2f5b70dba577e572c98cbccb37b9ec",
+  "source_code_commit": "b65be933351f973194b97954eb663bde0e5fc909",
+  "root_published_snapshot": "not asserted for measurement source",
+  "published_repository": "https://github.com/pavelvital2/terlimo",
+  "published_branch": "not asserted for measurement source",
+  "layout": "clients/android",
+  "signer_sha256": "42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b",
+  "package": "xyz.terlimo.test",
+  "version_code": 14,
+  "version_name": "0.14-routing",
+  "min_sdk": 28,
+  "target_sdk": 35,
+  "overlay_sha256": "4ba978eb7cfb9e3b5c6a8bc132d8cbee618fc9fc2d24d3956b597d2d8ea4bdec",
+  "overlay_bytes": 523,
+  "packaged_overlay_matches": true,
+  "packaged_native_matches_stripped_fresh_input": true,
+  "native_revision_matches": true,
+  "diagnostic_flags": "OFF (diagnostic implementation/activation markers absent)",
+  "diagnostic_marker_presence": {
+    "SERVICE_FRAME_DIAG": false,
+    "TERLIMO_SERVICE_FRAME_DIAG": false,
+    "serviceFrameDiag": false,
+    "TERLIMO_SERVER_FRAME_DIAG": false
+  },
+  "mobile_dial_producer_and_consumer_present": true,
+  "dex_identical_to_previous": {
+    "classes.dex": true,
+    "classes2.dex": true,
+    "classes3.dex": false,
+    "classes4.dex": true
+  },
+  "other_native_libraries_identical_to_baseline": [
+    "lib/arm64-v8a/libwg-go.so",
+    "lib/arm64-v8a/libwg-quick.so",
+    "lib/arm64-v8a/libwg.so"
+  ],
+  "baseline_apk_sha256": "070aafddc1aca6838681b84368a368c3d32254288649775c225c6708305c423e",
+  "device_tested": true,
+  "device_actions": [
+    "install-r user0",
+    "force-stop idle TEST",
+    "one cold launcher",
+    "capture",
+    "BACK"
+  ],
+  "tests": "accepted source evidence reused; no rerun",
+  "hashes": {
+    "candidate.apk": "8827c0bad83e0a8e01c4bce67e33112fd82fcc6d74e1fd261dbaf6e6cd079331",
+    "candidate-native.so": "f07b657f685d5f5bcaac34710be2a29d7e4e548fdb6406c1e2e8e676943b4633",
+    "candidate-packaged-native.so": "f7a5f4bc19e49d9faa48d195a1142a1acbba134b70aa1b9b4194d017582ac760",
+    "build.log": "440cf1d87d57b8092df15b24f237bec93f8e9a2978f9590a279419e072e10ed1",
+    "build-candidate.sh": "1f4eb225a2fd2fad1f03f323d95edfce3f8d2e0b7fd4b1c6879cc5d5738a4ee7"
+  }
+}
