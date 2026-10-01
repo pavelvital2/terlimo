@@ -144,6 +144,11 @@ func shouldRetryVKCallsPreflight(err error) bool {
 	if err == nil || isVKCallsFloodError(err) {
 		return false
 	}
+	var captchaErr *VkCaptchaError
+	if errors.As(err, &captchaErr) {
+		// A completed CAPTCHA verdict proceeds to the existing legacy/WebView path.
+		return false
+	}
 	message := strings.ToUpper(err.Error())
 	return !strings.Contains(message, "INVALID_JOIN_LINK") &&
 		!strings.Contains(message, "ANON_BLOCKED") &&
@@ -163,7 +168,7 @@ func getVKCredsViaVKCalls(ctx context.Context, link string, streamID int) (strin
 
 	client, err := tlsclient.NewHttpClient(
 		tlsclient.NewNoopLogger(),
-		tlsclient.WithTimeoutSeconds(20),
+		tlsclient.WithTimeoutSeconds(8),
 		tlsclient.WithDialer(managedNetworkDialer(20*time.Second)),
 		tlsclient.WithClientProfile(profiles.Chrome_146),
 		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
