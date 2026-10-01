@@ -1,0 +1,23 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_success_boundary_exact_context_clock_wire_and_no_midlog _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x70984af90bc0>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x70984af90d10>
+
+    async def test_success_boundary_exact_context_clock_wire_and_no_midlog(monkeypatch,caplog):
+     clock,client,writer=fixture_io(monkeypatch,caplog);operation=op()
+     result=await timing.timed_rpc(operation,'refresh',client.call('refresh',credential='DO-NOT-LOG',fields={'generation':'1'}))
+     assert result=={'lease_seq':'116'} and writer.closed
+     msg=ends(caplog)[0]
+     assert f'operation_id={operation["id"]}' in msg and 'attempt=2' in msg
+>    assert 'boundary=management_post_drain' in msg
+E    AssertionError: assert 'boundary=management_post_drain' in 'OPTIME phase=rpc_end operation_id=e4acbff9-272a-4652-91ab-6afe6c229337 correlation_id=50e1b1dd-c9f8-4c85-a97c-88a6703...10-01T17:48:26.221887+00:00 duration_ms=7000.000 result=ok rpc=refresh pool_ms=0.000 enqueue_at=none available_at=none'
+
+offline_tests/test_management_boundary.py:53: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     terlimo_backend.operation_timing:operation_timing.py:17 OPTIME phase=rpc_begin operation_id=e4acbff9-272a-4652-91ab-6afe6c229337 correlation_id=50e1b1dd-c9f8-4c85-a97c-88a6703d0c04 attempt=2 utc=2026-10-01T17:48:26.221650+00:00 duration_ms=0.000 result=ok rpc=refresh pool_ms=0.000 enqueue_at=none available_at=none
+INFO     terlimo_backend.operation_timing:operation_timing.py:17 OPTIME phase=rpc_end operation_id=e4acbff9-272a-4652-91ab-6afe6c229337 correlation_id=50e1b1dd-c9f8-4c85-a97c-88a6703d0c04 attempt=2 utc=2026-10-01T17:48:26.221887+00:00 duration_ms=7000.000 result=ok rpc=refresh pool_ms=0.000 enqueue_at=none available_at=none
+=========================== short test summary info ============================
+FAILED offline_tests/test_management_boundary.py::test_success_boundary_exact_context_clock_wire_and_no_midlog
+1 failed in 0.28s

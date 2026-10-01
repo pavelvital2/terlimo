@@ -1,0 +1,20 @@
+{
+  "status": "source_only_not_pushed_not_applied",
+  "base": "87e77ec798b3002961220ad14b70344c039c0894",
+  "commit": "639c28a9da3af49683efc5c565f32bd6b4b63c68",
+  "branch": "diag-management-boundary-20261001",
+  "checkout": "/tmp/terlimo-management-boundary-20261001",
+  "diff_check": "PASS",
+  "reverse_runtime_patch_check": "PASS",
+  "tests": "16 passed; deterministic fake IO, no live DB/socket",
+  "files": {
+    "terlimo_backend/operation_timing.py": {
+      "before_sha256": "722391a545fe541f4febc811f0b5f9d3be0944ac517c3d7f58c537eef720788e",
+      "after_sha256": "b9fa73a876924733cf9d81dfae78755b78e20fda468f7aee0f19c5c7d27e41f5"
+    },
+    "terlimo_backend/gateway_adapter.py": {
+      "before_sha256": "3812a4e9edb81fc57e96948aac2ea876fb5a9b5750cba4c2435b4651bd8a175d",
+      "after_sha256": "a776e4fd34f5c82ca2e00c07549c310d46511b149cf09549bc065e919917d542"
+    }
+  }
+}

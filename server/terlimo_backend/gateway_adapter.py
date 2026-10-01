@@ -20,6 +20,8 @@ import socket
 import ssl
 from typing import Any
 
+from .operation_timing import mark_management_refresh_drained
+
 logger = logging.getLogger(__name__)
 
 PROVISION = "grant_provision"
@@ -306,6 +308,8 @@ class ManagementTlsClient:
         try:
             writer.write(payload.encode("utf-8"))
             await writer.drain()
+            if op == "refresh":
+                mark_management_refresh_drained()
             raw = await asyncio.wait_for(reader.read(), timeout=self._timeout_seconds)
         except (OSError, TimeoutError) as exc:
             raise GatewayError("GATEWAY_UNREACHABLE", str(exc)) from exc
