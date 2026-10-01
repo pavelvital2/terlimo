@@ -1,0 +1,48 @@
+{
+  "source_head": "c7feddd780dea786e36cedbe108232995dc036ff",
+  "source_code_commit": "f68d784473d0caa49cd127cc16f9e7c22f4232b0",
+  "root_published_snapshot": "29b238b022aa6aeff5bcda6a09fb75bbde9e151b",
+  "published_repository": "https://github.com/pavelvital2/terlimo",
+  "published_branch": "fix/verified-catalog-publication-20261001",
+  "layout": "clients/android",
+  "signer_sha256": "42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b",
+  "package": "xyz.terlimo.test",
+  "version_code": 14,
+  "version_name": "0.14-routing",
+  "min_sdk": 28,
+  "target_sdk": 35,
+  "overlay_sha256": "4ba978eb7cfb9e3b5c6a8bc132d8cbee618fc9fc2d24d3956b597d2d8ea4bdec",
+  "overlay_bytes": 523,
+  "packaged_overlay_matches": true,
+  "packaged_native_matches_stripped_fresh_input": true,
+  "native_revision_matches": true,
+  "diagnostic_flags": "OFF (diagnostic implementation/activation markers absent)",
+  "diagnostic_marker_presence": {
+    "SERVICE_FRAME_DIAG": false,
+    "TERLIMO_SERVICE_FRAME_DIAG": false,
+    "serviceFrameDiag": false,
+    "TERLIMO_SERVER_FRAME_DIAG": false
+  },
+  "dex_identical_to_baseline": {
+    "classes.dex": true,
+    "classes2.dex": true,
+    "classes3.dex": true,
+    "classes4.dex": true
+  },
+  "other_native_libraries_identical_to_baseline": [
+    "lib/arm64-v8a/libwg-go.so",
+    "lib/arm64-v8a/libwg-quick.so",
+    "lib/arm64-v8a/libwg.so"
+  ],
+  "baseline_apk_sha256": "67d799d864b51519bc49b62b2cb528f64d684a1f63768b2aa76091d42edc6edc",
+  "device_tested": false,
+  "device_actions": [],
+  "tests": "accepted source evidence reused; no rerun",
+  "hashes": {
+    "candidate.apk": "070aafddc1aca6838681b84368a368c3d32254288649775c225c6708305c423e",
+    "candidate-native.so": "e336549e4c28864355d3abe7456b218b89c0bdd320c478b67a9976bc76f36e52",
+    "candidate-packaged-native.so": "a285dae87093453f24858467057e62ece414c416edeee8e260f238ac7478527e",
+    "build.log": "a105618e828b58bd98de993b2cb685fef4fcedb574f8db65f99ee138c7b5c246",
+    "build-candidate.sh": "d31c5d911509ea2fdb75b51ce5bafbbd5d780472bc403d8e7f36d2635670e817"
+  }
+}
