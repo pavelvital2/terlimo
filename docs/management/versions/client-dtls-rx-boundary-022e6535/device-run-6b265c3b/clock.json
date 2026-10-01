@@ -1,0 +1,7 @@
+{
+  "host_before_ms": 1790888040007,
+  "device_utc_ms": 1790888039136,
+  "host_after_ms": 1790888040134,
+  "device_minus_host_min_ms": -998,
+  "device_minus_host_max_ms": -871
+}

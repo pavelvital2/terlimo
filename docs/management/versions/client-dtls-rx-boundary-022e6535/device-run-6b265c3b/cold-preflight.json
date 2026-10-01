@@ -1,0 +1,13 @@
+{
+  "utc": "2026-10-01T20:53:05.349902+00:00",
+  "identity": {
+    "appId": "10246",
+    "ceDataInode": "21342",
+    "firstInstallTime": "2026-09-24 20:15:13"
+  },
+  "service_off": true,
+  "native_absent": true,
+  "vpn_off": true,
+  "test_processes": [],
+  "test_activity_resumed": false
+}

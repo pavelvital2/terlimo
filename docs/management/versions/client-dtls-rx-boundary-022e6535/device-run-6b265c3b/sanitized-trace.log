@@ -1,0 +1,76 @@
+         1790888069.382 26588 26770 W WDTT/Catalog: code=catstage:ARM:5c7e7c64:elapsed=0:utc=1790888069381
+         1790888069.560 26588 26780 W WDTT/NativeStderr: code=acctstage:AUTH_BEGIN:0
+         1790888069.564 26588 26780 W WDTT/NativeStderr: code=svcstage:ESTABLISH_BEGIN
+         1790888069.564 26588 26780 W WDTT/NativeStderr: code=svcstage:ESTABLISH_SEED_READY
+         1790888069.565 26588 26780 W WDTT/NativeStderr: code=svcstage:ESTABLISH_VK_BEGIN
+         1790888069.565 26588 26780 W WDTT/NativeStderr: code=vkstage:HASH_BEGIN:0:10:1790888069563:0
+         1790888069.566 26588 26780 W WDTT/NativeStderr: code=vkstage:CACHE_MISS:0:10:1790888069563:0
+         1790888069.566 26588 26780 W WDTT/NativeStderr: code=vkstage:FETCH_BEGIN:0:10:1790888069563:0
+         1790888070.608 26588 26780 W WDTT/NativeStderr: code=vkstage:PROVIDER_MODERN:0:1054:1790888070607:0
+         1790888070.608 26588 26780 W WDTT/NativeStderr: code=vkstage:FETCH_END_OK:0:1054:1790888070607:0
+         1790888070.609 26588 26780 W WDTT/NativeStderr: code=vkstage:HASH_END:0:1054:1790888070607:0
+         1790888070.609 26588 26780 W WDTT/NativeStderr: code=svcstage:ESTABLISH_VK_READY
+         1790888070.609 26588 26780 W WDTT/NativeStderr: code=svcstage:ESTABLISH_DIAL_BEGIN
+         1790888072.035 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=CANDIDATE_BEGIN:result=BEGIN:elapsed_ms=0
+         1790888072.035 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=SOCKET_BEGIN:result=BEGIN:elapsed_ms=0
+         1790888072.036 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=SOCKET_END:result=OK:elapsed_ms=0
+         1790888072.036 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=CLIENT_BEGIN:result=BEGIN:elapsed_ms=0
+         1790888072.036 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=CLIENT_END:result=OK:elapsed_ms=1
+         1790888072.037 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=ALLOCATE_BEGIN:result=BEGIN:elapsed_ms=2
+         1790888072.037 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=ALLOCATE_END:result=OK:elapsed_ms=87
+         1790888072.037 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=CANDIDATE_END:result=OK:elapsed_ms=87
+         1790888072.037 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=CERT_BEGIN:result=BEGIN:elapsed_ms=88
+         1790888072.038 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=CERT_END:result=OK:elapsed_ms=88
+         1790888072.038 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=SEMAPHORE_WAIT:result=BEGIN:elapsed_ms=88
+         1790888072.038 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=SEMAPHORE_ACQUIRED:result=OK:elapsed_ms=88
+         1790888072.038 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=DTLS_BEGIN:result=BEGIN:elapsed_ms=88
+         1790888072.039 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=FIRST_WRITE_BEGIN:result=BEGIN:elapsed_ms=89
+         1790888072.039 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=FIRST_WRITE_END:result=OK:elapsed_ms=197
+         1790888072.039 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=1:transport=UDP:stage=DTLS_END:result=OK:elapsed_ms=1427
+         1790888072.039 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=ENDPOINT:hash=a794cc31fee4d60a38a02762bcf232cdc5951e8e49104bfc2bc64b866abec47a
+         1790888072.040 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RX:rx=4:readerr=0:peer=0:unwrap=0:handoff=4:pipeerr=0:first_ms=1166:last_ms=1427:late=0
+         1790888072.040 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=TX:tx=4:txerr=0:wraperr=0:readerr=0:invalid=0:limited=0:truncated=0
+         1790888072.040 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=22:epoch=0:seq=0:len=35:elapsed_ms=1166
+         1790888072.041 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=22:epoch=0:seq=1:len=35:elapsed_ms=1275
+         1790888072.041 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=22:epoch=0:seq=2:len=80:elapsed_ms=1316
+         1790888072.041 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=22:epoch=0:seq=3:len=344:elapsed_ms=1316
+         1790888072.042 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=22:epoch=0:seq=4:len=123:elapsed_ms=1316
+         1790888072.042 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=22:epoch=0:seq=5:len=12:elapsed_ms=1316
+         1790888072.042 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=20:epoch=0:seq=6:len=1:elapsed_ms=1427
+         1790888072.043 26588 26780 W WDTT/NativeStderr: code=dialio:call=1:candidate=1:transport=UDP:kind=RECORD:ct=22:epoch=1:seq=0:len=48:elapsed_ms=1427
+         1790888072.043 26588 26780 W WDTT/NativeStderr: code=dialstage:call=1:candidate=0:transport=NONE:stage=FINISH:result=OK:elapsed_ms=1427:truncated=0
+         1790888072.043 26588 26780 W WDTT/NativeStderr: code=svcstage:ESTABLISH_DIAL_READY
+         1790888072.043 26588 26780 W WDTT/NativeStderr: code=svcstage:ESTABLISH_OK
+         1790888072.045 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=ESTABLISH_OK:reused=0:port=0:xid=1:elapsed_ms=2472
+         1790888072.045 26588 26780 W WDTT/NativeStderr: code=svcstage:FRAME_WRITE_BEGIN
+         1790888072.045 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=WRITE_BEGIN:reused=0:port=0:xid=1:elapsed_ms=0
+         1790888072.046 26588 26780 W WDTT/NativeStderr: code=svcstage:FRAME_WRITE_OK
+         1790888072.046 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=WRITE_OK:reused=0:port=0:xid=1:elapsed_ms=2472
+         1790888072.046 26588 26780 W WDTT/NativeStderr: code=svcstage:FRAME_READ_BEGIN
+         1790888072.047 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=READ_BEGIN:reused=0:port=0:xid=1:elapsed_ms=2472
+         1790888082.794 26588 26780 W WDTT/NativeStderr: code=svcstage:FRAME_READ_OK
+         1790888082.795 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=READ_OK:reused=0:port=0:xid=1:elapsed_ms=13231
+         1790888082.796 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=EXCHANGE_END:reused=0:port=0:xid=1:elapsed_ms=13231
+         1790888082.796 26588 26780 W WDTT/NativeStderr: code=svcstage:SERVICE_REPLY_BEGIN
+         1790888082.796 26588 26780 W WDTT/NativeStderr: code=svcstage:SERVICE_REPLY_OK
+         1790888082.797 26588 26780 W WDTT/NativeStderr: code=acctstage:SERVICE_RESPONSE_RECEIVED:13240
+         1790888082.797 26588 26780 W WDTT/NativeStderr: code=acctstage:CHALLENGE_DECODED:13240
+         1790888082.797 26588 26780 W WDTT/NativeStderr: code=acctstage:SIGN_BEGIN:13240
+         1790888082.819 26588 26780 W WDTT/NativeStderr: code=acctstage:SIGN_END:13265
+         1790888082.819 26588 26780 W WDTT/NativeStderr: code=acctstage:SESSION_POST_BEGIN:13265
+         1790888082.820 26588 26780 W WDTT/NativeStderr: code=svcstage:FRAME_WRITE_BEGIN
+         1790888082.820 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=WRITE_BEGIN:reused=1:port=0:xid=2:elapsed_ms=0:req=1:idle_ms=25
+         1790888082.821 26588 26780 W WDTT/NativeStderr: code=svcstage:FRAME_WRITE_OK
+         1790888082.821 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=WRITE_OK:reused=1:port=0:xid=2:elapsed_ms=0:req=1:idle_ms=25
+         1790888082.822 26588 26780 W WDTT/NativeStderr: code=svcstage:FRAME_READ_BEGIN
+         1790888082.822 26588 26780 W WDTT/NativeStderr: code=svctrace:gen=1:class=AUTH:event=READ_BEGIN:reused=1:port=0:xid=2:elapsed_ms=0:req=1:idle_ms=25
+         1790888084.393 26588 26588 W WDTT/Catalog: code=catstage:TIMEOUT:5c7e7c64:elapsed=15011:utc=1790888084393
+         1790888084.394 26588 26588 W WDTT/Teardown: stage=stop_enter child=true caller=unspecified
+         1790888084.424 26588 26588 W WDTT/Terminal: boundary=stop phase=ImportVerified attempt=5c7e7c64-46e8-4d0f-beaf-7de6ec469097 code=CATALOG_TIMEOUT exception=-
+         1790888084.489 26588 26838 W WDTT/Teardown: stage=teardown_thread child=true
+         1790888084.504 26588 26779 W WDTT/ChildExit: boundary=child_exit attempt=5c7e7c64-46e8-4d0f-beaf-7de6ec469097 generation=1 exit_code=141 first_observation=HOST_STOP closing=true stop_reason=TEARDOWN stop_phase=Stopping
+         1790888084.591 26588 26838 W WDTT/Teardown: stage=teardown_child stopped=true
+         1790888084.593 26588 26839 W WDTT/Teardown: stage=vpn_worker_enter
+         1790888084.595 26588 26839 W WDTT/Teardown: stage=teardown_complete
+         1790888084.638 26588 26588 W WDTT/Teardown: stage=stop_enter child=false caller=on_destroy
+         1790888084.638 26588 26588 W WDTT/Teardown: stage=stop_cas_fail

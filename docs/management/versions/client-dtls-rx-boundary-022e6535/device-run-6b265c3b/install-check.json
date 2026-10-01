@@ -1,0 +1,10 @@
+{
+  "installed_sha256": "6b265c3bce25e989f4db41ebbe95f58be3cfaa27bf3154dded1ad719402608a0",
+  "identity_preserved": true,
+  "state_hashes_preserved": true,
+  "identity": {
+    "appId": "10246",
+    "ceDataInode": "21342",
+    "firstInstallTime": "2026-09-24 20:15:13"
+  }
+}

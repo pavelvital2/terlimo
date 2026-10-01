@@ -1,0 +1,490 @@
+{
+  "deviceId": "192.168.8.4:5555",
+  "count": 22,
+  "elements": [
+    {
+      "index": 0,
+      "resourceId": "android:id/content",
+      "text": "",
+      "contentDesc": "",
+      "className": "android.widget.FrameLayout",
+      "bounds": {
+        "x": 0,
+        "y": 80,
+        "width": 720,
+        "height": 1440
+      },
+      "center": {
+        "x": 360,
+        "y": 800
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 0,
+      "resourceId": "",
+      "text": "",
+      "contentDesc": "\u041b\u043e\u0433\u043e\u0442\u0438\u043f TERLIMO",
+      "className": "android.widget.ImageView",
+      "bounds": {
+        "x": 36,
+        "y": 132,
+        "width": 96,
+        "height": 96
+      },
+      "center": {
+        "x": 84,
+        "y": 180
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 0,
+      "resourceId": "",
+      "text": "TERLIMO",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 156,
+        "y": 138,
+        "width": 432,
+        "height": 54
+      },
+      "center": {
+        "x": 372,
+        "y": 165
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 1,
+      "resourceId": "",
+      "text": "VPN-\u041a\u041b\u0418\u0415\u041d\u0422",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 156,
+        "y": 192,
+        "width": 432,
+        "height": 30
+      },
+      "center": {
+        "x": 372,
+        "y": 207
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 2,
+      "resourceId": "",
+      "text": "",
+      "contentDesc": "\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u0430\u0442\u0430\u043b\u043e\u0433 \u0441\u0435\u0440\u0432\u0435\u0440\u043e\u0432",
+      "className": "android.widget.ImageButton",
+      "bounds": {
+        "x": 588,
+        "y": 132,
+        "width": 96,
+        "height": 96
+      },
+      "center": {
+        "x": 636,
+        "y": 180
+      },
+      "clickable": true,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 1,
+      "resourceId": "",
+      "text": "",
+      "contentDesc": "\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c VPN",
+      "className": "android.widget.ImageButton",
+      "bounds": {
+        "x": 200,
+        "y": 292,
+        "width": 320,
+        "height": 320
+      },
+      "center": {
+        "x": 360,
+        "y": 452
+      },
+      "clickable": true,
+      "enabled": false,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 2,
+      "resourceId": "",
+      "text": "VPN \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 36,
+        "y": 648,
+        "width": 648,
+        "height": 59
+      },
+      "center": {
+        "x": 360,
+        "y": 678
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 3,
+      "resourceId": "",
+      "text": "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0435\u0440\u0432\u0435\u0440 \u0438 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0435\u0441\u044c",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 36,
+        "y": 715,
+        "width": 648,
+        "height": 41
+      },
+      "center": {
+        "x": 360,
+        "y": 736
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 0,
+      "resourceId": "",
+      "text": "\u041a\u0410\u0427\u0415\u0421\u0422\u0412\u041e\n\u041d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 36,
+        "y": 807,
+        "width": 205,
+        "height": 124
+      },
+      "center": {
+        "x": 138,
+        "y": 869
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 1,
+      "resourceId": "",
+      "text": "\u0421\u041a\u041e\u0420\u041e\u0421\u0422\u042c \u2193 / \u2191\n\u2193 \u2014 \u00b7 \u2191 \u2014",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 257,
+        "y": 800,
+        "width": 205,
+        "height": 139
+      },
+      "center": {
+        "x": 360,
+        "y": 870
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 2,
+      "resourceId": "",
+      "text": "\u0422\u0420\u0410\u0424\u0418\u041a \u2193 / \u2191\n\u2193 0 \u0411 \u00b7 \u2191 0 \u0411",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 478,
+        "y": 807,
+        "width": 206,
+        "height": 124
+      },
+      "center": {
+        "x": 581,
+        "y": 869
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 5,
+      "resourceId": "",
+      "text": "\u0417\u0430\u0447\u0451\u0442: \u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 36,
+        "y": 947,
+        "width": 648,
+        "height": 33
+      },
+      "center": {
+        "x": 360,
+        "y": 964
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 6,
+      "resourceId": "",
+      "text": "\u0421\u0435\u0440\u0432\u0435\u0440\u044b",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 36,
+        "y": 1016,
+        "width": 648,
+        "height": 54
+      },
+      "center": {
+        "x": 360,
+        "y": 1043
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 0,
+      "resourceId": "",
+      "text": "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u0430\u0442\u0430\u043b\u043e\u0433",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 64,
+        "y": 1166,
+        "width": 592,
+        "height": 49
+      },
+      "center": {
+        "x": 360,
+        "y": 1190
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 1,
+      "resourceId": "",
+      "text": "CATALOG_TIMEOUT\n\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0430 \u043d\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043b\u043e\u0441\u044c \u0432\u043e\u0432\u0440\u0435\u043c\u044f. \u041d\u0435 \u0443\u0434\u0430\u043b\u044f\u0439\u0442\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u0443\u044e \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0443; \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.",
+      "contentDesc": "",
+      "className": "android.widget.TextView",
+      "bounds": {
+        "x": 64,
+        "y": 1215,
+        "width": 592,
+        "height": 137
+      },
+      "center": {
+        "x": 360,
+        "y": 1284
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 0,
+      "resourceId": "",
+      "text": "\u0413\u043b\u0430\u0432\u043d\u0430\u044f",
+      "contentDesc": "",
+      "className": "android.widget.Button",
+      "bounds": {
+        "x": 16,
+        "y": 1376,
+        "width": 137,
+        "height": 128
+      },
+      "center": {
+        "x": 84,
+        "y": 1440
+      },
+      "clickable": true,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 1,
+      "resourceId": "",
+      "text": "\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430",
+      "contentDesc": "",
+      "className": "android.widget.Button",
+      "bounds": {
+        "x": 153,
+        "y": 1376,
+        "width": 137,
+        "height": 128
+      },
+      "center": {
+        "x": 222,
+        "y": 1440
+      },
+      "clickable": true,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 2,
+      "resourceId": "",
+      "text": "\u041c\u0430\u0440\u0448\u0440\u0443\u0442\u0438\u0437\u0430\u0446\u0438\u044f",
+      "contentDesc": "",
+      "className": "android.widget.Button",
+      "bounds": {
+        "x": 290,
+        "y": 1389,
+        "width": 138,
+        "height": 128
+      },
+      "center": {
+        "x": 359,
+        "y": 1453
+      },
+      "clickable": true,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 3,
+      "resourceId": "",
+      "text": "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438",
+      "contentDesc": "",
+      "className": "android.widget.Button",
+      "bounds": {
+        "x": 428,
+        "y": 1376,
+        "width": 138,
+        "height": 128
+      },
+      "center": {
+        "x": 497,
+        "y": 1440
+      },
+      "clickable": true,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 4,
+      "resourceId": "",
+      "text": "\u041f\u043e\u043c\u043e\u0449\u044c",
+      "contentDesc": "",
+      "className": "android.widget.Button",
+      "bounds": {
+        "x": 566,
+        "y": 1376,
+        "width": 138,
+        "height": 128
+      },
+      "center": {
+        "x": 635,
+        "y": 1440
+      },
+      "clickable": true,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 1,
+      "resourceId": "android:id/statusBarBackground",
+      "text": "",
+      "contentDesc": "",
+      "className": "android.view.View",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 720,
+        "height": 80
+      },
+      "center": {
+        "x": 360,
+        "y": 40
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    },
+    {
+      "index": 2,
+      "resourceId": "android:id/navigationBarBackground",
+      "text": "",
+      "contentDesc": "",
+      "className": "android.view.View",
+      "bounds": {
+        "x": 0,
+        "y": 1520,
+        "width": 720,
+        "height": 80
+      },
+      "center": {
+        "x": 360,
+        "y": 1560
+      },
+      "clickable": false,
+      "enabled": true,
+      "focused": false,
+      "checked": false,
+      "scrollable": false
+    }
+  ]
+}

@@ -1,13 +1,3 @@
-# Android DTLS RX boundary — current tested version
-
-Source HEAD0e735935 / code022e6535; canonical source snapshot4799a3e1043530815a2f9814729c3ab1b160988e. APK6b265c3bce25e989f4db41ebbe95f58be3cfaa27bf3154dded1ad719402608a0; nativea56d5228, packedd0b37aaa. Source/offline, native+Kotlin build/parity, install/readback PASS. Device catalog FAIL CATALOG_TIMEOUT15011ms. Installed TEST state6b265c3b, service/native/VPNOFF20:55:44UTC. Previous8827 rollback artifact retained.
-
-One actual launch20:54:27.537151UTC, newPID26588/attempt5c7e7c64. DTLS1339ms OK, dial1427ms, complete28line measurement, RX4/handoff4/drop0. Counters cover dial only, not later AUTH. Challenge read wait10748ms by log or10759ms native elapsed difference (13231−2472);13231 is cumulative elapsed, not wait duration. Challenge decoded, session POST pending at15s deadline; no authenticatedsession/ME/ACCEPT/visiblelist. Underlying cause pending server correlation.
-
-Current evidence: device-run-6b265c3b/{artifact-manifest.json,install-check.json,result.json,sanitized-trace.log,clock.json,final-idle.json}. Full101 feature IDs retained below. Historical source-only sections are archived development stages, superseded for build/install/device by this current summary and result. They do not describe current installed state.
-
-## Historical preparation and full functional coverage
-
 # Mobile service dial chronology — offline source candidate
 
 ## Точная версия и scope
@@ -43,9 +33,9 @@ Root переносит reviewedclient subtree вcanonicalpavelvital2/terlimo ч
 | ID | Функция / требование | Объём и приёмка | Участие компонента / реализация | Проверка точной версии / evidence |
 |---|---|---|---|---|
 | G01 | Пять вкладок: Главная, Подписка, Маршрутизация, Настройки, Помощь | Действующее ТЗ; AT21 | Не установлено | Не проверено в этом паспорте |
-| G02 | Старт на Главной; автоматический каталог до доступа; Connect только после проверки права и выбора | Действующее ТЗ; AT01, AT12, AT21 | Автоматический каталог запущен, получение challenge подтверждено; session/ME/ACCEPT не завершены | FAIL APK6b265c3b attempt5c7e7c64 CATALOG_TIMEOUT15011ms; device-run-6b265c3b/result.json |
+| G02 | Старт на Главной; автоматический каталог до доступа; Connect только после проверки права и выбора | Действующее ТЗ; AT01, AT12, AT21 | Не установлено | Не проверено в этом паспорте |
 | G03 | Повторный запуск, сохранённая подписка и отсутствие сети | Действующее ТЗ; AT09, AT31 | Не установлено | Не проверено в этом паспорте |
-| G04 | Идентификация установки и дополнительный сигнал устройства | Действующее ТЗ; AT12, AT31, AT38 | Сохранение существующей TEST установки при install-r подтверждено; полная идентификация/авторизация не проверена | PARTIAL: appId10246/inode21342/firstInstallTime/state hashes preserved; install-check.json |
+| G04 | Идентификация установки и дополнительный сигнал устройства | Действующее ТЗ; AT12, AT31, AT38 | Не установлено | Не проверено в этом паспорте |
 | G05 | Первичный путь без персональной ссылки; отдельный разовый час с первого подключения для Telegram/оплаты | Действующее ТЗ; AT12, AT13, AT38 | Не установлено | Не проверено в этом паспорте |
 | G06 | Trial 7 дней после обязательного Telegram; отдельный разовый час не является trial и не включает его автоматически | Действующее ТЗ; AT13, AT20 | Не установлено | Не проверено в этом паспорте |
 | G07 | Telegram Start → подписка на канал → проверка → привязка | Действующее ТЗ; AT14, AT39 | Не установлено | Не проверено в этом паспорте |
