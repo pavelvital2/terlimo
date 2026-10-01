@@ -193,8 +193,13 @@ internal object NativeStderrCodes {
     private val DIALIO_TX = Regex(DIALIO_PREFIX + "kind=TX tx=([0-9]{1,20}) txerr=([0-9]{1,20}) wraperr=([0-9]{1,20}) readerr=([0-9]{1,20}) invalid=([0-9]{1,20}) limited=([0-9]{1,20}) truncated=([01])$")
     private val DIALIO_RECORD = Regex(DIALIO_PREFIX + "kind=RECORD ct=(20|21|22|23) epoch=([0-9]{1,5}) seq=([0-9]{1,15}) len=([0-9]{1,5}) elapsed_ms=([0-9]{1,19})$")
 
+    private val DIALIO_TXBOUND = Regex(DIALIO_PREFIX + "kind=TXBOUND seen=([0-9]{1,20}) kept=([0-9]{1,2}) omitted_datagrams=([0-9]{1,20}) omitted_headers=([0-9]{1,3}) truncated=(true|false)$")
+    private val DIALIO_TXDAT = Regex(DIALIO_PREFIX + "kind=TXDAT dir=TX id=([0-9]{1,2}) pipe_us=([0-9]{1,19}) begin_us=([0-9]{1,19}|UNKNOWN) end_us=([0-9]{1,19}|UNKNOWN) n=(-?[0-9]{1,19}|UNKNOWN) result=(OK|CANCELED|TIMEOUT|EOF|CLOSED|OTHER|UNKNOWN) invalid=(true|false) limited=(true|false) late=(true|false)$")
+    private val DIALIO_TXREC = Regex(DIALIO_PREFIX + "kind=TXREC dir=TX id=([0-9]{1,2}) record=([0-7]) ct=(20|21|22|23) epoch=([0-9]{1,5}) seq=([0-9]{1,15}) len=([0-9]{1,5}) hs=(NONE|PLAINTEXT|UNKNOWN)$")
+    private val DIALIO_TXHS = Regex(DIALIO_PREFIX + "kind=TXHS dir=TX id=([0-9]{1,2}) record=([0-7]) type=([0-9]{1,3}) message_seq=([0-9]{1,5}) offset=([0-9]{1,8}) length=([0-9]{1,8}) total=([0-9]{1,8})$")
+
     /** One exact allowlisted line: its observable value and whether it owns the reserved slot. */
-    data class Match(val value: String, val terminal: Boolean)
+    data class Match(val value: String, val terminal: Boolean, val dialTX: Boolean = false)
 
     /**
      * Exact allowlisted line only; null for anything else. accountaccess returns the historical
@@ -206,9 +211,13 @@ internal object NativeStderrCodes {
         if (line.startsWith("dialio: ")) {
             if (line.length > 314) return null
             if (DIALIO_ENDPOINT.matchEntire(line) == null && DIALIO_RX.matchEntire(line) == null &&
-                DIALIO_TX.matchEntire(line) == null && DIALIO_RECORD.matchEntire(line) == null) return null
+                DIALIO_TX.matchEntire(line) == null && DIALIO_RECORD.matchEntire(line) == null &&
+                DIALIO_TXBOUND.matchEntire(line) == null && DIALIO_TXDAT.matchEntire(line) == null &&
+                DIALIO_TXREC.matchEntire(line) == null && DIALIO_TXHS.matchEntire(line) == null) return null
             // Fixed numeric/hash fields only; exact matching rejects raw data and unknown fields.
-            return Match(line.replace("dialio: ", "dialio:").replace(" ", ":"), terminal = false)
+            return Match(line.replace("dialio: ", "dialio:").replace(" ", ":"), terminal = false,
+                dialTX = DIALIO_TXBOUND.matches(line) || DIALIO_TXDAT.matches(line) ||
+                    DIALIO_TXREC.matches(line) || DIALIO_TXHS.matches(line))
         }
         if (line.startsWith("dialstage: ")) {
             if (line.length > 256) return null
@@ -315,7 +324,8 @@ internal object NativeStderrCodes {
  * [maxTotal] 64 + [maxStageTotal] 64 + [maxCycleTotal] 48 + [maxVkTotal] 24 + [maxTraceTotal]
  * 4096 = 4296 mirrored lines.
  *
- * Mobile `dialstage:`/`dialio:` share an independent 76-lines/window, 304-lines/child budget.
+ * Mobile baseline `dialstage:`/`dialio:` use 76-lines/window, 304-lines/child.
+ * Exact outgoing TX formats have a separate 64-lines/window, 256-lines/child budget.
  * One native capped batch (64 events + 11 IO lines + FINISH) fits without taking any old budget.
  * Later batches can still be rate-limited: a missing FINISH means incomplete capture.
  *
@@ -342,6 +352,8 @@ internal class NativeStderrMirror(
     // Independent budget: one entire bounded dial burst fits; other stream caps unchanged.
     private val maxDialPerWindow: Int = 76,
     private val maxDialTotal: Int = 304,
+    private val maxDialTXPerWindow: Int = 64,
+    private val maxDialTXTotal: Int = 256,
 ) {
     private var windowStartNanos = 0L
     private var windowCount = 0
@@ -360,6 +372,8 @@ internal class NativeStderrMirror(
     private var traceTotal = 0
     private var dialWindowCount = 0
     private var dialTotal = 0
+    private var dialTXWindowCount = 0
+    private var dialTXTotal = 0
 
     fun accept(line: String, nowNanos: Long = System.nanoTime()): String? {
         val match = NativeStderrCodes.match(line) ?: return null
@@ -373,6 +387,13 @@ internal class NativeStderrMirror(
             refreshWindowCount = 0
             traceWindowCount = 0
             dialWindowCount = 0
+            dialTXWindowCount = 0
+        }
+        if (match.dialTX) {
+            if (dialTXTotal >= maxDialTXTotal || dialTXWindowCount >= maxDialTXPerWindow) return null
+            dialTXWindowCount++
+            dialTXTotal++
+            return match.value
         }
         if (match.value.startsWith("dialstage:") || match.value.startsWith("dialio:")) {
             if (dialTotal >= maxDialTotal || dialWindowCount >= maxDialPerWindow) return null

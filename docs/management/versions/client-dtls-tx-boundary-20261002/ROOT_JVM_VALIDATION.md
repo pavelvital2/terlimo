@@ -1,0 +1,1 @@
+Root final integration verification: Kotlin2.1.20/JUnit4.13.2; DIAL_TX_FIXTURE unset; classpath includes checked-in testresources. ServiceDialIOTest:4/4 PASS,0.106s. git diff --check PASS. Go runtime sources match reviewed executor afterSHA; Go-race result reused without duplicate suite.

@@ -1,0 +1,32 @@
+{
+  "base_code": "022e6535325cd44fe4dcd8eb8b9aab50f7d2d500",
+  "provenance_head": "0e735935bbb46480fede8d7e4be1e77f2b4ab438",
+  "patch_sha256": "1ce7b39f301e7a8efa1356c721ddc7dd10e39c01ed23cb061b38f337de627941",
+  "files": {
+    "go_client/terlimo_service_dial_io.go": {
+      "before_sha256": "2d39ad5adc2ac1078442ca7aee6a3a82aefe8fc55c69dce27afd57091d2e9fd2",
+      "after_sha256": "b2c4ad044a54d67332c6ffe9b0148d42fae1e74b76361bbc2a18472c11ac6b9f"
+    },
+    "go_client/terlimo_transport.go": {
+      "before_sha256": "8f362e14e7fec3de6db429e36d0d197a280d0985d000b2b96ee2b65bef965162",
+      "after_sha256": "ee9ae0a824c4641dd3822d75c2eb3c1f09bb98b4ac2dfe3ee36e7bf1adeb90fd"
+    },
+    "go_client/terlimo_service_dial_tx.go": {
+      "before_sha256": null,
+      "after_sha256": "8944bd5453f65213381028d890eec81712208f99852419fe6c98e271895a7b1c"
+    },
+    "go_client/terlimo_service_dial_tx_test.go": {
+      "before_sha256": null,
+      "after_sha256": "75e3b7c11ad203819281f9a6e909c347755ef0edc9adba1dfbaf4242621e637b"
+    },
+    "testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt": {
+      "before_sha256": "1ff24996748615b583d5e4b54a3741632683fc92abaf8205cc3f806714948ba4",
+      "after_sha256": "0dcb65dfaef823403afd722120b54a5ae21b47a7fa3d2131e146bf0a7dcb4386"
+    },
+    "testapp/src/test/java/xyz/terlimo/test/ServiceDialIOTest.kt": {
+      "before_sha256": "8b992e40523725dd998ab42e2553d173e83fe8190b3f49bf50e104045b0863fd",
+      "after_sha256": "b501d13b8a29f230504c4b6931319acca64e9e75b3a0ad991639ffc40b7cbec2"
+    }
+  },
+  "generated_fixture_sha256": "7581c5e42a3767a690b74c285a7711c81eec07740ce6fdbc3a54b7e65f44bd69"
+}

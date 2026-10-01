@@ -37,6 +37,9 @@ type dialRecord struct {
 	length  uint16
 }
 type dialIO struct {
+	txDatagrams                [dialTXCap]dialTXDatagram
+	txCount                    int
+	txSeen                     uint64
 	candidate                  int
 	transport                  turnTransport
 	endpoint                   string
@@ -214,14 +217,9 @@ func writeDialIO(b *strings.Builder, call uint64, s dialIO, finish time.Duration
 		}
 		fmt.Fprintf(b, "%skind=RECORD ct=%d epoch=%d seq=%d len=%d elapsed_ms=%d\n", prefix, r.ct, r.epoch, r.seq, r.length, r.elapsed.Milliseconds())
 	}
+	writeDialTX(b, prefix, s, finish)
 }
 
 func serviceRelayWrite(t *serviceDialTrace, relay net.PacketConn, data []byte, peer net.Addr) (int, error) {
-	n, err := relay.WriteTo(data, peer)
-	if err != nil {
-		t.ioNote(ioTXError)
-	} else {
-		t.ioNote(ioTX)
-	}
-	return n, err
+	return serviceRelayWriteObserved(t, 0, relay, data, peer)
 }

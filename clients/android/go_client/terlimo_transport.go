@@ -299,13 +299,14 @@ func dialManagedTransport(ctx context.Context, tp *TurnParams, peer *net.UDPAddr
 				diagnostic.noteClose("PIPE_READ", err)
 				return
 			}
+			txToken := trace.txPipe(buf[:n])
 			wrapped, err := obfsWrapPacket(tp.WrapKey, buf[:n], obfsConfig, state)
 			if err != nil {
 				trace.ioNote(ioWrapError)
 				diagnostic.noteClose("UNKNOWN", err)
 				return
 			}
-			if _, err = serviceRelayWrite(trace, relay, wrapped, peer); err != nil {
+			if _, err = serviceRelayWriteObserved(trace, txToken, relay, wrapped, peer); err != nil {
 				diagnostic.noteClose("RELAY_WRITE", err)
 				return
 			}

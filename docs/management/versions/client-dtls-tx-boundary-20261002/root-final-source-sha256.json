@@ -1,0 +1,9 @@
+{
+  "clients/android/go_client/terlimo_service_dial_io.go": "b2c4ad044a54d67332c6ffe9b0148d42fae1e74b76361bbc2a18472c11ac6b9f",
+  "clients/android/go_client/terlimo_transport.go": "ee9ae0a824c4641dd3822d75c2eb3c1f09bb98b4ac2dfe3ee36e7bf1adeb90fd",
+  "clients/android/go_client/terlimo_service_dial_tx.go": "8944bd5453f65213381028d890eec81712208f99852419fe6c98e271895a7b1c",
+  "clients/android/go_client/terlimo_service_dial_tx_test.go": "75e3b7c11ad203819281f9a6e909c347755ef0edc9adba1dfbaf4242621e637b",
+  "clients/android/testapp/src/main/java/xyz/terlimo/test/NativeStderrMirror.kt": "0dcb65dfaef823403afd722120b54a5ae21b47a7fa3d2131e146bf0a7dcb4386",
+  "clients/android/testapp/src/test/java/xyz/terlimo/test/ServiceDialIOTest.kt": "530eabe7b34d75e55b8117333943cddf7667603b70348237e6c8e53a885e563d",
+  "clients/android/testapp/src/test/resources/dial-tx-generated-worstcase.log": "7581c5e42a3767a690b74c285a7711c81eec07740ce6fdbc3a54b7e65f44bd69"
+}

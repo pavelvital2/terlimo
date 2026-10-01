@@ -1,0 +1,140 @@
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialstage: call=7 candidate=1 transport=UDP stage=SOCKET_END result=OK elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=ENDPOINT hash=dc50c1a482cd1abae61b2eb643b379e8a3453ff62dbfb14f311b10735e8c25bf
+dialio: call=7 candidate=1 transport=UDP kind=RX rx=8 readerr=0 peer=0 unwrap=0 handoff=0 pipeerr=0 first_ms=0 last_ms=0 late=0
+dialio: call=7 candidate=1 transport=UDP kind=TX tx=40 txerr=0 wraperr=0 readerr=0 invalid=0 limited=0 truncated=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=0 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=1 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=2 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=3 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=4 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=5 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=6 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=RECORD ct=22 epoch=1 seq=7 len=1 elapsed_ms=0
+dialio: call=7 candidate=1 transport=UDP kind=TXBOUND seen=40 kept=32 omitted_datagrams=8 omitted_headers=481 truncated=true
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=1 pipe_us=185 begin_us=196 end_us=200 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=2 pipe_us=203 begin_us=215 end_us=218 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=3 pipe_us=221 begin_us=233 end_us=235 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=4 pipe_us=237 begin_us=245 end_us=248 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=5 pipe_us=253 begin_us=261 end_us=263 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=6 pipe_us=265 begin_us=276 end_us=278 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=7 pipe_us=280 begin_us=291 end_us=293 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=8 pipe_us=295 begin_us=303 end_us=305 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=9 pipe_us=307 begin_us=318 end_us=320 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=10 pipe_us=322 begin_us=333 end_us=335 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=11 pipe_us=337 begin_us=344 end_us=350 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=12 pipe_us=352 begin_us=359 end_us=362 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=13 pipe_us=363 begin_us=374 end_us=376 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=14 pipe_us=378 begin_us=388 end_us=390 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=15 pipe_us=392 begin_us=399 end_us=402 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=16 pipe_us=411 begin_us=419 end_us=421 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=17 pipe_us=422 begin_us=433 end_us=435 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=18 pipe_us=437 begin_us=447 end_us=450 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=19 pipe_us=451 begin_us=458 end_us=461 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=20 pipe_us=466 begin_us=473 end_us=475 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=21 pipe_us=477 begin_us=490 end_us=493 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=22 pipe_us=494 begin_us=503 end_us=505 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=23 pipe_us=506 begin_us=511 end_us=513 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=24 pipe_us=515 begin_us=523 end_us=525 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=25 pipe_us=526 begin_us=534 end_us=536 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=26 pipe_us=537 begin_us=543 end_us=548 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=27 pipe_us=549 begin_us=554 end_us=556 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=28 pipe_us=558 begin_us=566 end_us=567 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=29 pipe_us=569 begin_us=577 end_us=579 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=30 pipe_us=580 begin_us=586 end_us=590 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=31 pipe_us=591 begin_us=597 end_us=599 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXDAT dir=TX id=32 pipe_us=600 begin_us=608 end_us=610 n=296 result=OK invalid=false limited=false late=false
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=0 type=1 message_seq=0 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=1 type=1 message_seq=1 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=2 type=1 message_seq=2 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=3 type=1 message_seq=3 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=4 type=1 message_seq=4 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=5 type=1 message_seq=5 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=6 type=1 message_seq=6 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=1 record=7 type=1 message_seq=7 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=0 type=1 message_seq=0 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=1 type=1 message_seq=1 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=2 type=1 message_seq=2 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=3 type=1 message_seq=3 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=4 type=1 message_seq=4 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=5 type=1 message_seq=5 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=6 type=1 message_seq=6 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=2 record=7 type=1 message_seq=7 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=0 type=1 message_seq=0 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=1 type=1 message_seq=1 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=2 type=1 message_seq=2 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=3 type=1 message_seq=3 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=4 type=1 message_seq=4 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=5 type=1 message_seq=5 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=6 type=1 message_seq=6 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=3 record=7 type=1 message_seq=7 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=4 record=0 type=1 message_seq=0 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=4 record=1 type=1 message_seq=1 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=4 record=2 type=1 message_seq=2 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=4 record=3 type=1 message_seq=3 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=4 record=4 type=1 message_seq=4 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=4 record=5 type=1 message_seq=5 offset=0 length=12 total=12
+dialio: call=7 candidate=1 transport=UDP kind=TXHS dir=TX id=4 record=6 type=1 message_seq=6 offset=0 length=12 total=12
+dialstage: call=7 candidate=0 transport=NONE stage=FINISH result=OK elapsed_ms=0 truncated=0
