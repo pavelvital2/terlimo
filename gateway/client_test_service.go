@@ -389,20 +389,41 @@ func serviceSource(c net.Conn) string {
 }
 
 func serviceReadFrame(c net.Conn) (wlwire.ID, []byte, error) {
+	return serviceReadFrameDiag(c, nil)
+}
+
+func serviceReadFrameDiag(c net.Conn, diag *serviceFrameDiag) (wlwire.ID, []byte, error) {
 	var assembler wlwire.ServiceAssembler
 	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
 	defer c.SetReadDeadline(time.Time{})
 	buf := make([]byte, 32+wlwire.ServiceFragment+1)
 	for {
+		diag.emit("read_begin", "WAIT", "NONE", 0)
 		n, err := c.Read(buf)
+		if diag != nil {
+			diag.reads++
+		}
+		diag.emit("read_end", serviceFrameDiagErrIfOn(diag, err), "NONE", n)
 		if err != nil {
+			diag.emit("terminal", serviceFrameDiagErrIfOn(diag, err), "READ_ERROR", n)
 			return wlwire.ID{}, nil, err
 		}
 		if n < 6 || buf[5] != 0 {
+			diag.emit("terminal", "INVALID", "DIRECTION_OR_SHORT", n)
 			return wlwire.ID{}, nil, wlwire.ErrMessage
 		}
 		id, body, err := assembler.Add(buf[:n], time.Now())
+		if err != nil {
+			diag.emit("assembler", "INVALID", "CODEC_ERROR", n)
+		} else {
+			diag.added(id, buf[:n], body != nil)
+		}
 		if err != nil || body != nil {
+			result := "COMPLETE"
+			if err != nil {
+				result = "INVALID"
+			}
+			diag.emit("terminal", result, "CODEC_RETURN", n)
 			return id, body, err
 		}
 	}
@@ -672,13 +693,18 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 	defer limiter.release(source)
 	// Terminal cancellation closes this session-owned connection; it cannot be overwritten by
 	// the per-read/per-write deadline resets below. The connection is not shared.
-	stopCancel := context.AfterFunc(ctx, func() { _ = c.Close() })
+	sessionDiag := newServiceFrameDiag(serviceFrameCapture, gen, 0)
+	stopCancel := context.AfterFunc(ctx, func() {
+		sessionDiag.emit("session_close", "REQUESTED", "CTX_CANCEL", 0)
+		_ = c.Close()
+	})
 	defer stopCancel()
 	for i := 0; i < serviceMaxRequests; i++ {
 		if ctx.Err() != nil {
 			return
 		}
-		id, body, err := serviceReadFrame(c)
+		diag := newServiceFrameDiag(serviceFrameCapture, gen, i+1)
+		id, body, err := serviceReadFrameDiag(c, diag)
 		if err != nil {
 			log.Printf("[SVCREG] read_end gen=%d source=%s class=%s utc=%s",
 				gen, serviceSource(c), serviceReadErrClass(err),
@@ -731,8 +757,7 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 		watcherCancelled := false
 		go func() {
 			defer close(watchDone)
-			buf := make([]byte, 1)
-			if _, rerr := c.Read(buf); rerr == nil {
+			if serviceWatcherRead(c, diag) {
 				watcherCancelled = true
 			}
 			cancelRelay()
@@ -748,6 +773,7 @@ func clientTestServiceServeGen(ctx context.Context, c net.Conn, identity accessI
 				serviceBoundedCode(relayCode), serviceBoundedCode(serviceErrCode(relayErr)),
 				resp.Status, relayDur.Milliseconds()),
 			time.Since(serviceSessionStarted))
+		diag.emit("watcher_unblock", "REQUESTED", "RELAY_DONE_DEADLINE", 0)
 		_ = c.SetReadDeadline(time.Now())
 		<-watchDone
 		cancelRelay()

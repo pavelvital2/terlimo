@@ -199,3 +199,9 @@ Preflight proved root effective WARNING/no handler: initial probe would emit no 
 ## 2026-10-01 Scoped AUTH API diagnostics — SOURCE accepted
 
 Source1e04f845c6841ebf39e2cf748103643e1cc7fcc1 parent5309aeac, patch2892670709c21ad9184c60036578e0c80010d90cf2defc1c921ab06cab025d8e reviewed in full. Three runtime modules plus targeted tests. DefaultOFF scoped handler/body/contextpool/registry/replay and inner challenge pool/rate/INSERT timing, separate validated IDs without wire changes. Executor16new+5existing tests PASS; root did not repeat adequate tests. Actual API launcher/log/dependencies reviewed. TEST apply pending; not a latency fix or phone PASS. Prior relay diagnostic OFF and OPTIME preserved.
+
+## 2026-10-01 Service frame diagnostics — offline reviewed, not deployed
+
+Gateway source base b3185dac8b0c44652ff9aeb961d4af492b53444b; executor commit d2f762225b81f394e25e14b8a6db12eb73caf09f, tree70db70a7701d319e9d7c600d31b5f974db87ca45. Reviewed patch SHA25662b3dffa94b732048d746ad29ef08119330294bd028ba56acc40db61d7cf03ba. The three source/test files in this snapshot match the reviewed files byte-for-byte; snapshot commit differs because this repository stores gateway sources under gateway/. No import of the executor repository history.
+
+Default OFF; explicit process-start TERLIMO_SERVICE_FRAME_DIAG=1 enables 120s / 512-line bounded service Read/assembler/watcher metadata. No payload logging or wire/deadline/codec changes. Eleven targeted tests passed, then the diagnostic allocation test passed after correcting allocation of its own error fixture. Original failed measurement is not a runtime failure. This is offline diagnostic acceptance only, not a missing-request fix, live capture or product acceptance. Runtime f7f17e84 remains unchanged.
