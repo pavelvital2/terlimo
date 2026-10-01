@@ -187,3 +187,7 @@ Root parity review initially misidentified the direction of an existing fix. Evi
 ## 2026-10-01 TEST worker phase timing
 
 Source87e77ec798b3002961220ad14b70344c039c0894 based on0cebcfc1. Reviewed patch6dd89f8fd02d979c104f39a1592dc1b910c50041a9b8ccc2b4a8865887aa790a. Five targeted tests passed per executor; runtime3files installed TESTA06:30UTC, workerPID3543033, other servicePIDs unchanged. No scheduler/timeouts/admission changes, no fixtureDBwrites. Historical14.451s operation date corrected to01Oct viaDB reread. Observability source accepted; pending phone run and cause/fix NOT yet accepted. Privateoverlay/dirtycatalogtest excluded.
+
+## 2026-10-01 Relay phase diagnostic — source accepted
+
+Source a9ac989eb2e3a14494d74f25f9ebf0f541ca5688, base87e77ec. Full patch SHA2569a1ecd14168337b2365ad4eacb308696ce3ce07565db5176f57a07200be713a6 reviewed by root. Only service_relay.py plus targeted tests. Default OFF; explicit environment flag enables Unix/connector/request/body phase timing with no payload logging or wire/timeout/admission changes. Executor:16 targeted tests PASS105.62s, ruff/diffcheck PASS. Persistent session and cancellation/error/cap contracts checked. This is diagnostic source, not a latency fix or phone PASS; TEST deployment pending. Live dirty catalogtest and environment snapshots excluded.

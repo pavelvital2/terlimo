@@ -20,9 +20,12 @@ import re
 import signal
 import ssl
 import stat
+import time
+from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
 
-from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
+from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, TraceConfig, web
 
 from .config import Settings
 from .db import Database
@@ -34,6 +37,9 @@ from .evidence_transport import (
 )
 
 logger = logging.getLogger(__name__)
+_relay_phase_context: ContextVar[tuple[int, float] | None] = ContextVar(
+    "relay_phase_context", default=None
+)
 
 SERVICE_PATH = "/internal/onboarding/service-http"
 SERVICE_MAX_FRAME = 1536 * 1024
@@ -395,6 +401,43 @@ class ServiceRelay:
         self._socket_path: str | None = None
         self._socket_identity: tuple[int, int] | None = None
         self._started = False
+        self._phase_probe_enabled = os.environ.get("TERLIMO_SERVICE_RELAY_PHASE_PROBE") == "1"
+
+    def _phase(self, phase: str, outcome: str = "ok") -> None:
+        if not self._phase_probe_enabled:
+            return
+        context = _relay_phase_context.get()
+        if context is None:
+            return
+        task_id, started = context
+        logger.info(
+            "RELAYPHASE phase=%s task_id=%s utc=%s elapsed_ms=%.3f outcome=%s",
+            phase, task_id, datetime.now(UTC).isoformat(),
+            (time.monotonic() - started) * 1000, outcome,
+        )
+
+    def _phase_trace(self) -> TraceConfig:
+        trace = TraceConfig()
+
+        def callback(phase: str, outcome: str = "ok"):
+            async def mark(_session, _context, _params):
+                self._phase(phase, outcome)
+            return mark
+
+        for signal_name, phase in (
+            ("on_connection_queued_start", "queue_begin"),
+            ("on_connection_queued_end", "queue_end"),
+            ("on_dns_resolvehost_start", "dns_begin"),
+            ("on_dns_resolvehost_end", "dns_end"),
+            ("on_connection_create_start", "connect_begin"),
+            ("on_connection_create_end", "connect_end"),
+            ("on_connection_reuseconn", "connection_reuse"),
+            ("on_request_headers_sent", "headers_sent"),
+            ("on_request_end", "response_headers"),
+        ):
+            getattr(trace, signal_name).append(callback(phase))
+        trace.on_request_exception.append(callback("request_exception", "error"))
+        return trace
 
     def _backend_context(self) -> ssl.SSLContext:
         context = ssl.create_default_context(cafile=self._settings.evidence_backend_ca_file)
@@ -414,7 +457,8 @@ class ServiceRelay:
         self._started = True
         try:
             connector = TCPConnector(ssl=self._backend_context(), limit=self._settings.service_max_concurrency)
-            self._session = ClientSession(connector=connector)
+            trace_options = {"trace_configs": [self._phase_trace()]} if self._phase_probe_enabled else {}
+            self._session = ClientSession(connector=connector, **trace_options)
             self._server = await asyncio.start_unix_server(
                 self._handle, path=socket_path, limit=SERVICE_MAX_FRAME + 1
             )
@@ -459,6 +503,7 @@ class ServiceRelay:
         settings = self._settings
         if self._session is None:
             return None
+        self._phase("forward_entry")
         try:
             async with self._session.post(
                 f"https://{settings.evidence_backend_host}:{settings.evidence_backend_port}{SERVICE_PATH}",
@@ -468,8 +513,22 @@ class ServiceRelay:
                 server_hostname=settings.evidence_backend_server_name or None,
                 allow_redirects=False,
             ) as response:
-                return await _read_capped(response, SERVICE_MAX_FRAME)
+                self._phase("body_begin")
+                try:
+                    payload = await _read_capped(response, SERVICE_MAX_FRAME)
+                except asyncio.CancelledError:
+                    self._phase("body_complete", "cancelled")
+                    raise
+                except Exception:
+                    self._phase("body_complete", "error")
+                    raise
+                self._phase("body_complete")
+                return payload
+        except asyncio.CancelledError:
+            self._phase("forward_cancelled", "cancelled")
+            raise
         except (ClientError, TimeoutError, ConnectionError, ssl.SSLError, EvidenceTransportError):
+            self._phase("forward_error", "error")
             logger.warning("service relay backend hop failed")
             return None
 
@@ -477,6 +536,10 @@ class ServiceRelay:
         settings = self._settings
         timeout = settings.service_timeout_seconds
         task = asyncio.current_task()
+        phase_token = None
+        if self._phase_probe_enabled:
+            phase_token = _relay_phase_context.set((id(task), time.monotonic()))
+            self._phase("unix_callback")
         self._tasks.add(task) if task is not None else None
         upstream: asyncio.Task[Any] | None = None
         watch: asyncio.Task[Any] | None = None
@@ -495,6 +558,7 @@ class ServiceRelay:
                 return
             if not data or len(data) - 1 > SERVICE_MAX_FRAME:
                 return
+            self._phase("frame_complete")
             upstream = asyncio.ensure_future(self._forward(data))
             watch = asyncio.ensure_future(reader.read(1))
             done, _pending = await asyncio.wait(
@@ -516,6 +580,7 @@ class ServiceRelay:
                 return
             writer.write(payload + b"\n")
             await asyncio.wait_for(writer.drain(), timeout=timeout)
+            self._phase("drain_complete")
         finally:
             try:
                 pending = [p for p in (upstream, watch) if p is not None and not p.done()]
@@ -531,6 +596,9 @@ class ServiceRelay:
                     await asyncio.wait_for(writer.wait_closed(), timeout=timeout)
                 except (TimeoutError, ConnectionError, ssl.SSLError, OSError):
                     pass
+                finally:
+                    if phase_token is not None:
+                        _relay_phase_context.reset(phase_token)
 
 
 def require_service_relay_material(settings: Settings) -> None:
