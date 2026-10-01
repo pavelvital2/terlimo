@@ -14,6 +14,7 @@ lost-response retries.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -25,6 +26,7 @@ import asyncpg
 from aiohttp import web
 
 from . import pop
+from .auth_api_phase import AuthApiPhase, new_auth_api_phase
 from .config import Settings
 from .db import Database
 
@@ -185,7 +187,9 @@ class InstallationSessionService:
 
     # ---------------------------------------------------------------- challenge
 
-    async def create_challenge(self, body: dict[str, Any]) -> dict[str, Any]:
+    async def create_challenge(
+        self, body: dict[str, Any], *, phase: AuthApiPhase | None = None
+    ) -> dict[str, Any]:
         body = _require_object(
             body, frozenset({"installation_fingerprint", "purpose", "environment"})
         )
@@ -203,11 +207,19 @@ class InstallationSessionService:
             raise ApiError("BAD_MESSAGE", details={"reason": "purpose_not_enabled"})
         op = PURPOSE_BINDING[purpose][1]
         request_id = random_hex(16)
+        if phase is not None:
+            phase.activate(request_id)
+            phase.mark("challenge_validated")
         challenge_id = random_hex(16)
         nonce_b64 = random_b64url(32)
         expires_at = now_utc().timestamp() + self._settings.challenge_ttl_seconds
         expires_moment = datetime.fromtimestamp(expires_at, UTC)
+        if phase is not None:
+            phase.mark("challenge_pool_acquire_begin")
         async with self._db.acquire() as connection:
+            if phase is not None:
+                phase.mark("challenge_pool_acquire_end")
+                phase.mark("rate_queries_begin")
             recent = await connection.fetchval(
                 """
                 SELECT count(*)
@@ -230,8 +242,12 @@ class InstallationSessionService:
                 RETURNING count
                 """
             )
+            if phase is not None:
+                phase.mark("rate_queries_end")
             if window_count > self._settings.public_challenge_limit_per_minute:
                 raise ApiError("RATE_LIMITED", retry_after_ms=60000)
+            if phase is not None:
+                phase.mark("challenge_insert_begin")
             await connection.execute(
                 """
                 INSERT INTO auth_challenges
@@ -247,6 +263,10 @@ class InstallationSessionService:
                 environment,
                 expires_moment,
             )
+            if phase is not None:
+                phase.mark("challenge_insert_end")
+        if phase is not None:
+            phase.mark("challenge_pool_release_end")
         return {
             "request_id": request_id,
             "server_time": rfc3339(now_utc()),
@@ -1051,13 +1071,32 @@ def _service(request: web.Request) -> InstallationSessionService:
 
 
 async def _handle_challenge(request: web.Request) -> web.Response:
+    phase = new_auth_api_phase("challenge")
+    if phase is not None:
+        phase.mark("handler_entry")
     fallback_id = random_hex(16)
     try:
         body = await _json_body(request)
-        return web.json_response(await _service(request).create_challenge(body))
+        if phase is not None:
+            phase.mark("json_end")
+            result = await _service(request).create_challenge(body, phase=phase)
+        else:
+            result = await _service(request).create_challenge(body)
+        response = web.json_response(result)
+        if phase is not None:
+            phase.mark("response_ready")
+        return response
+    except asyncio.CancelledError:
+        if phase is not None:
+            phase.mark("handler_error", "cancelled")
+        raise
     except ApiError as error:
+        if phase is not None:
+            phase.mark("handler_error", "rejected")
         return _error_response(fallback_id, error)
     except (asyncpg.PostgresError, OSError):
+        if phase is not None:
+            phase.mark("handler_error", "unavailable")
         logger.exception("challenge failed")
         return _error_response(fallback_id, ApiError("SERVICE_UNAVAILABLE"))
 

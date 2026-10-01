@@ -195,3 +195,7 @@ Source a9ac989eb2e3a14494d74f25f9ebf0f541ca5688, base87e77ec. Full patch SHA2569
 ## 2026-10-01 Relay standalone INFO correction
 
 Preflight proved root effective WARNING/no handler: initial probe would emit no INFO. Source5309aeaccc0d43a3e9cb0ed6f1b90285e99de319 reviewed: two-line basicConfig(INFO) only when explicit probe enabled. Existing stderr sink is /home/pavel/step036-device-stage/pkg/logs/service-relay.log, not journal. Two fresh subprocess tests PASS; prior16cases not repeated. Runtime SHA b7cdf1c9c882e8776812da6a984f05235e5851031c0e1f033c1749f360c27888. No deployment occurred before this correction.
+
+## 2026-10-01 Scoped AUTH API diagnostics — SOURCE accepted
+
+Source1e04f845c6841ebf39e2cf748103643e1cc7fcc1 parent5309aeac, patch2892670709c21ad9184c60036578e0c80010d90cf2defc1c921ab06cab025d8e reviewed in full. Three runtime modules plus targeted tests. DefaultOFF scoped handler/body/contextpool/registry/replay and inner challenge pool/rate/INSERT timing, separate validated IDs without wire changes. Executor16new+5existing tests PASS; root did not repeat adequate tests. Actual API launcher/log/dependencies reviewed. TEST apply pending; not a latency fix or phone PASS. Prior relay diagnostic OFF and OPTIME preserved.

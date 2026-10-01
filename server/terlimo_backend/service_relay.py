@@ -27,6 +27,7 @@ from typing import Any
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, TraceConfig, web
 
+from .auth_api_phase import AuthApiPhase, new_auth_api_phase
 from .config import Settings
 from .db import Database
 from .evidence_transport import (
@@ -263,11 +264,15 @@ async def _read_capped(response: Any, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-async def _replay_service_request(settings: Settings, parsed: dict[str, Any]) -> dict[str, Any]:
+async def _replay_service_request(
+    settings: Settings, parsed: dict[str, Any], phase: AuthApiPhase | None = None
+) -> dict[str, Any]:
     timeout = ClientTimeout(total=settings.service_timeout_seconds)
     connector = TCPConnector(limit=settings.service_max_concurrency)
     session = ClientSession(connector=connector, trust_env=False, timeout=timeout)
     try:
+        if phase is not None:
+            phase.mark("replay_request_begin")
         async with session.request(
             parsed["method"],
             _service_upstream_url(settings, parsed["path"], parsed["query"]),
@@ -275,9 +280,15 @@ async def _replay_service_request(settings: Settings, parsed: dict[str, Any]) ->
             headers=parsed["headers"],
             allow_redirects=False,
         ) as response:
+            if phase is not None:
+                phase.mark("replay_response_headers")
             try:
                 body = await _read_capped(response, SERVICE_MAX_RESPONSE_BODY)
+                if phase is not None:
+                    phase.mark("replay_cappedbody_end")
             except EvidenceTransportError:
+                if phase is not None:
+                    phase.mark("replay_error", "capped_body")
                 return _service_error_body(parsed["request_id"], "SERVICE_BAD_RESPONSE", True)
             headers = {}
             for name in _RESPONSE_HEADERS:
@@ -299,9 +310,15 @@ async def _replay_service_request(settings: Settings, parsed: dict[str, Any]) ->
                 return _service_error_body(parsed["request_id"], "SERVICE_BAD_RESPONSE", True)
             return result
     except (ClientError, TimeoutError, ConnectionError, OSError, ssl.SSLError):
+        if phase is not None:
+            phase.mark("replay_error", "unavailable")
         return _service_error_body(parsed["request_id"], "SERVICE_UNAVAILABLE", True)
     finally:
+        if phase is not None:
+            phase.mark("replay_session_close_begin")
         await session.close()
+        if phase is not None:
+            phase.mark("replay_session_close_end")
 
 
 async def _read_request_capped(request: web.Request, limit: int) -> bytes:
@@ -320,6 +337,9 @@ async def _read_request_capped(request: web.Request, limit: int) -> bytes:
 
 def _service_handler(settings: Settings, database: Database):
     async def handler(request: web.Request) -> web.Response:
+        phase = new_auth_api_phase("service")
+        if phase is not None:
+            phase.mark("handler_entry")
         # Bounded admission: no unbounded wait queue. The counter is incremented without an
         # await between the check and the claim, so excess requests get an immediate busy.
         active = request.app[SERVICE_ACTIVE_KEY]
@@ -333,6 +353,8 @@ def _service_handler(settings: Settings, database: Database):
             # budget, so a slow/authenticated body cannot hold a slot forever.
             async with asyncio.timeout(settings.service_timeout_seconds):
                 raw = await _read_request_capped(request, SERVICE_MAX_FRAME)
+                if phase is not None:
+                    phase.mark("body_read_end")
                 try:
                     parsed = _parse_service_request(raw)
                 except EvidenceTransportError:
@@ -343,13 +365,41 @@ def _service_handler(settings: Settings, database: Database):
                         request_id = recovered
                     raise
                 request_id = parsed["request_id"]
+                if phase is not None:
+                    phase.mark("parse_end")
+                    if parsed["path"] == "/api/mobile/v1/auth/challenge":
+                        phase.activate(request_id)
+                    else:
+                        phase = None
                 identities = _peer_identities(request.transport.get_extra_info("ssl_object"))
+                if phase is not None:
+                    phase.mark("peer_identity_end")
+                    phase.mark("context_pool_acquire_begin")
                 async with database.acquire() as connection:
+                    if phase is not None:
+                        phase.mark("context_pool_acquire_end")
+                        phase.mark("resolve_gateway_context_begin")
                     await resolve_gateway_context(connection, identities, settings.environment)
-                result = await _replay_service_request(settings, parsed)
+                    if phase is not None:
+                        phase.mark("resolve_gateway_context_end")
+                if phase is not None:
+                    phase.mark("context_pool_release_end")
+                    phase.mark("replay_begin")
+                    result = await _replay_service_request(settings, parsed, phase)
+                    phase.mark("replay_end")
+                else:
+                    result = await _replay_service_request(settings, parsed)
         except EvidenceTransportError as error:
+            if phase is not None:
+                phase.mark("handler_error", "rejected")
             return web.json_response(_service_error_body(request_id, error.code, False))
+        except asyncio.CancelledError:
+            if phase is not None:
+                phase.mark("handler_error", "cancelled")
+            raise
         except TimeoutError:
+            if phase is not None:
+                phase.mark("handler_error", "timeout")
             if raw is not None and request_id == "0" * 32:
                 recovered = _request_id_from_raw(raw)
                 if recovered is not None:
@@ -357,7 +407,10 @@ def _service_handler(settings: Settings, database: Database):
             return web.json_response(_service_error_body(request_id, "SERVICE_UNAVAILABLE", True), status=503)
         finally:
             active[0] -= 1
-        return web.json_response(result, dumps=lambda value: json.dumps(value, separators=(",", ":")))
+        response = web.json_response(result, dumps=lambda value: json.dumps(value, separators=(",", ":")))
+        if phase is not None:
+            phase.mark("response_ready")
+        return response
 
     return handler
 
