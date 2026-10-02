@@ -1,0 +1,56 @@
+{
+  "task": "whitelist-20261002-catalog-stages-server-v1",
+  "files": [
+    {
+      "name": "report.md",
+      "size_bytes": 16484,
+      "sha256": "05f40d0e56c7fee7eee3e43e59a0adac9bfda8c1c9118257b311527fba641cfb"
+    },
+    {
+      "name": "scope.json",
+      "size_bytes": 576,
+      "sha256": "001cc6a3c0f203422859f2a4787b43ecea1c11bd4d38a887e2e2ca540252797f"
+    },
+    {
+      "name": "source-runtime.safe.json",
+      "size_bytes": 2378,
+      "sha256": "91c4ee457e60b084ba5b057f3142c869e74e77ce98ac1c7a2006bd5fb6a08963"
+    },
+    {
+      "name": "catalog-browse-view.diff",
+      "size_bytes": 1464,
+      "sha256": "59844b5e039b718f2e42e373a41158eb9961d8b6157b6fe25e82669c0155e6f7"
+    },
+    {
+      "name": "candidate-review.safe.json",
+      "size_bytes": 836,
+      "sha256": "8afa690416440fa07684ff0f283a46b03d3335dd43e29ce6ae59b80f5f2b301c"
+    },
+    {
+      "name": "test_catalog_view_offline.py",
+      "size_bytes": 3761,
+      "sha256": "4fe2ff2d5253f6ef2f508c35a12a194157f0037bef68cc9e43761fa25354fc23"
+    },
+    {
+      "name": "baseline-test.txt",
+      "size_bytes": 2206,
+      "sha256": "46004e75b55d000df797cdbb03db0acdffc348312af55b1fbdddfbea51d2c288"
+    },
+    {
+      "name": "candidate-test.txt",
+      "size_bytes": 98,
+      "sha256": "dbcb7d0a047915893bfa499b3046a2496a7590f94b4402c92e27181d64d7288b"
+    },
+    {
+      "name": "candidate-affected-test.txt",
+      "size_bytes": 112,
+      "sha256": "0b8540365a335bae8a1c35fc2f2641df2baa47f78adf74519422993c48600d7b"
+    },
+    {
+      "name": "mobile_catalog.py",
+      "path": "/home/pavel/step036-receipts/private/s5-catalog-stages-server-20261002/candidate/terlimo_backend/mobile_catalog.py",
+      "size_bytes": 61699,
+      "sha256": "7bec1ebd5b38f214871b70bcbeee36d62808e644a09774d8441c84fbff3419cc"
+    }
+  ]
+}

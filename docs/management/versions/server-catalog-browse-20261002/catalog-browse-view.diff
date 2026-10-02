@@ -1,0 +1,26 @@
+--- a/terlimo_backend/mobile_catalog.py
++++ b/terlimo_backend/mobile_catalog.py
+@@ -843,6 +843,12 @@
+     async def get_gateways(self, request: web.Request) -> dict[str, Any]:
+         request_id = request_id_for(request)
+         token = _bearer_token(request)
++        views = request.query.getall("view", [])
++        if views and views != ["browse"]:
++            raise ApiError(
++                "BAD_MESSAGE", details={"reason": "invalid_catalog_view"}, request_id=request_id
++            )
++        browse = views == ["browse"]
+         # Snapshot + revision from one REPEATABLE READ snapshot with bounded retry, like /me.
+         for _ in range(SNAPSHOT_ATTEMPTS):
+             try:
+@@ -850,6 +856,10 @@
+                     try:
+                         async with connection.transaction(isolation="repeatable_read"):
+                             context = await authenticate_session(connection, self._settings, token)
++                            # Explicit list projection never waits for data grant admission.
++                            # Authenticate first; revoked/expired sessions still fail normally.
++                            if browse:
++                                return await self._browse_body(connection, context, request_id)
+                             subject = _data_subject(context)
+                             if subject is None:
+                                 # Browse projection: server list before/without a credentialed
