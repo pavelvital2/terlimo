@@ -27,6 +27,7 @@ from typing import Any
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, TraceConfig, web
 
+from .auth_api import AUTH_REQUEST_BUDGET_SECONDS, AUTH_DEADLINE_HEADER
 from .auth_api_phase import AuthApiPhase, new_auth_api_phase
 from .config import Settings
 from .db import Database
@@ -56,6 +57,31 @@ _RESPONSE_HEADERS = ("Content-Type", "Retry-After")
 _BOUNDED_PATH_ID = re.compile(r"[A-Za-z0-9._~-]{1,128}")
 _REQUEST_ID = re.compile(r"^[0-9a-f]{32}$")
 _OPERATION_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+AUTH_RELAY_BUDGET_SECONDS = 21
+
+
+def _auth_request(parsed: dict[str, Any]) -> bool:
+    return parsed.get("method") == "POST" and parsed.get("path") in {
+        "/api/mobile/v1/auth/challenge", "/api/mobile/v1/auth/session"
+    }
+
+
+def _request_budget(settings: Settings, parsed: dict[str, Any], auth_seconds: float) -> float:
+    return auth_seconds if _auth_request(parsed) else settings.service_timeout_seconds
+
+
+def _frame_auth(data: bytes) -> bool:
+    # Classification only: invalid frames still reach the existing backend validator.
+    try:
+        return _auth_request(_parse_service_request(data))
+    except EvidenceTransportError:
+        return False
+
+
+def _frame_budget(settings: Settings, data: bytes) -> float:
+    return AUTH_RELAY_BUDGET_SECONDS if _frame_auth(data) else settings.service_timeout_seconds
 
 
 def service_path_allowed(method: str, path: str) -> bool:
@@ -265,9 +291,21 @@ async def _read_capped(response: Any, limit: int) -> bytes:
 
 
 async def _replay_service_request(
-    settings: Settings, parsed: dict[str, Any], phase: AuthApiPhase | None = None
+    settings: Settings, parsed: dict[str, Any], phase: AuthApiPhase | None = None,
+    *, deadline: float | None = None,
 ) -> dict[str, Any]:
-    timeout = ClientTimeout(total=settings.service_timeout_seconds)
+    seconds = _request_budget(settings, parsed, AUTH_REQUEST_BUDGET_SECONDS)
+    headers = parsed["headers"]
+    if _auth_request(parsed):
+        cap = asyncio.get_running_loop().time() + seconds
+        deadline = min(deadline, cap) if deadline is not None else cap
+        seconds = max(0, deadline - asyncio.get_running_loop().time())
+        if seconds <= 0:
+            raise TimeoutError
+        headers = {**headers, AUTH_DEADLINE_HEADER: str(deadline)}
+    timeout = ClientTimeout(
+        total=seconds, ceil_threshold=float("inf") if _auth_request(parsed) else 5
+    )
     connector = TCPConnector(limit=settings.service_max_concurrency)
     session = ClientSession(connector=connector, trust_env=False, timeout=timeout)
     try:
@@ -277,7 +315,7 @@ async def _replay_service_request(
             parsed["method"],
             _service_upstream_url(settings, parsed["path"], parsed["query"]),
             data=parsed["body"],
-            headers=parsed["headers"],
+            headers=headers,
             allow_redirects=False,
         ) as response:
             if phase is not None:
@@ -351,7 +389,8 @@ def _service_handler(settings: Settings, database: Database):
         try:
             # The whole admitted handler shares the existing per-request service timeout
             # budget, so a slow/authenticated body cannot hold a slot forever.
-            async with asyncio.timeout(settings.service_timeout_seconds):
+            entered = asyncio.get_running_loop().time()
+            async with asyncio.timeout(settings.service_timeout_seconds) as budget:
                 raw = await _read_request_capped(request, SERVICE_MAX_FRAME)
                 if phase is not None:
                     phase.mark("body_read_end")
@@ -365,6 +404,8 @@ def _service_handler(settings: Settings, database: Database):
                         request_id = recovered
                     raise
                 request_id = parsed["request_id"]
+                if _auth_request(parsed):
+                    budget.reschedule(entered + AUTH_REQUEST_BUDGET_SECONDS)
                 if phase is not None:
                     phase.mark("parse_end")
                     if parsed["path"] in {"/api/mobile/v1/auth/challenge", "/api/mobile/v1/auth/session"}:
@@ -385,10 +426,10 @@ def _service_handler(settings: Settings, database: Database):
                 if phase is not None:
                     phase.mark("context_pool_release_end")
                     phase.mark("replay_begin")
-                    result = await _replay_service_request(settings, parsed, phase)
+                    result = await _replay_service_request(settings, parsed, phase, **({"deadline": budget.when()} if _auth_request(parsed) else {}))
                     phase.mark("replay_end")
                 else:
-                    result = await _replay_service_request(settings, parsed)
+                    result = await _replay_service_request(settings, parsed, **({"deadline": budget.when()} if _auth_request(parsed) else {}))
             response = web.json_response(result, dumps=lambda value: json.dumps(value, separators=(",", ":")))
             if phase is not None:
                 phase.mark("response_ready")
@@ -559,7 +600,10 @@ class ServiceRelay:
                 f"https://{settings.evidence_backend_host}:{settings.evidence_backend_port}{SERVICE_PATH}",
                 data=data,
                 headers={"Content-Type": "application/json"},
-                timeout=ClientTimeout(total=settings.service_timeout_seconds),
+                timeout=ClientTimeout(
+                    total=_frame_budget(settings, data),
+                    ceil_threshold=float("inf") if _frame_auth(data) else 5,
+                ),
                 server_hostname=settings.evidence_backend_server_name or None,
                 allow_redirects=False,
             ) as response:
@@ -585,6 +629,8 @@ class ServiceRelay:
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         settings = self._settings
         timeout = settings.service_timeout_seconds
+        entered = asyncio.get_running_loop().time()
+        auth = False
         task = asyncio.current_task()
         phase_token = None
         if self._phase_probe_enabled:
@@ -614,10 +660,15 @@ class ServiceRelay:
             if not data or len(data) - 1 > SERVICE_MAX_FRAME:
                 return
             self._phase("frame_complete")
+            request_budget = _frame_budget(settings, data)
+            auth = _frame_auth(data)
+            deadline = entered + request_budget
+            def remaining() -> float:
+                return max(0, deadline - asyncio.get_running_loop().time()) if auth else timeout
             upstream = asyncio.ensure_future(self._forward(data))
             watch = asyncio.ensure_future(reader.read(1))
             done, _pending = await asyncio.wait(
-                {upstream, watch}, return_when=asyncio.FIRST_COMPLETED, timeout=timeout
+                {upstream, watch}, return_when=asyncio.FIRST_COMPLETED, timeout=remaining()
             )
             if watch in done and upstream not in done:
                 # Node closed the Unix socket: abort the upstream call rather than wait.
@@ -634,7 +685,7 @@ class ServiceRelay:
             if not payload or len(payload) > SERVICE_MAX_FRAME or b"\n" in payload:
                 return
             writer.write(payload + b"\n")
-            await asyncio.wait_for(writer.drain(), timeout=timeout)
+            await asyncio.wait_for(writer.drain(), timeout=remaining())
             self._phase("drain_complete")
         finally:
             try:
@@ -648,7 +699,9 @@ class ServiceRelay:
                     self._tasks.discard(task)
                 writer.close()
                 try:
-                    await asyncio.wait_for(writer.wait_closed(), timeout=timeout)
+                    await asyncio.wait_for(
+                        writer.wait_closed(), timeout=min(timeout, 1) if auth else timeout
+                    )
                 except (TimeoutError, ConnectionError, ssl.SSLError, OSError):
                     pass
                 finally:

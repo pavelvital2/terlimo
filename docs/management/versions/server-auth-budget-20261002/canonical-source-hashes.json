@@ -1,0 +1,7 @@
+{
+  "gateway/client_test_service.go": "12730d9ebc5851ee970fbaacebb1d91a4c4677d7dd98795cccea962469462bf2",
+  "gateway/auth_budget_test.go": "ca76986689f3cca8248b5334f96821b706e61cf9881c1fbac939bca90a998a4a",
+  "gateway/service_unix_terminal_test.go": "ab2d97bce20debc043783111c52528eba3fb0d01121e10a7685aef5812f06292",
+  "server/terlimo_backend/auth_api.py": "d16bd8f4678200ab8068baa5e7fc3a6a219b970cce59da7811bc6aef0c76eef3",
+  "server/terlimo_backend/service_relay.py": "8c4667ba2eac7c8d34526578a0890945b95e11301278bdcba97dc08c708b69de"
+}

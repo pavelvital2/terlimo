@@ -177,7 +177,11 @@ func TestServiceUnixTerminalTransportParity(t *testing.T) {
 						t.Fatal("deadline count changed")
 					}
 					budget := c.deadlines[0].Sub(c.deadlineAt)
-					if budget < serviceIODeadline-time.Second || budget > serviceIODeadline {
+					expected := serviceIODeadline
+					if on {
+						expected = serviceAuthDeadline
+					}
+					if budget < expected-time.Second || budget > expected {
 						t.Fatalf("deadline changed: %v", budget)
 					}
 					select {

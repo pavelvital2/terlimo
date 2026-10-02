@@ -1,0 +1,15 @@
+test_auth_api_finite_and_cancellation (__main__.Tests.test_auth_api_finite_and_cancellation) ... ok
+test_forward_uses_auth21_without_roundup (__main__.Tests.test_forward_uses_auth21_without_roundup) ... ok
+test_inherited_api_deadline_cannot_expand_and_shortens (__main__.Tests.test_inherited_api_deadline_cannot_expand_and_shortens) ... ok
+test_non_auth_unchanged (__main__.Tests.test_non_auth_unchanged) ... ok
+test_outer_api_budget_includes_context_and_replay (__main__.Tests.test_outer_api_budget_includes_context_and_replay) ... ok
+test_relay_cancel_cleanup (__main__.Tests.test_relay_cancel_cleanup) ... ok
+test_relay_old_cutoff_new_late_completion (__main__.Tests.test_relay_old_cutoff_new_late_completion) ... ok
+test_relay_over_budget_and_body_share_deadline (__main__.Tests.test_relay_over_budget_and_body_share_deadline) ... ok
+test_replay_inherits_absolute_budget_and_header_is_internal (__main__.Tests.test_replay_inherits_absolute_budget_and_header_is_internal) ... ok
+test_replay_timeout_exact_auth_only_no_roundup (__main__.Tests.test_replay_timeout_exact_auth_only_no_roundup) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 2.343s
+
+OK

@@ -1,0 +1,32 @@
+{
+  "created_UTC": "2026-10-02T06:48:35.566799+00:00",
+  "sources": {
+    "wdtt/client_test_service.go": {
+      "before": "9940ba2d4f5c6f839099da12e167a3b5649e190e7e189f0a47eb63b28a2da656",
+      "after": "301ebbe0ff4032b598b8c6706e8f5007ba7ee026465d456252340415162ff75d",
+      "candidate": "/home/pavel/step036-receipts/private/s5-auth-nested-budget-source-20261002/node/client_test_service.go",
+      "baseline": "/tmp/terlimo-auth-terminal-error-20261001/client_test_service.go"
+    },
+    "server/terlimo_backend/service_relay.py": {
+      "before": "6f6ca3081b0c2dbf1de97b0434516ad6fa109fe29b595a33d4c94f96fd41f83d",
+      "after": "8c4667ba2eac7c8d34526578a0890945b95e11301278bdcba97dc08c708b69de",
+      "candidate": "/home/pavel/step036-receipts/private/s5-auth-nested-budget-source-20261002/candidate/terlimo_backend/service_relay.py",
+      "baseline": "/home/pavel/terlimo-test-a-live/terlimo_backend/service_relay.py"
+    },
+    "server/terlimo_backend/auth_api.py": {
+      "before": "383ffff577a9fce802b43e7d7593237e924bd2634aeeb22e6531470d940f3ca2",
+      "after": "d16bd8f4678200ab8068baa5e7fc3a6a219b970cce59da7811bc6aef0c76eef3",
+      "candidate": "/home/pavel/step036-receipts/private/s5-auth-nested-budget-source-20261002/candidate/terlimo_backend/auth_api.py",
+      "baseline": "/home/pavel/terlimo-test-a-live/terlimo_backend/auth_api.py"
+    }
+  },
+  "baseline_files_unchanged": true,
+  "tests": {
+    "test_auth_budget_offline.py": "1ab24cf79dab2c0f55042b7ff212b4f77ee32de4f166a827b8e7ef1a9dc905cb",
+    "node/auth_budget_test.go": "ca76986689f3cca8248b5334f96821b706e61cf9881c1fbac939bca90a998a4a",
+    "node/service_unix_terminal_test.go": "ab2d97bce20debc043783111c52528eba3fb0d01121e10a7685aef5812f06292",
+    "python-tests.log": "1b04cd4369dd3606f58c2e69543ae9885cafb18622a65e98f445d4d4972a9854",
+    "node-tests.log": "da01d05905b16c14faeb4cb5f15d1553392f795fb005599389a823c97c2a2f3d"
+  },
+  "tested_toolchain": "Go1.26.8 linux/amd64 CGO0; Python3.12.3/aiohttp3.14.3; no live DB/socket/phone"
+}

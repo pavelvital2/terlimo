@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import secrets
 from datetime import UTC, datetime
 from typing import Any
@@ -1132,26 +1133,44 @@ def _service(request: web.Request) -> InstallationSessionService:
     return request.app[AUTH_SERVICE_KEY]
 
 
+AUTH_REQUEST_BUDGET_SECONDS = 20
+AUTH_DEADLINE_HEADER = "X-WL-Auth-Deadline-Monotonic"
+
+
+def _auth_deadline(request: web.Request) -> float:
+    # Fixed loopback replay shares this host's monotonic clock. A caller can only
+    # shorten the server cap; missing/invalid/unbounded values cannot extend it.
+    deadline = asyncio.get_running_loop().time() + AUTH_REQUEST_BUDGET_SECONDS
+    try:
+        inherited = float(request.headers.get(AUTH_DEADLINE_HEADER, ""))
+    except (ValueError, TypeError):
+        return deadline
+    return min(deadline, inherited) if math.isfinite(inherited) else deadline
+
+
 async def _handle_challenge(request: web.Request) -> web.Response:
     phase = new_auth_api_phase("challenge")
     if phase is not None:
         phase.mark("handler_entry")
     fallback_id = random_hex(16)
     try:
-        body = await _json_body(request)
-        if phase is not None:
-            phase.mark("json_end")
-            result = await _service(request).create_challenge(body, phase=phase)
-        else:
-            result = await _service(request).create_challenge(body)
-        response = web.json_response(result)
-        if phase is not None:
-            phase.mark("response_ready")
-        return response
+        async with asyncio.timeout_at(_auth_deadline(request)):
+            body = await _json_body(request)
+            if phase is not None:
+                phase.mark("json_end")
+                result = await _service(request).create_challenge(body, phase=phase)
+            else:
+                result = await _service(request).create_challenge(body)
+            response = web.json_response(result)
+            if phase is not None:
+                phase.mark("response_ready")
+            return response
     except asyncio.CancelledError:
         if phase is not None:
             phase.mark("handler_error", "cancelled")
         raise
+    except TimeoutError:
+        return _error_response(fallback_id, ApiError("SERVICE_UNAVAILABLE"))
     except ApiError as error:
         if phase is not None:
             phase.mark("handler_error", "rejected")
@@ -1188,21 +1207,24 @@ async def _handle_session(request: web.Request) -> web.Response:
         phase.mark("handler_entry")
     fallback_id = random_hex(16)
     try:
-        body = await _json_body(request)
-        if phase is not None:
-            phase.mark("json_end")
-        result = await _service(request).create_session(
-            body, idempotency_header=request.headers.get("Idempotency-Key"),
-            **({"phase": phase} if phase is not None else {}),
-        )
-        response = web.json_response(result)
-        if phase is not None:
-            phase.mark("response_ready")
-        return response
+        async with asyncio.timeout_at(_auth_deadline(request)):
+            body = await _json_body(request)
+            if phase is not None:
+                phase.mark("json_end")
+            result = await _service(request).create_session(
+                body, idempotency_header=request.headers.get("Idempotency-Key"),
+                **({"phase": phase} if phase is not None else {}),
+            )
+            response = web.json_response(result)
+            if phase is not None:
+                phase.mark("response_ready")
+            return response
     except asyncio.CancelledError:
         if phase is not None:
             phase.mark("handler_error", "cancelled")
         raise
+    except TimeoutError:
+        return _error_response(fallback_id, ApiError("SERVICE_UNAVAILABLE"))
     except ApiError as error:
         if phase is not None:
             phase.mark("handler_error", "rejected")
