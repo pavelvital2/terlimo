@@ -78,6 +78,21 @@ class PreAdmissionConnectTest {
     }
 
     @Test
+    fun `preserved browse preference never overrides revoked rights`() {
+        for (p in listOf(
+            projection(dataAccess = "subscription_data", onboarding = "active", bindingStatus = "revoked"),
+            projection(dataAccess = "subscription_data", onboarding = "active", entitlementStatus = "revoked"),
+            projection(dataAccess = "none", onboarding = "expired", entitlementStatus = "expired"),
+        )) {
+            val retained = state(p).copy(nodes = listOf(NodeLabel("gw", "Gateway")), selectedNodeId = "gw")
+            val refreshed = BrowseCatalogCodec.apply(retained, BrowseCatalog(retained.nodes))
+            assertEquals("gw", BrowseCatalogCodec.selectedId(refreshed))
+            assertFalse(PreAdmissionConnect.activeBrowse(refreshed))
+            assertFalse(BrowseConnectGate.connectable(refreshed, false))
+        }
+    }
+
+    @Test
     fun `management only me before forbidden catalog still offers explicit first connect`() {
         val waiting = state(projection(managementOnly = true)).copy(phase = "BootstrapConnecting")
         assertTrue(PreAdmissionConnect.connectable(waiting, pendingChoice = false))

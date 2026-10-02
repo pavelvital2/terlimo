@@ -34,7 +34,15 @@ internal object NodeSelection {
             // Explicit actions/success clear the error; keep last-good feedback.
             error = if (state.phase == "Connected") state.error else null,
             summary = summary,
-            selectedNodeId = if (switching) state.selectedNodeId else catalog.selectedNodeId,
+            selectedNodeId = when {
+                switching -> state.selectedNodeId
+                catalog.selectedNodeId.isNotEmpty() -> catalog.selectedNodeId
+                // Native has no saved selection yet after a browse-only choice.
+                // Keep that preference only if the verified list permits this ID;
+                // explicit Connect still uses the unchanged native admission path.
+                else -> BrowseCatalogCodec.selectedId(state)
+                    .takeIf { id -> catalog.nodes.any { it.id == id } }.orEmpty()
+            },
             pendingNodeId = if (switching) state.pendingNodeId else pending,
             catalogRevision = catalog.revision,
             pings = state.pings.filterKeys { id -> catalog.nodes.any { it.id == id } },

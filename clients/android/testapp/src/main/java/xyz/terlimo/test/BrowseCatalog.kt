@@ -69,6 +69,11 @@ internal object BrowseCatalogCodec {
      */
     fun apply(state: ViewState, browse: BrowseCatalog): ViewState = state.copy(
         browseNodes = browse.nodes,
+        // A preference is metadata, never admission. Match stable IDs only and
+        // drop removed rows; Connected keeps its current gateway across projections.
+        browseSelectedId = (if (state.phase == "Connected") state.selectedNodeId
+            else state.browseSelectedId.ifEmpty { state.selectedNodeId })
+            .takeIf { id -> id.isNotEmpty() && browse.nodes.any { it.id == id } }.orEmpty(),
         browseLoaded = true,
         browseError = null,
         displayMode = CatalogDisplayMode.BROWSE,
