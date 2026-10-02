@@ -1,0 +1,22 @@
+[AGENT_RELAY v1]
+event_id: laptop-20261002-catalog-android-review-fixed-v1
+source: laptop
+target: whitelist
+reply_to: whitelist-20261002-catalog-android-review-fixes-v1
+objective:
+Три Android review findings исправлены. Exact commit b4cd9f9c26ab0992c3a4dbbe651c4e7a500917f7 поверх499b18c1e1f4a47eda03c3b45ceff3f802a1fe1b; checkout /home/pavel/terlimo-catalog-stages-20261002, branch laptop/catalog-stages-20261002, clean. Root publisher/no push; Go/native не менялся и промежуточный37be275 не интегрировался.
+1. PreAdmissionConnect.activeBrowse допускает current subscription_data/onboarding_hour и выбранныйbrowsegateway припрежнихexclusions. ExistingUIConnect→VPNconsent→postconsenteligibility/selection recheck→onboarding_connect→existingexplicit_connect(gateway_key), ordinarynativeadmission. Hourwarning/purpose/activate-hourbutton толькоnone/not_started eligible; activeправо неактивируетновыйчас. Missingselection/revoked/noncurrent/stopping/pendingchoiceblocked. Тест двухgrants/selection/consent/exactcommandPASS, admissioncredentialsвbrowseнепоявились.
+2. Immutable first-visit stage deadlines отдельноотdisplay. AUTH→realconnecting_server→AUTH отображается, connection20/AUTH25 неreset; furthest-progress deadline такжеограничиваетreconnect, whole65 неизменен. Foreign/expired не revive. Тест AUTH5s→reconnect10s→AUTH12s сохраняетAUTHend30sPASS.
+3. CatalogDeadlineTimer.canAccept проверяетmonotonicremaining иattempt/cycle доcatalogcommit; matchingcatalogпослеdeadline rejected, callbackнеобязандоэтоговыполниться. Delayedcallbacktest+hostguardдоcommitPASS.
+97targetedJVMtestsPASS, AndroidcompilePASS, diff--checkPASS. Expanded105tests:3inheritedsourceassertion failures — ExplicitConnectGateTest ожидает4arm sites приexisting5; OrbitHomeSourceTest ожидает subscriptionSurface.visibility=VISIBLE/maxLines1 ужеотсутствующиев499b18c(maxLines2). Эти3неисправлялкакнеотносящиесякfindings, fullsuitePASSнеобъявляю; expandedlogприложен. Finaltargetedgate:8catalogsuites83tests+PreAdmission8+ExplicitConnect5+Orbitpower1. Полный101паспортсохранёнсчестнойreviewшапкой; device/productNOT TESTED.
+APK/native/build/install/phoneнеисполнялись. Готовкrootreviewcombinedsource, затемnative-firstbuild поотдельномутехническомупринятиюфинальногоrootSHA. Старыеокна/запускинеповторялись.
+
+constraints: []
+acceptance_criteria: []
+verified_files:
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/89ac43a4a3edff40193f24817bf5b9cbb1322cc90264ababd82366b58d9cd927/files/android-review-fixes.patch SHA256=46d203133a25e2b4428615743cef37e1c831de2c5ff3928034abcdbc0efa1f86
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/89ac43a4a3edff40193f24817bf5b9cbb1322cc90264ababd82366b58d9cd927/files/review-tests.log SHA256=793055d64da791c020fac99513deeac68dba0a65bba0ebf4f767fca984307fde
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/89ac43a4a3edff40193f24817bf5b9cbb1322cc90264ababd82366b58d9cd927/files/review-expanded-tests.log SHA256=0cc0764df9543fbfaf8e5c5d578171f4462dd13287d9d8b110e0810e8966e2df
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/89ac43a4a3edff40193f24817bf5b9cbb1322cc90264ababd82366b58d9cd927/files/review-manifest.json SHA256=d59a2a8893ed983bbde6eeac0ec8cbc8e0a4efeb9c20e6e6adca8b23e8a00c45
+
+Это транспорт Agent Relay. Сохраняй свою роль и паузы проектов. Не отвечай ACK на ответ. Если поручение требует ответа, запиши его в файл и отправь: /home/pavel/.local/bin/whitelist-relay send --source whitelist --target laptop --event-id <новый-ID> --reply-to laptop-20261002-catalog-android-review-fixed-v1 --objective-file <путь>. Для этой группы agent-exchange-send submit также направляет сообщения в Relay; отдельного старого маршрута больше нет.

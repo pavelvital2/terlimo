@@ -1272,7 +1272,7 @@ class MainActivity : Activity() {
         consentDenied = false
         preAdmissionConsentRequest = true
         // Explicit owner warning before the first hour starts; display-only text.
-        status.text = PreAdmissionConnect.HOUR_WARNING
+        if (PreAdmissionConnect.eligible(state)) status.text = PreAdmissionConnect.HOUR_WARNING
         val consent = VpnService.prepare(this)
         PowerDiagnostics.flag("rpac.consent", "needsConsent" to (consent != null))
         if (consent != null) startActivityForResult(consent, 100) else connectSelected()
@@ -1435,6 +1435,7 @@ class MainActivity : Activity() {
                 render(SessionService.view)
                 return
             }
+            if (!PreAdmissionConnect.connectable(SessionService.view, pendingChoiceId != null)) return
             val gatewayKey = BrowseCatalogCodec.selectedId(SessionService.view)
             PowerDiagnostics.flag("cs.pre.send", "keyPresent" to gatewayKey.isNotEmpty())
             val intent = Intent(this, SessionService::class.java).setAction("onboarding_connect")
@@ -1539,7 +1540,7 @@ class MainActivity : Activity() {
         catalogView.render(state, state.pings)
         renderAnnouncements(state)
         orbitHeader.render(state, pending != null)
-        activateHourButton.visibility = if (PreAdmissionConnect.connectable(state, pending != null))
+        activateHourButton.visibility = if (PreAdmissionConnect.eligible(state) && PreAdmissionConnect.connectable(state, pending != null))
             View.VISIBLE else View.GONE
         registerTelegramButton.visibility = if (RegistrationUi.registerVisible(state)) View.VISIBLE else View.GONE
         registerTelegramButton.text = RegistrationUi.buttonText(state)
@@ -1740,7 +1741,7 @@ class MainActivity : Activity() {
      * admission wording is introduced.
      */
     private fun mainStatusText(state: ViewState): String = listOfNotNull(
-        UserStatusText.phase(state.phase),
+        state.catalogStage?.label ?: UserStatusText.phase(state.phase),
         UserStatusText.error(if (consentDenied) "VPN_PERMISSION_DENIED" else state.error),
         pendingSelectionStatus(state),
         state.accountAccess?.let {

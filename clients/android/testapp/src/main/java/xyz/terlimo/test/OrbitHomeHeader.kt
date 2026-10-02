@@ -104,7 +104,9 @@ internal class OrbitHomeHeader(
                 state.browseLoaded -> "Список серверов пуст. Обновите список."
                 else -> "Загружаем список серверов…"
             }
-            preAdmissionConnect -> PreAdmissionConnect.HOUR_PURPOSE
+            preAdmissionConnect && PreAdmissionConnect.eligible(state) -> PreAdmissionConnect.HOUR_PURPOSE
+            preAdmissionConnect -> BrowseCatalogCodec.displayedNodes(state)
+                .singleOrNull { it.id == BrowseCatalogCodec.selectedId(state) }?.name ?: "Выбранный сервер"
             state.selectedNodeId.isBlank() -> "Выберите сервер и подключитесь"
             else -> state.nodes.singleOrNull { it.id == state.selectedNodeId }?.name ?: "Выберите доступный сервер"
         }

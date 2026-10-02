@@ -218,3 +218,79 @@ func TestManagedMobileEmitsAccountAccessThroughRealBridge(t *testing.T) {
 		t.Fatal("session challenge/session flow did not run")
 	}
 }
+
+func TestManagedMobileCatalogCycleUsesDisplayQueryWithoutCredentials(t *testing.T) {
+	fixture := newWiringFixture(t)
+	base := fixture.handler()
+	queries := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/mobile/v1/gateways" {
+			base.ServeHTTP(w, r)
+			return
+		}
+		queries <- r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"request_id":"0123456789abcdef0123456789abcdef","server_time":"2026-09-21T12:00:00Z","schema_version":"1.0","status":"ok","catalog_mode":"browse","valid_until":"2026-09-21T12:10:00Z","issued_at":"2026-09-21T11:55:00Z","gateways":[{"gateway_id":"gw-1","name":"Synthetic","region":"test","country_code":"XX"}]}`)
+	}))
+	defer server.Close()
+	var output syncBuffer
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bridge := newManagedBridge(&output, "attempt", cancel)
+	start := managedStart{V: 1, Type: "start", AttemptID: "attempt", CatalogCycle: cycleA, MobileBaseURL: server.URL, MobileEnvironment: "test"}
+	signer := func(ctx context.Context, transcript []byte) ([]byte, error) {
+		digest := sha256.Sum256(transcript)
+		return ecdsa.SignASN1(rand.Reader, fixture.key, digest[:])
+	}
+	controller := &managedController{bridge: bridge, start: start}
+	mobile, err := newManagedMobile(start, fixture.spkiDER, signer, bridge, controller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { mobile.run(ctx, bridge); close(done) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.Now().Add(3 * time.Second)
+	for !strings.Contains(output.String(), `"catalog_mode":"browse"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("missing display event: %s", output.String())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case query := <-queries:
+		if query != "view=browse" {
+			t.Fatalf("wrong gateway request: %q", query)
+		}
+	default:
+		t.Fatal("no gateways request")
+	}
+	if !strings.Contains(output.String(), `"catalog_cycle":"`+cycleA+`"`) {
+		t.Fatal("missing cycle fence")
+	}
+	mobile.mu.Lock()
+	defer mobile.mu.Unlock()
+	if mobile.latestMe == nil || mobile.catalog != nil || mobile.ready || mobile.verified != 0 {
+		t.Fatal("browse either lost current rights or entered credential readiness")
+	}
+}
+
+func TestManagedMobileCurrentRightsDoNotUseStalePairForConnect(t *testing.T) {
+	old := accountaccess.MeResponse{}
+	old.GrantResolution.DataAccess = "subscription_data"
+	m := &managedMobile{me: &old}
+	if !m.hasCurrentDataAccess() {
+		t.Fatal("existing paid rights lost")
+	}
+	fresh := accountaccess.MeResponse{}
+	fresh.GrantResolution.DataAccess = "none"
+	m.onCurrentMe(fresh)
+	if m.hasCurrentDataAccess() {
+		t.Fatal("stale paid pair overrides fresh revocation")
+	}
+	fresh.GrantResolution.DataAccess = "onboarding_hour"
+	m.onCurrentMe(fresh)
+	if !m.hasCurrentDataAccess() {
+		t.Fatal("existing active hour would be activated again")
+	}
+}

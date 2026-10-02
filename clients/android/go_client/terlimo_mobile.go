@@ -55,6 +55,7 @@ type managedMobile struct {
 
 	mu            sync.Mutex
 	me            *accountaccess.MeResponse
+	latestMe      *accountaccess.MeResponse
 	catalog       *accountaccess.CatalogResponse
 	browse        *accountaccess.BrowseCatalogResponse
 	browseNodes   string
@@ -220,6 +221,8 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 			return bridge.sendContext(ctx, bridgeMessage(payload))
 		},
 		OnVerified:  m.onVerified,
+		OnMe:        m.onCurrentMe,
+		DisplayOnly: func(ctx context.Context) bool { return catalogCycleFromContext(ctx) != "" },
 		OnBrowse:    m.onBrowse,
 		OnAdmission: m.handleAdmission,
 		SelectedNodeID: func() string {
@@ -803,6 +806,24 @@ func (m *managedMobile) verifiedSignal() <-chan struct{} {
 // attempt context ends. A verified pair without a projectable right (for example
 // data_access=none) is an expected state: the single runner keeps its refresh cadence
 // and a later snapshot can still be admitted.
+func (m *managedMobile) onCurrentMe(me accountaccess.MeResponse) {
+	m.mu.Lock()
+	m.latestMe = &me
+	m.mu.Unlock()
+}
+
+// This chooses the explicit Connect preparation path only. The refreshed
+// credential catalog and normal admission checks still authorize VPN start.
+func (m *managedMobile) hasCurrentDataAccess() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	me := m.latestMe
+	if me == nil {
+		me = m.me
+	}
+	return me != nil && (me.GrantResolution.DataAccess == "subscription_data" || me.GrantResolution.DataAccess == "onboarding_hour")
+}
+
 func (m *managedMobile) waitReady(ctx context.Context) error {
 	for {
 		m.mu.Lock()

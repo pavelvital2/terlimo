@@ -45,10 +45,22 @@ internal object PreAdmissionConnect {
         return true
     }
 
+    /** Existing data grant connects the selected public row through ordinary admission. */
+    fun activeBrowse(state: ViewState): Boolean {
+        if (state.phase in ACTIVE_OR_STOPPING_PHASES || state.displayMode != CatalogDisplayMode.BROWSE) return false
+        val snapshot = state.accountAccess ?: return false
+        val p = snapshot.projection
+        return snapshot.current && p.grant.dataAccess in setOf("subscription_data", "onboarding_hour") &&
+            p.account.state !in PROHIBITED_ACCOUNT_STATES &&
+            p.account.bindingStatus !in PROHIBITED_BINDING_STATUSES &&
+            p.entitlement.status !in PROHIBITED_ENTITLEMENT_STATUSES &&
+            BrowseCatalogCodec.selectedId(state).isNotEmpty()
+    }
+
     /**
      * The explicit Connect without a node selection is permitted only in the eligible
      * first-connect state and only while no choice is pending. It performs no I/O.
      */
     fun connectable(state: ViewState, pendingChoice: Boolean): Boolean =
-        !pendingChoice && state.pendingNodeId == null && eligible(state)
+        !pendingChoice && state.pendingNodeId == null && (eligible(state) || activeBrowse(state))
 }

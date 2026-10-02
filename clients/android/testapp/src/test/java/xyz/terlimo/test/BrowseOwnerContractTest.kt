@@ -95,14 +95,21 @@ class BrowseOwnerContractTest {
     @Test
     fun `browse branch precedes the strict decoder and writes no verified state`() {
         val handler = service.substringAfter("\"catalog\" -> {").substringBefore("\"node_probe_result\" ->")
+        assertTrue(handler.indexOf("!catalogTimer.canAccept(attempt, pendingCycle)") < handler.indexOf("catalogGate.commit"))
         val browseAt = handler.indexOf("BrowseCatalogCodec.isBrowse(event)")
         val decodeAt = handler.indexOf("NodeSelection.parseCatalog(event)")
         assertTrue("browse must be decided before the credential decoder", browseAt in 1 until decodeAt)
         val browsePath = handler.substring(browseAt, decodeAt)
-        listOf("persistCatalogCache", "NodeSelection.applyCatalog", "onCatalogAccepted", "catalogTimer.apply",
-            "probe_node", "select_node", "autoConnectRetained", "mobileCatalog").forEach {
+        listOf("persistCatalogCache", "NodeSelection.applyCatalog",
+            "probe_node", "select_node", "autoConnectRetained").forEach {
             assertFalse(it, browsePath.contains(it))
         }
+        assertTrue(browsePath.contains("if (refreshPlan.publish)"))
+        assertTrue(browsePath.contains("CatalogTimerMarker.ACCEPT"))
+        assertTrue(browsePath.contains("MobileCatalogAction.DISARM"))
+        val accessPath = service.substringAfter("\"account_access\" -> {")
+            .substringBefore("\"catalog_stage\" -> {")
+        assertFalse(accessPath.contains("mobileCatalog.onAccountAccess"))
         // The credential path keeps its existing shape.
         assertTrue(handler.contains("NodeSelection.applyCatalog(view, catalog, summary)"))
         assertTrue(handler.contains("runCatching { persistCatalogCache(updated) }"))
@@ -337,7 +344,7 @@ class BrowseOwnerContractTest {
             .substringBefore("private fun sign(")
         assertTrue(mirror.contains("view.copy(browseError = it)"))
         assertTrue(catalogView.contains("retry: Boolean = false"))
-        assertTrue(catalogView.contains("text = \"Повторить\""))
+        assertTrue(catalogView.contains("text = \"Попробовать ещё раз\""))
         // A successful empty answer is rendered as its own state, never as an error card.
         val browse = catalogView.substringAfter("private fun addBrowse(").substringBefore("private fun addBrowseRow(")
         assertTrue(browse.contains("if (error == null) addEmpty()"))
@@ -351,7 +358,7 @@ class BrowseOwnerContractTest {
         assertTrue(AutoLoadPolicy.shouldStart(emptyList()))
         assertTrue(AutoLoadPolicy.shouldStart(listOf(NodeLabel("v", "V", "DE"))))
         val auto = activity.substringAfter("private fun autoLoadSavedSubscription()")
-            .substringBefore("private fun requestVpnConsentForCurrentSelection")
+            .substringBefore("\n    }")
         assertTrue(auto.contains("AutoLoadPolicy.shouldStart(projectedState().nodes)"))
         assertTrue(auto.contains("ProcessAutoLoad.claim()"))
         assertTrue(auto.contains("setAction(\"resume\")"))

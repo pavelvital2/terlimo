@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 
 internal data class ViewState(val phase: String = "Idle", val attempt: String? = null,
     val nodes: List<NodeLabel> = emptyList(), val error: String? = null,
+    val catalogStage: CatalogStage? = null,
     val summary: CatalogSummary? = null, val selectedNodeId: String = "", val pendingNodeId: String? = null,
     val pings: Map<String, NodePingState> = emptyMap(), val pingAll: PingAllState = PingAllState(),
     val traffic: TrafficSnapshot = TrafficSnapshot(),
@@ -227,6 +228,7 @@ class SessionService : Service() {
     @Volatile private var readinessProbe: VpnReadinessProbe? = null
     /** Explicit per-attempt catalogue expectation state machine (mobile rights transitions). */
     private val mobileCatalog = MobileCatalogGate()
+    private var catalogCycle: String? = null
     /** S3-B explicit trial activation action gate (service-only path, no VPN required). */
     private val trialGate = TrialActivateGate()
     /** S5 explicit purchase action gate (cold service-only attempt when none is active). */
@@ -248,6 +250,20 @@ class SessionService : Service() {
         schedule = { delayMillis, callback -> main.postDelayed(callback, delayMillis) },
         activeAttempt = { gate.active },
         onTimeout = { attempt -> handleAttemptTerminal(attempt, "CATALOG_TIMEOUT") },
+        onStageTimeout = { attempt, stage ->
+            val code = "CATALOG_${stage.name}_TIMEOUT"
+            val expiredCycle = catalogCycle
+            catalogCycle = null
+            if (view.phase == "Connected") {
+                if (expiredCycle != null) native?.trySend(JSONObject()
+                    .put("type", "cancel_catalog").put("catalog_cycle", expiredCycle))
+                publishActive(attempt, view.copy(catalogStage = null, error = code))
+                completeCatalogRefresh(catalogGate.planTerminal(attempt, code))
+            } else {
+                publishActive(attempt, view.copy(catalogStage = null))
+                handleAttemptTerminal(attempt, code)
+            }
+        },
         elapsed = { android.os.SystemClock.elapsedRealtime() },
         utc = { System.currentTimeMillis() },
         emit = { marker -> logCatalogMarker(marker) },
@@ -570,7 +586,7 @@ class SessionService : Service() {
                 return@submitCatalogControl
             }
             if (!catalogGate.dispatch(attempt, requestId) {
-                    child.trySend(JSONObject().put("type", "refresh_manual"))
+                    requestManualCatalog(attempt)
                 }) {
                 catalogGate.cancelJob(requestId)
                 completeCatalogRefresh(
@@ -581,6 +597,23 @@ class SessionService : Service() {
     }
 
     /** A periodic request must not vanish when the actor is full or already closing. */
+    private fun requestManualCatalog(attempt: String): Boolean {
+        if (catalogTimer.pending(attempt) || gate.active != attempt || stopping.get()) return false
+        val child = native ?: return false
+        val cycle = java.util.UUID.randomUUID().toString()
+        catalogCycle = cycle
+        catalogTimer.beginStages(attempt, cycle)
+        publishActive(attempt, view.copy(catalogStage = CatalogStage.CONNECTING, error = null))
+        val sent = child.trySend(JSONObject().put("type", "refresh_manual").put("catalog_cycle", cycle))
+        if (!sent) {
+            catalogTimer.clear()
+            catalogCycle = null
+            publishActive(attempt, view.copy(catalogStage = null, error = "BRIDGE_WRITE_FAILED"))
+            completeCatalogRefresh(catalogGate.planTerminal(attempt, "BRIDGE_WRITE_FAILED"))
+        }
+        return sent
+    }
+
     private fun submitCatalogControl(requestId: String, action: () -> Unit) {
         fun reject() {
             catalogGate.cancelJob(requestId)
@@ -691,7 +724,7 @@ class SessionService : Service() {
                     lastRefreshIntentElapsed = nowElapsed
                     android.util.Log.i("WDTT/Refresh", "refresh intent accepted")
                     if (gate.active != null) {
-                        native?.send(JSONObject().put("type", "refresh_manual"))
+                        submitControl { gate.active?.let { requestManualCatalog(it) } }
                     } else {
                         submitControl { begin("") }
                     }
@@ -1242,7 +1275,13 @@ class SessionService : Service() {
             if (gate.active != attempt || stopping.get()) return
             // Arm before any child start: native can accept a catalogue immediately, and a later
             // arm would resurrect a deadline that the accepted catalogue already disarmed.
-            catalogTimer.apply(attempt, mobileCatalog.onAttemptStart(attempt, mobileBaseUrl != null))
+            val catalogAction = mobileCatalog.onAttemptStart(attempt, mobileBaseUrl != null)
+            if (mobileBaseUrl != null) {
+                val cycle = java.util.UUID.randomUUID().toString()
+                catalogCycle = cycle; start.put("catalog_cycle", cycle)
+                catalogTimer.beginStages(attempt, cycle)
+                publishActive(attempt, view.copy(catalogStage = CatalogStage.CONNECTING))
+            } else catalogTimer.apply(attempt, catalogAction)
             if (catalogRequestId == null) {
                 child.start(start)
             } else if (!catalogGate.dispatch(attempt, catalogRequestId) { child.start(start); true }) {
@@ -1375,17 +1414,8 @@ class SessionService : Service() {
                             if (trialGate.onVerifiedRights(attempt, registration.state == "registered", trial.canActivate)) {
                                 native?.send(JSONObject().put("type", "activate_trial"))
                             }
-                            // Accepted CURRENT mobile projection drives the explicit per-attempt
-                            // state machine: none/restricted_checkout -> WAITING_RIGHT (attempt
-                            // stays alive, no catalogue timer, no VPN); a data right arms exactly
-                            // one fresh finite window only on the transition into WAITING_CATALOG.
-                            // Rejected/stale/foreign projections and legacy attempts change nothing.
-                            val catalogAction =
-                                mobileCatalog.onAccountAccess(updated.projection.grant.dataAccess, attempt)
-                            catalogTimer.apply(attempt, catalogAction,
-                                marker = if (catalogAction == MobileCatalogAction.DISARM) CatalogTimerMarker.DISARM else null,
-                                detail = "rights_${updated.projection.grant.dataAccess}",
-                            )
+                            // No data right is a valid browse state, not a network failure.
+                            // It cannot disarm or reset acquisition of the public catalogue.
                             refreshAccessDisplay(attempt)
                             // §26.2: a freshly accepted account projection (including the first
                             // /me after a cold start) resolves the scoped last server; a real
@@ -1612,23 +1642,38 @@ class SessionService : Service() {
                         }
                     }
                 }
+                "catalog_stage" -> {
+                    val cycle = event.getString("catalog_cycle")
+                    val stage = CatalogStage.parse(event.getString("stage")) ?: return
+                    if (cycle == catalogCycle && catalogTimer.advanceStage(attempt, cycle, stage))
+                        publishActive(attempt, view.copy(catalogStage = stage))
+                }
                 "catalog" -> {
+                    val pendingCycle = catalogCycle
+                    if (pendingCycle != null && !catalogTimer.canAccept(attempt, pendingCycle)) return
+                    // New mobile requests require their own operation fence, including refresh.
+                    if ((catalogCycle != null || event.has("catalog_cycle")) && event.optString("catalog_cycle") != catalogCycle) return
                     if (BrowseCatalogCodec.isBrowse(event)) {
                         // Owner contract 2/3: the display branch is decided before the strict
                         // credential decoder. It never writes the verified cache/last-good/
                         // selection, never sets CatalogReady, never arms the catalogue deadline,
                         // probe/admission/sync and never starts intent/hour/VPN. A malformed
                         // browse answer fails the attempt through the existing host-failure path.
-                        val updatedBrowse = BrowseCatalogCodec.apply(view, BrowseCatalogCodec.parse(event))
+                        val updatedBrowse = BrowseCatalogCodec.apply(view, BrowseCatalogCodec.parse(event)).copy(catalogStage = null)
                         val refreshPlan = catalogGate.commit(attempt) { publishActive(attempt, updatedBrowse) }
                         if (refreshPlan.stopCycle) stopAttempt(null, "schedule_cancelled")
                         completeCatalogRefresh(refreshPlan.completions)
+                        if (refreshPlan.publish) {
+                            mobileCatalog.onCatalogAccepted(attempt)
+                            catalogTimer.apply(attempt, MobileCatalogAction.DISARM, CatalogTimerMarker.ACCEPT)
+                            catalogCycle = null
+                        }
                         return
                     }
                     val catalog = NodeSelection.parseCatalog(event)
                     // Optional display data cannot change transport admission/outcome.
                     val summary = runCatching { CatalogSummary.parse(event) }.getOrNull()
-                    val updated = NodeSelection.applyCatalog(view, catalog, summary)
+                    val updated = NodeSelection.applyCatalog(view, catalog, summary).copy(catalogStage = null)
                     // §26.5 commit-time ownership fence: the publish/persist block runs inside
                     // the ownership lock, so an Off/mode change either invalidates the claim
                     // before the decision or happens only after the write completed. A cycle
@@ -1647,10 +1692,12 @@ class SessionService : Service() {
                     // acquisition deadline is done and later rights never re-arm it.
                     catalogTimer.apply(
                         attempt,
-                        mobileCatalog.onCatalogAccepted(attempt),
+                        MobileCatalogAction.DISARM,
                         marker = CatalogTimerMarker.ACCEPT,
                         detail = catalog.revision,
                     )
+                    mobileCatalog.onCatalogAccepted(attempt)
+                    catalogCycle = null
                     val recovery = networkRecovery
                     val armedTarget = holdFailover.armed
                     if (armedTarget != null) {
@@ -3035,6 +3082,7 @@ class SessionService : Service() {
         // attempt can neither clear the timer nor reset the current state.
         completeCatalogRefresh(catalogGate.planTerminal(gate.active ?: "", code ?: "stopped"))
         if (mobileCatalog.onAttemptStop(gate.active) == MobileCatalogAction.DISARM) catalogTimer.clear()
+        catalogCycle = null
         if (code != null) {
             android.util.Log.w("WDTT/Terminal", FailureDiagnostics.line("stop", view.phase, gate.active, code, null))
         }
@@ -3070,7 +3118,7 @@ class SessionService : Service() {
         expiresElapsed = 0
         leaseAlarms.close()
         readinessProbe?.close()
-        publish(view.copy(phase = "Stopping", attempt = null, wakeRecovery = null, channels = null, error = code))
+        publish(view.copy(phase = "Stopping", catalogStage = null, attempt = null, wakeRecovery = null, channels = null, error = code))
         val stopPhase = view.phase
         // Exactly one teardown thread per Service; not an actor item and not behind its backlog.
         Thread({

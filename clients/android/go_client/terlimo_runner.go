@@ -509,6 +509,21 @@ func (c *managedController) runMobile(ctx context.Context, cancel context.Cancel
 			return ctx.Err()
 		case <-mobile.verifiedSignal():
 		case gatewayKey := <-c.bridge.explicit:
+			if mobile.hasCurrentDataAccess() {
+				// Browse has no credentials. Obtain them through the ordinary
+				// single runner without activating an hour or reusing a UI cycle.
+				prepareCtx, _, stopPrepare := newOperationBudget(ctx, mobileHTTPTimeout)
+				err := mobile.synchronize(prepareCtx, true)
+				stopPrepare()
+				if err != nil {
+					return err
+				}
+				if gatewayKey == "" {
+					gatewayKey = c.selectionID()
+				}
+				c.armPendingExplicitGateway(gatewayKey)
+				continue
+			}
 			onboardingCtx, onboardingBudget, stopOnboarding := newOperationBudget(ctx, mobileHTTPTimeout)
 			onboardingCtx = onboarding.WithWaitPauser(onboardingCtx, onboardingBudget)
 			activated, onboardingErr := mobile.explicitConnect(onboardingCtx, gatewayKey)
@@ -1088,6 +1103,12 @@ func (c *managedController) chooseNode(ctx context.Context, id string) error {
 
 func (c *managedController) waitForNode(ctx context.Context) (string, error) {
 	var probeCancel context.CancelFunc
+	defer func() {
+		if probeCancel != nil {
+			c.nextProbeEpoch()
+			probeCancel()
+		}
+	}()
 	probeDone := make(chan struct{}, 1)
 	for {
 		select {
@@ -1126,6 +1147,31 @@ func (c *managedController) waitForNode(ctx context.Context) (string, error) {
 				}
 				_ = c.bridge.send(echoProbeID(managedProbeResult(request.NodeID, measurement, err), request))
 			}(request, epoch)
+		case id := <-c.bridge.explicit:
+			if c.mobile == nil {
+				return "", errors.New("mobile session required")
+			}
+			if id == "" {
+				id = c.selectionID()
+			}
+			prepareCtx, prepareBudget, stopPrepare := newOperationBudget(ctx, mobileHTTPTimeout)
+			prepareCtx = onboarding.WithWaitPauser(prepareCtx, prepareBudget)
+			if !c.mobile.hasCurrentDataAccess() {
+				if err := c.runExplicitOnboarding(ctx, prepareCtx, id, c.mobile); err != nil {
+					stopPrepare()
+					return "", err
+				}
+			}
+			err := c.mobile.synchronize(prepareCtx, true)
+			if err == nil {
+				err = c.chooseNode(prepareCtx, id)
+			}
+			stopPrepare()
+			if err != nil {
+				return "", err
+			}
+			c.publishCatalog()
+			return id, nil
 		case id := <-c.bridge.preference:
 			if err := c.chooseNode(ctx, id); err != nil {
 				return "", err
@@ -1154,7 +1200,7 @@ func (c *managedController) waitForNode(ctx context.Context) (string, error) {
 			// onboarding-hour intent/start. A failure is diagnostic-only: paid,
 			// revoked and already-started sessions continue through the accepted
 			// admission path unchanged, and no background/resume path ever arms it.
-			if c.bridge.explicitSelection() && c.mobile != nil {
+			if c.bridge.explicitSelection() && c.mobile != nil && !c.mobile.hasCurrentDataAccess() {
 				// Bound the explicit hour attempt by the existing mobile call budget;
 				// it never extends the attempt lifetime or the Connect deadline policy.
 				onboardingCtx, onboardingBudget, stopOnboarding := newOperationBudget(ctx, mobileHTTPTimeout)

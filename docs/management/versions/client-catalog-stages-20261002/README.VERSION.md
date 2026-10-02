@@ -1,3 +1,7 @@
+# Combined source candidate
+
+Android source b4cd9f9c26ab0992c3a4dbbe651c4e7a500917f7 (499b18c baseline) integrated after review: active-right browse Connect keeps consent and ordinary native admission, no new hour; actual reconnect displays without resetting visited-stage budgets; monotonic deadline checked before catalog publication. 97 targeted JVM tests and Android compilation PASS per attached executor receipts; expanded suite has 3 inherited source-assertion failures, not full-suite PASS. Native integration complete: separate explicit display read and ordinary credential Connect; root affected native race tests PASS (8.064s), complete accountaccess race suite PASS (3.639s). Build/device acceptance pending. Existing 101 feature rows below are retained; no new feature PASS inferred.
+
 # Дополнение: owner catalog_cycle и отдельная отмена
 
 start/refresh_manual несут catalog_cycle UUID; immutable контекст одного прохода сохраняет его в stage и finalcatalog. Новый ручной refresh не переименовывает старый результат. Background не наследует cycle, progress после первой публикации прекращается. cancel_catalog завершает только соответствующий operation, parentVPN остаётся жив; whole native65с относится проходу, не всему процессу. Последовательный Runner отдаёт приоритет queued manual перед одновременно готовым фоновым таймером; replacement wake не теряется за coalescing fence. Повтор одинакового browse отправляется для нового явного cycle, background dedup сохранён.

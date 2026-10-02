@@ -54,6 +54,30 @@ class PreAdmissionConnectTest {
     }
 
     @Test
+    fun `active browse selection uses consent and explicit connect without a new hour`() {
+        for (grant in listOf("subscription_data", "onboarding_hour")) {
+            val active = state(projection(dataAccess = grant, onboarding = "active"))
+                .copy(displayMode = CatalogDisplayMode.BROWSE, browseLoaded = true,
+                    browseNodes = listOf(NodeLabel("gw", "Gateway", "FI")), browseSelectedId = "gw")
+            assertFalse(PreAdmissionConnect.eligible(active))
+            assertTrue(PreAdmissionConnect.activeBrowse(active))
+            assertTrue(BrowseConnectGate.connectable(active, false))
+            assertFalse(BrowseConnectGate.connectable(active.copy(browseSelectedId = ""), false))
+            assertFalse(BrowseConnectGate.connectable(active, true))
+            assertFalse(BrowseConnectGate.connectable(active.copy(accountAccess = active.accountAccess!!.copy(current = false)), false))
+        }
+        val activity = source("src/main/java/xyz/terlimo/test/MainActivity.kt")
+        val consent = activity.substringAfter("private fun requestPreAdmissionConsent(").substringBefore("override fun onNewIntent")
+        assertTrue(consent.contains("if (PreAdmissionConnect.eligible(state)) status.text = PreAdmissionConnect.HOUR_WARNING"))
+        assertTrue(consent.contains("VpnService.prepare(this)"))
+        assertTrue(consent.contains("else connectSelected()"))
+        val connect = activity.substringAfter("private fun connectSelected()").substringBefore("val id = selectedForConsent")
+        assertTrue(connect.contains("PreAdmissionConnect.connectable(SessionService.view"))
+        assertTrue(connect.contains("setAction(\"onboarding_connect\")"))
+        assertTrue(connect.contains("putExtra(\"gateway_key\", gatewayKey)"))
+    }
+
+    @Test
     fun `management only me before forbidden catalog still offers explicit first connect`() {
         val waiting = state(projection(managementOnly = true)).copy(phase = "BootstrapConnecting")
         assertTrue(PreAdmissionConnect.connectable(waiting, pendingChoice = false))
@@ -121,7 +145,7 @@ class PreAdmissionConnectTest {
         // The purpose is stated on the pre-admission action surface, the warning on the
         // main status surface, both before the first hour can start.
         val orbit = source("src/main/java/xyz/terlimo/test/OrbitHomeHeader.kt")
-        assertTrue(orbit.contains("preAdmissionConnect -> PreAdmissionConnect.HOUR_PURPOSE"))
+        assertTrue(orbit.contains("preAdmissionConnect && PreAdmissionConnect.eligible(state) -> PreAdmissionConnect.HOUR_PURPOSE"))
         val activity = source("src/main/java/xyz/terlimo/test/MainActivity.kt")
         assertTrue(activity.contains("PreAdmissionConnect.HOUR_WARNING.takeIf { PreAdmissionConnect.eligible(state) }"))
         assertTrue(activity.substringAfter("private fun requestPreAdmissionConsent(")

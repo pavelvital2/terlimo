@@ -101,6 +101,9 @@ internal object UserStatusText {
     }
 
     fun error(code: String?): String? = code?.let {
+        val timedStage = CatalogStage.entries.firstOrNull { stage -> it == "CATALOG_${stage.name}_TIMEOUT" }
+        if (timedStage != null) return "${timedStage.label}: ответ не получен вовремя. Попробуйте обновить список ещё раз."
+
         val safe = if (it in errors || it in diagnosticCodes) it else "HOST_ERROR"
         "$safe\n${errors[safe] ?: "Операция остановлена. Сохранённые данные и ключ не удаляйте; передайте этот код и диагностику в поддержку."}"
     }

@@ -1,0 +1,56 @@
+Reusing configuration cache.
+> Task :testapp:verifyNativeInput
+> Task :testapp:preBuild
+> Task :testapp:preDebugBuild
+> Task :testapp:preDebugUnitTestBuild
+> Task :testapp:generateDebugResources UP-TO-DATE
+> Task :testapp:packageDebugResources UP-TO-DATE
+> Task :testapp:processDebugNavigationResources UP-TO-DATE
+> Task :testapp:javaPreCompileDebug UP-TO-DATE
+> Task :testapp:parseDebugLocalResources UP-TO-DATE
+> Task :testapp:checkDebugAarMetadata UP-TO-DATE
+> Task :testapp:generateDebugRFile UP-TO-DATE
+> Task :testapp:compileDebugNavigationResources UP-TO-DATE
+> Task :testapp:mapDebugSourceSetPaths UP-TO-DATE
+> Task :testapp:mergeDebugResources UP-TO-DATE
+> Task :testapp:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :testapp:extractDeepLinksDebug UP-TO-DATE
+> Task :testapp:processDebugMainManifest UP-TO-DATE
+> Task :testapp:processDebugManifest UP-TO-DATE
+> Task :testapp:processDebugManifestForPackage UP-TO-DATE
+> Task :testapp:processDebugResources UP-TO-DATE
+> Task :testapp:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :testapp:compileDebugKotlin
+> Task :testapp:processDebugJavaRes UP-TO-DATE
+> Task :testapp:compileDebugJavaWithJavac UP-TO-DATE
+> Task :testapp:bundleDebugClassesToCompileJar
+> Task :testapp:bundleDebugClassesToRuntimeJar
+> Task :testapp:compileDebugUnitTestKotlin
+> Task :testapp:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :testapp:processDebugUnitTestJavaRes UP-TO-DATE
+
+> Task :testapp:testDebugUnitTest FAILED
+
+ExplicitConnectGateTest > sessionServiceArmsOnlyFromTheTrueConnectPaths FAILED
+    java.lang.AssertionError at ExplicitConnectGateTest.kt:67
+
+OrbitHomeSourceTest > bottomNavigationRemainsSingleLineAtOrbitViewport FAILED
+    java.lang.AssertionError at OrbitHomeSourceTest.kt:110
+
+OrbitHomeSourceTest > productSurfacesAndMetricsAreTruthful FAILED
+    java.lang.AssertionError at OrbitHomeSourceTest.kt:46
+
+105 tests completed, 3 failed
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':testapp:testDebugUnitTest'.
+> There were failing tests. See the report at: file:///home/pavel/terlimo-catalog-stages-20261002/clients/android/testapp/build/reports/tests/testDebugUnitTest/index.html
+
+* Try:
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+
+BUILD FAILED in 6s
+26 actionable tasks: 6 executed, 20 up-to-date
+Configuration cache entry reused.

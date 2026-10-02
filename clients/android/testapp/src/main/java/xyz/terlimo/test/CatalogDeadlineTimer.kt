@@ -4,7 +4,8 @@ package xyz.terlimo.test
  * Finite catalogue window timer for the single active attempt.
  *
  * Wraps the existing [CatalogDeadlineLifecycle] / [CatalogLoadTimeout] machinery: every applied
- * ARM schedules exactly one bounded 15s callback with its own monotonic window id, so a newer
+ * Legacy ARM schedules one bounded 15s callback; mobile beginStages uses 20/25/10/10s
+ * with a 65s total cap. Each callback with its own monotonic window id, so a newer
  * arm fences every older callback out and a fresh window is never cut short. The commit asks
  * the host for the active attempt plus the lifecycle pending flag, so a disarmed, accepted or
  * superseded attempt never stops.
@@ -32,8 +33,10 @@ internal class CatalogDeadlineTimer(
     private val elapsed: () -> Long = { 0L },
     private val utc: () -> Long = { 0L },
     private val emit: (CatalogTimerMarkerRecord) -> Unit = {},
+    private val onStageTimeout: (String, CatalogStage) -> Unit = { attempt, _ -> onTimeout(attempt) },
 ) {
     private val deadline = CatalogDeadlineLifecycle()
+    private val stages = CatalogStages()
     @Volatile private var window = 0L
     @Volatile private var armAttempt: String? = null
     @Volatile private var armElapsed: Long = 0L
@@ -53,6 +56,7 @@ internal class CatalogDeadlineTimer(
                 // exactly as before so timer decisions are unchanged.
                 val pending = deadline.pending(attempt)
                 deadline.disarm(attempt)
+                if (stages.attempt == attempt) stages.clear()
                 if (pending && marker != null) {
                     if (marker == CatalogTimerMarker.ACCEPT) emitMarker(marker, attempt, null, detail)
                     else emitMarker(marker, attempt, detail, null)
@@ -86,9 +90,40 @@ internal class CatalogDeadlineTimer(
         val attempt = armAttempt
         val pending = attempt != null && deadline.pending(attempt)
         deadline.clear()
+        stages.clear()
         if (pending && attempt != null) emitMarker(CatalogTimerMarker.DISARM, attempt, reason ?: "clear", null)
         armAttempt = null
     }
+
+    fun beginStages(attempt: String, cycle: String) {
+        stages.begin(attempt, cycle, elapsed())
+        deadline.arm(attempt)
+        armAttempt = attempt; armElapsed = elapsed()
+        emitMarker(CatalogTimerMarker.ARM, attempt, null, null)
+        scheduleStage(attempt)
+    }
+
+    fun advanceStage(attempt: String, cycle: String, stage: CatalogStage): Boolean {
+        if (!stages.advance(attempt, cycle, stage, elapsed())) return false
+        scheduleStage(attempt)
+        return true
+    }
+
+    private fun scheduleStage(attempt: String) {
+        window++
+        val armedWindow = window
+        schedule(stages.remaining(elapsed())) {
+            if (armedWindow == window && activeAttempt() == attempt && deadline.pending(attempt)) {
+                val stage = stages.stage ?: return@schedule
+                emitMarker(CatalogTimerMarker.TIMEOUT, attempt, null, null)
+                deadline.disarm(attempt); stages.clear(); armAttempt = null
+                onStageTimeout(attempt, stage)
+            }
+        }
+    }
+
+    fun canAccept(attempt: String, cycle: String): Boolean =
+        activeAttempt() == attempt && deadline.pending(attempt) && stages.canAccept(attempt, cycle, elapsed())
 
     fun pending(attempt: String): Boolean = deadline.pending(attempt)
 
