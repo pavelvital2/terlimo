@@ -57,7 +57,7 @@ class PaymentsContractTest {
         assertEquals(30_000L, plan.amountMinor)
         assertEquals("RUB", plan.currency)
         assertEquals(listOf("card", "sbp"), plan.methods)
-        assertEquals("30 дней · 300,00 RUB · Карта, СБП", PaymentsText.planLine(plan))
+        assertEquals("30 дней · 300,00 RUB · 💳 MIR, 🏦 СБП (QR-код)", PaymentsText.planLine(plan))
         assertEquals("30 дней", PaymentsText.durationLabel("days:30"))
         assertEquals("3 месяца", PaymentsText.durationLabel("months:3"))
         assertEquals("6 месяцев", PaymentsText.durationLabel("months:6"))
@@ -77,8 +77,8 @@ class PaymentsContractTest {
                 .put("methods", JSONArray().put("sbp"))
         }
         val event = PaymentsContract.parse(plansEvent(plans.joinToString(","))) as PaymentsEvent.Plans
-        assertEquals(listOf("30 дней · 200,00 RUB · СБП", "3 месяца · 480,00 RUB · СБП",
-            "6 месяцев · 840,00 RUB · СБП"), event.plans.map(PaymentsText::planLine))
+        assertEquals(listOf("30 дней · 200,00 RUB · 🏦 СБП (QR-код)", "3 месяца · 480,00 RUB · 🏦 СБП (QR-код)",
+            "6 месяцев · 840,00 RUB · 🏦 СБП (QR-код)"), event.plans.map(PaymentsText::planLine))
     }
 
     @Test
@@ -88,7 +88,7 @@ class PaymentsContractTest {
         assertEquals(30_000L, event.quote.amountMinor)
         assertEquals("card", event.quote.method)
         assertEquals("2026-09-19T15:35:00Z", event.quote.expiresAt)
-        assertEquals("30 дней · 300,00 RUB · Карта · действует до 19.09.2026 18:35 (местное время)",
+        assertEquals("30 дней · 300,00 RUB · 💳 MIR · действует до 19.09.2026 18:35 (местное время)",
             PaymentsText.quoteLine(event.quote, moscow))
         assertFalse(PurchaseFlow.quoteExpired(
             PurchaseState(quote = event.quote), java.time.Instant.parse("2026-09-19T15:34:00Z")))

@@ -1,0 +1,60 @@
+[
+  {
+    "name": "xyz.terlimo.test.BrowserMenuTest",
+    "tests": "2",
+    "skipped": "0",
+    "failures": "0",
+    "errors": "0",
+    "timestamp": "2026-10-02T10:48:19.816Z",
+    "hostname": "DESKTOP-LKLUNRD",
+    "time": "0.126",
+    "cases": [
+      "labelsAndOrderMatchProductionExportWhileAmountsRemainServerOwned",
+      "changedSelectionOrStalePriceCannotPayAndTheExistingOrderCanStillContinue"
+    ]
+  },
+  {
+    "name": "xyz.terlimo.test.CheckoutOpenPolicyTest",
+    "tests": "1",
+    "skipped": "0",
+    "failures": "0",
+    "errors": "0",
+    "timestamp": "2026-10-02T10:48:19.956Z",
+    "hostname": "DESKTOP-LKLUNRD",
+    "time": "0.033",
+    "cases": [
+      "renderPurchaseHasNoUnconditionalDecideAndThePayTapArmsTheExplicitRequest"
+    ]
+  },
+  {
+    "name": "xyz.terlimo.test.PaymentsContractTest",
+    "tests": "3",
+    "skipped": "0",
+    "failures": "0",
+    "errors": "0",
+    "timestamp": "2026-10-02T10:48:19.997Z",
+    "hostname": "DESKTOP-LKLUNRD",
+    "time": "0.051",
+    "cases": [
+      "threeServerPlansKeepTheirOwnDurationAndAmount",
+      "quoteParsesStrictlyAndRendersLocalExpiry",
+      "plansListParsesStrictlyAndRendersExactLabels"
+    ]
+  },
+  {
+    "name": "xyz.terlimo.test.PurchaseVisibilityTest",
+    "tests": "4",
+    "skipped": "0",
+    "failures": "0",
+    "errors": "0",
+    "timestamp": "2026-10-02T10:48:20.053Z",
+    "hostname": "DESKTOP-LKLUNRD",
+    "time": "0.011",
+    "cases": [
+      "noQuoteCannotOfferPay",
+      "renderPurchaseUsesTheSharedVisibilityPolicy",
+      "acceptedQuoteShowsTheLineAndPay",
+      "parkedPaidOrderHidesTheLineAndPay"
+    ]
+  }
+]

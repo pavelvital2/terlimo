@@ -1,0 +1,50 @@
+{
+  "reply_to": "whitelist-20261002-browser-menu-parity-source-v1",
+  "base": "8230feb9e9b25e3dfa67dd1ff90f1c9b749d4e3a",
+  "commit": "67d50966b9a9fc520f278d8498038acf5170b3a9",
+  "tree": "d01ef7f12f1c0fb8b66007a755872f20d6c23d2b",
+  "files": [
+    {
+      "name": "REPORT.md",
+      "bytes": 8251,
+      "sha256": "f638752aa63eb0ea73ec1c61bd43694e8be29ee119637efb7da9e4dee42b2825"
+    },
+    {
+      "name": "README.VERSION.md",
+      "bytes": 64209,
+      "sha256": "8bef11f3753cc551484402c9b67b29216157fb0bdb49c3b5c2ec8291b7988b49"
+    },
+    {
+      "name": "browser-menu-parity.patch",
+      "bytes": 43750,
+      "sha256": "323fd51a13bc032a6dc7232990cc604e710f59207ab2f4def1db39c3612559d4"
+    },
+    {
+      "name": "tests-initial.json",
+      "bytes": 1611,
+      "sha256": "27819ad555fa241976e47f10fb0bce54bbe80f57a891f640b66cb2299c6929fd"
+    },
+    {
+      "name": "tests-final.json",
+      "bytes": 686,
+      "sha256": "45d19e2a3dc91431ce1752c59e6d9b08bcb48661a10c24bcabc30a5b0a57614f"
+    },
+    {
+      "name": "targeted.log",
+      "bytes": 5759,
+      "sha256": "aeb849e6666c64fd626e0dc3c44b1f3c342cb14d58e7851dd1af2f1d6750b581"
+    },
+    {
+      "name": "targeted-final.log",
+      "bytes": 5579,
+      "sha256": "383b5675f72ee47347763ad9b80ac1e20c064c88db96246c81f3bbe72f0be21c"
+    }
+  ],
+  "tracked_clean": true,
+  "diff_check": true,
+  "initial_tests_passed": 10,
+  "final_affected_tests_passed": 2,
+  "apk_built": false,
+  "phone_used": false,
+  "pushed": false
+}

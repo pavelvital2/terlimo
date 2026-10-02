@@ -1034,16 +1034,17 @@ class SessionService : Service() {
                 // Only the currently displayed server plan may be quoted; the extras are
                 // never trusted past that check.
                 val plan = view.purchase?.plans?.firstOrNull { it.planId == planId }
-                if (purchaseFlight.busy()) {
+                if (purchaseFlight.busy() || view.purchase?.sending == true) {
                     publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
                 } else if (!stopping.get() && plan != null && plan.durationCode == durationCode &&
-                    method in plan.methods) {
+                    method in plan.methods && !PurchaseFlow.paidAwaitingBinding(view.purchase)) {
                     val selected = PurchaseFlow.selectMethod(
                         PurchaseFlow.selectPlan(view.purchase, planId), method)
-                    publish(view.copy(purchase = selected))
+                    publish(view.copy(purchase = selected.copy(quote = null, createAck = null, sending = true)))
                     handlePurchaseOperation(PurchaseOperation.Quote(planId, durationCode, method))
-                } else if (!stopping.get()) {
-                    publish(view.copy(purchase = PurchaseFlow.failure(view.purchase, "INVALID_REQUEST")))
+                } else {
+                    publish(view.copy(purchase = PurchaseFlow.failure(view.purchase,
+                        if (stopping.get()) "MOBILE_STATE_UNAVAILABLE" else "INVALID_REQUEST")))
                 }
             }
             "purchase_pay" -> {
@@ -1054,12 +1055,7 @@ class SessionService : Service() {
                     // attempt keys are not rotated while the request is unanswered.
                     purchaseFlight.busy() ->
                         publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
-                    quoteId.isEmpty() || current?.quote?.quoteId != quoteId ||
-                        current?.phase == PurchaseFlow.UNAVAILABLE ||
-                        current?.selectedPlanId == null ||
-                        current?.selectedMethod != current?.quote?.method ||
-                        current?.plans?.firstOrNull { it.planId == current.selectedPlanId }
-                            ?.durationCode != current?.quote?.durationCode ->
+                    quoteId.isEmpty() || current?.quote?.quoteId != quoteId ->
                         publish(view.copy(purchase = PurchaseFlow.failure(current, "QUOTE_EXPIRED")))
                     // An expired quote is a new attempt: keys rotate, the stale quote is dropped
                     // and is never silently reused for a new payment_create. Its create
@@ -1069,6 +1065,10 @@ class SessionService : Service() {
                         paymentCreates.clear()
                         publish(view.copy(purchase = PurchaseFlow.quoteExpiredState(current)))
                     }
+                    PurchaseFlow.payableQuote(current,
+                        current?.plans?.firstOrNull { it.planId == current.selectedPlanId },
+                        current?.selectedMethod, java.time.Instant.now()) == null ->
+                        publish(view.copy(purchase = PurchaseFlow.failure(current, "QUOTE_EXPIRED")))
                     else -> handlePurchaseOperation(PurchaseOperation.Payment(quoteId))
                 }
             }
@@ -1959,7 +1959,10 @@ class SessionService : Service() {
     }
 
     private fun handlePurchaseOperation(operation: PurchaseOperation) {
-        if (stopping.get()) return
+        if (stopping.get()) {
+            publish(view.copy(purchase = PurchaseFlow.failure(view.purchase, "MOBILE_STATE_UNAVAILABLE")))
+            return
+        }
         // Single-flight: while one purchase request is outstanding a queued duplicate is not
         // sent (and rotates no key); the send path re-checks under the same serial control.
         if (purchaseFlight.busy()) {
@@ -2021,6 +2024,11 @@ class SessionService : Service() {
                             .put("method", operation.method).put("idempotency_key", record.quoteKey)
                     }
                     is PurchaseOperation.Payment -> {
+                        // Recheck after a cold service start/queued send as well as at the tap.
+                        val current = view.purchase
+                        check(PurchaseFlow.payableQuote(current,
+                            current?.plans?.firstOrNull { it.planId == current.selectedPlanId },
+                            current?.selectedMethod, java.time.Instant.now())?.quoteId == operation.quoteId)
                         val record = purchaseAttempts.beginPayment(operation.quoteId)
                         // Only this explicit send of this exact quote may later build an ack; the
                         // single-flight gate guarantees it is the only create on the stream.

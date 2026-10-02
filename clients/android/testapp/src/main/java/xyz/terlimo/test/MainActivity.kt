@@ -53,20 +53,19 @@ class MainActivity : Activity() {
     private lateinit var devicesRefreshButton: Button
     private lateinit var devicesCount: TextView
     private lateinit var purchasePlansButton: Button
-    private lateinit var purchasePlanSpinner: Spinner
-    private lateinit var purchaseMethodSpinner: Spinner
+    private lateinit var purchasePlanButton: Button
+    private lateinit var purchaseMethodButton: Button
     private lateinit var purchaseQuoteLine: TextView
-    private lateinit var purchaseQuoteButton: Button
     private lateinit var purchasePayButton: Button
     private lateinit var purchaseContinueButton: Button
     private lateinit var purchaseCheckButton: Button
     private lateinit var purchaseStatus: TextView
     private lateinit var purchaseReference: TextView
-    private var purchasePlansShown: List<PaymentPlan> = emptyList()
-    private var purchaseMethodChoices: List<String> = emptyList()
     private var purchasePlanId: String? = null
     private var purchaseMethod: String? = null
-    private var purchaseRendering = false
+    // An explicit new selection cannot reuse the previously displayed quote, even before
+    // the service consumes its queued command. Recreation restores neither selection nor Pay.
+    private var purchaseRejectedQuoteId: String? = null
     // §3.2B: explicit-action checkout-open state (opened id, live attempt key, visible error).
     // Owned by CheckoutOpenPolicy; only an explicitly armed tap can open, and renders carry the
     // current attempt key so a refresh/replaced attempt/recreation can never auto-open.
@@ -359,64 +358,29 @@ class MainActivity : Activity() {
             }
         }
         subscriptionPanel.addView(purchasePlansButton)
-        purchasePlanSpinner = Spinner(this).apply {
+        purchasePlanButton = Button(this).apply {
             visibility = View.GONE
             contentDescription = "Тариф подписки"
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    if (purchaseRendering) return
-                    val plan = purchasePlansShown.getOrNull(position) ?: return
-                    if (plan.planId == purchasePlanId) return
-                    purchasePlanId = plan.planId
-                    purchaseMethod = plan.methods.firstOrNull()
-                    render(SessionService.view)
-                }
-            }
+            setOnClickListener { showPurchasePlans() }
         }
-        subscriptionPanel.addView(purchasePlanSpinner)
-        purchaseMethodSpinner = Spinner(this).apply {
+        subscriptionPanel.addView(purchasePlanButton)
+        purchaseMethodButton = Button(this).apply {
             visibility = View.GONE
             contentDescription = "Способ оплаты"
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    if (purchaseRendering) return
-                    val method = purchaseMethodChoices.getOrNull(position) ?: return
-                    if (method == purchaseMethod) return
-                    purchaseMethod = method
-                    render(SessionService.view)
-                }
-            }
+            setOnClickListener { showPurchaseMethods() }
         }
-        subscriptionPanel.addView(purchaseMethodSpinner)
+        subscriptionPanel.addView(purchaseMethodButton)
         purchaseQuoteLine = TextView(this).apply { visibility = View.GONE }
         subscriptionPanel.addView(purchaseQuoteLine)
-        purchaseQuoteButton = Button(this).apply {
-            text = "Получить предложение"
-            visibility = View.GONE
-            setOnClickListener {
-                val plan = purchasePlansShown.firstOrNull { it.planId == purchasePlanId } ?: return@setOnClickListener
-                val method = purchaseMethod ?: return@setOnClickListener
-                startForegroundService(Intent(this@MainActivity, SessionService::class.java)
-                    .setAction("purchase_quote")
-                    .putExtra("plan_id", plan.planId)
-                    .putExtra("duration_code", plan.durationCode)
-                    .putExtra("method", method))
-            }
-        }
-        subscriptionPanel.addView(purchaseQuoteButton)
         purchasePayButton = Button(this).apply {
-            text = "Оплатить"
+            text = PaymentsText.PAY_TEXT
             visibility = View.GONE
             setOnClickListener {
-                val state = SessionService.view.purchase ?: return@setOnClickListener
-                val quote = state.quote ?: return@setOnClickListener
-                val plan = purchasePlansShown.firstOrNull { it.planId == purchasePlanId }
-                    ?: return@setOnClickListener
-                if (state.phase == PurchaseFlow.UNAVAILABLE || state.selectedPlanId != plan.planId ||
-                    state.selectedMethod != purchaseMethod || quote.method != purchaseMethod ||
-                    quote.durationCode != plan.durationCode) return@setOnClickListener
+                val quote = selectedPurchaseQuote(SessionService.view.purchase)
+                if (quote == null || purchaseBusy()) {
+                    render(SessionService.view)
+                    return@setOnClickListener
+                }
                 noteExplicitPay(quote.quoteId)
                 startForegroundService(Intent(this@MainActivity, SessionService::class.java)
                     .setAction("purchase_pay").putExtra("quote_id", quote.quoteId))
@@ -1611,121 +1575,106 @@ class MainActivity : Activity() {
             state.summary, state.accountAccess, android.os.SystemClock.elapsedRealtime())
     }
 
-    /**
-     * S5 purchase rendering on the existing subscription surface. It shows only accepted
-     * server results: exact server plan titles, the exact duration labels, price from the
-     * exact amount_minor+currency, the provider checkout reference verbatim when present,
-     * and a truthful pending/unavailable state. It never fabricates a QR and never offers
-     * a hosted checkout (the frozen contract carries neither).
-     */
+    private fun purchaseBusy(): Boolean {
+        return SessionService.view.purchase?.sending == true
+    }
+
+    private fun selectedPurchaseQuote(current: PurchaseState?): PaymentQuote? {
+        val plan = current?.plans?.firstOrNull { it.planId == purchasePlanId }
+        return PurchaseFlow.payableQuote(current, plan, purchaseMethod, java.time.Instant.now())
+            ?.takeIf { it.quoteId != purchaseRejectedQuoteId }
+    }
+
+    /** Back/Cancel abandon only the local selection, never the existing server order. */
+    private fun clearPurchaseSelection(clearPlan: Boolean) {
+        if (clearPlan) purchasePlanId = null
+        purchaseMethod = null
+        purchaseRejectedQuoteId = SessionService.view.purchase?.quote?.quoteId
+        checkoutOpenPolicy.clearAwaiting()
+        render(SessionService.view)
+    }
+
+    private fun showPurchasePlans() {
+        if (purchaseBusy() || PurchaseFlow.paidAwaitingBinding(SessionService.view.purchase)) return
+        val plans = PaymentsText.orderedPlans(SessionService.view.purchase?.plans.orEmpty())
+        android.app.AlertDialog.Builder(this).setTitle("Тариф подписки")
+            .setItems(plans.map(PaymentsText::purchasePlanLine).toTypedArray()) { _, index ->
+                if (!purchaseBusy()) {
+                    clearPurchaseSelection(clearPlan = true)
+                    purchasePlanId = plans[index].planId
+                    render(SessionService.view)
+                    showPurchaseMethods()
+                }
+            }
+            .setNegativeButton(PaymentsText.BACK_TEXT) { _, _ -> clearPurchaseSelection(clearPlan = true) }
+            .setOnCancelListener { clearPurchaseSelection(clearPlan = true) }
+            .show()
+    }
+
+    private fun showPurchaseMethods() {
+        val current = SessionService.view.purchase ?: return
+        val plan = current.plans.firstOrNull { it.planId == purchasePlanId } ?: return
+        if (purchaseBusy() || PurchaseFlow.paidAwaitingBinding(current)) return
+        val methods = PaymentsText.orderedMethods(plan)
+        android.app.AlertDialog.Builder(this).setTitle("Способ оплаты")
+            .setItems(methods.map { PaymentsText.methodLabel(it).orEmpty() }.toTypedArray()) { _, index ->
+                if (!purchaseBusy()) {
+                    clearPurchaseSelection(clearPlan = false)
+                    purchaseMethod = methods[index]
+                    // Exactly one quote per explicit method choice. No render/resume retry.
+                    startForegroundService(Intent(this, SessionService::class.java)
+                        .setAction("purchase_quote")
+                        .putExtra("plan_id", plan.planId)
+                        .putExtra("duration_code", plan.durationCode)
+                        .putExtra("method", purchaseMethod))
+                    render(SessionService.view)
+                }
+            }
+            .setNegativeButton(PaymentsText.CANCEL_TEXT) { _, _ -> clearPurchaseSelection(clearPlan = false) }
+            .setOnCancelListener { clearPurchaseSelection(clearPlan = false) }
+            .show()
+    }
+
+    /** Rendering cannot request a quote or create an invoice; it only displays server data. */
     private fun renderPurchase(state: ViewState) {
         val registration = state.accountAccess?.projection?.registration
         val offered = PurchaseFlow.offered(registration)
-        purchaseStatus.text = purchaseStatusLine(state, registration)
-        val plans = PurchaseFlow.selectablePlans(state.purchase?.plans.orEmpty())
-        purchaseRendering = true
-        // Single-flight: while one purchase request is outstanding, pay/selection are disabled
-        // and the status line shows waiting; the service guard holds regardless of this UI.
+        val plans = PaymentsText.orderedPlans(state.purchase?.plans.orEmpty())
         val sending = state.purchase?.sending == true
+        val bindingPaid = PurchaseFlow.paidAwaitingBinding(state.purchase)
+        val plan = plans.firstOrNull { it.planId == purchasePlanId }
+        if (plan == null) purchasePlanId = null
+        if (plan == null || purchaseMethod !in plan.methods) purchaseMethod = null
+        val quote = selectedPurchaseQuote(state.purchase)
+        purchasePlansButton.visibility = if (offered && plans.isEmpty() && !bindingPaid) View.VISIBLE else View.GONE
         purchasePlansButton.isEnabled = !sending
-        purchasePlanSpinner.isEnabled = !sending
-        purchaseMethodSpinner.isEnabled = !sending
-        purchaseQuoteButton.isEnabled = !sending
-        purchasePayButton.isEnabled = !sending
-        try {
-            if (!offered) {
-                purchasePlansButton.visibility = View.GONE
-                purchasePlanSpinner.visibility = View.GONE
-                purchaseMethodSpinner.visibility = View.GONE
-                purchaseQuoteLine.visibility = View.GONE
-                purchaseQuoteButton.visibility = View.GONE
-                purchasePayButton.visibility = View.GONE
-                purchaseContinueButton.visibility = View.GONE
-                purchaseCheckButton.visibility = View.GONE
-                purchaseReference.visibility = View.GONE
-                purchasePlansShown = emptyList()
-                purchaseMethodChoices = emptyList()
-                purchasePlanId = null
-                purchaseMethod = null
-                return
-            }
-            if (plans.map { it.planId } != purchasePlansShown.map { it.planId }) {
-                purchasePlansShown = plans
-                purchasePlanSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
-                    plans.map { PaymentsText.planLine(it) })
-                purchasePlanId = plans.firstOrNull()?.planId
-                purchaseMethod = plans.firstOrNull()?.methods?.firstOrNull()
-            }
-            if (plans.isEmpty()) {
-                purchasePlansButton.visibility = View.VISIBLE
-                purchasePlanSpinner.visibility = View.GONE
-                purchaseMethodSpinner.visibility = View.GONE
-                purchaseQuoteLine.visibility = View.GONE
-                purchaseQuoteButton.visibility = View.GONE
-                purchasePayButton.visibility = View.GONE
-                purchaseContinueButton.visibility = View.GONE
-                purchaseCheckButton.visibility = View.GONE
-                purchaseReference.visibility = View.GONE
-                return
-            }
-            purchasePlansButton.visibility = View.GONE
-            purchasePlanSpinner.visibility = View.VISIBLE
-            val planPosition = plans.indexOfFirst { it.planId == purchasePlanId }.coerceAtLeast(0)
-            if (purchasePlanSpinner.selectedItemPosition != planPosition) purchasePlanSpinner.setSelection(planPosition, false)
-            val plan = plans[planPosition]
-            purchasePlanId = plan.planId
-            if (plan.methods != purchaseMethodChoices) {
-                purchaseMethodChoices = plan.methods
-                purchaseMethodSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
-                    plan.methods.map { PaymentsText.methodLabel(it) ?: it })
-            }
-            if (purchaseMethod !in plan.methods) purchaseMethod = plan.methods.firstOrNull()
-            val methodPosition = plan.methods.indexOf(purchaseMethod).coerceAtLeast(0)
-            if (purchaseMethodSpinner.selectedItemPosition != methodPosition) purchaseMethodSpinner.setSelection(methodPosition, false)
-            purchaseMethodSpinner.visibility = if (plan.methods.isEmpty()) View.GONE else View.VISIBLE
+        purchasePlanButton.visibility = if (offered && plans.isNotEmpty() && !bindingPaid) View.VISIBLE else View.GONE
+        purchasePlanButton.isEnabled = !sending
+        purchasePlanButton.text = plan?.let(PaymentsText::purchasePlanLine) ?: "Выбрать тариф"
+        purchaseMethodButton.visibility = if (offered && plan != null && !bindingPaid) View.VISIBLE else View.GONE
+        purchaseMethodButton.isEnabled = !sending
+        purchaseMethodButton.text = purchaseMethod?.let(PaymentsText::methodLabel) ?: "Выбрать способ оплаты"
+        purchaseQuoteLine.visibility = if (offered && PurchaseVisibility.quoteLineVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
+        purchaseQuoteLine.text = quote?.let { PaymentsText.quoteLine(it, java.time.ZoneId.systemDefault()) }.orEmpty()
+        purchasePayButton.visibility = if (offered && PurchaseVisibility.payVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
+        purchasePayButton.isEnabled = !sending && quote != null
 
-            val quote = state.purchase?.quote?.takeIf {
-                state.purchase.phase != PurchaseFlow.UNAVAILABLE &&
-                    state.purchase.selectedPlanId == plan.planId &&
-                    state.purchase.selectedMethod == purchaseMethod &&
-                    it.method == purchaseMethod && it.durationCode == plan.durationCode
-            }
-            purchaseQuoteLine.text = quote?.let {
-                "Предложение: " + PaymentsText.quoteLine(it, java.time.ZoneId.systemDefault())
-            }.orEmpty()
-            // A paid order awaiting binding must not offer a second payment: the parked order
-            // is already created and only Telegram registration can apply it (S5 §3.2C).
-            val bindingPaid = PurchaseFlow.paidAwaitingBinding(state.purchase)
-            purchaseQuoteLine.visibility =
-                if (PurchaseVisibility.quoteLineVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
-            purchaseQuoteButton.visibility =
-                if (PurchaseVisibility.quoteButtonVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
-            purchasePayButton.visibility =
-                if (PurchaseVisibility.payVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
-
-            val payment = state.purchase?.payment
-            // A create/attempt failure (the existing error/unavailable purchase phase) drops
-            // the live marker: no later payment of a failed attempt may auto-open.
-            if (state.purchase?.phase == PurchaseFlow.ERROR ||
-                state.purchase?.phase == PurchaseFlow.UNAVAILABLE) {
-                checkoutOpenPolicy.clearAwaiting()
-            }
-            // Only the live consequence of the explicit «Оплатить» tap may open the browser,
-            // and only through the correlated create result of the exact sent quote; a
-            // payment from ViewState (an old order), an ordinary render, a status refresh or
-            // a recreation can never consume the marker.
-            val open = checkoutOpenPolicy.autoOpenAfterPay(state.purchase?.createAck)
-            if (open != null) launchCheckoutBrowser(open)
-            // Repaint: a refused/invalid reference or a failed launch stores its visible error now.
-            purchaseStatus.text = purchaseStatusLine(state, registration)
-            purchaseContinueButton.visibility =
-                if (checkoutOpenPolicy.canContinue(payment)) View.VISIBLE else View.GONE
-            purchaseReference.text = payment?.let { PaymentsText.checkoutReferenceText(it) }.orEmpty()
-            purchaseReference.visibility = if (purchaseReference.text.isNullOrEmpty()) View.GONE else View.VISIBLE
-            purchaseCheckButton.visibility = if (payment == null) View.GONE else View.VISIBLE
-        } finally {
-            purchaseRendering = false
+        if (!offered || state.purchase?.phase == PurchaseFlow.ERROR || state.purchase?.phase == PurchaseFlow.UNAVAILABLE) {
+            checkoutOpenPolicy.clearAwaiting()
         }
+        val open = if (offered) checkoutOpenPolicy.autoOpenAfterPay(state.purchase?.createAck) else null
+        if (open != null) launchCheckoutBrowser(open)
+        purchaseStatus.text = purchaseStatusLine(state, registration)
+        if (purchaseMethod != null && !bindingPaid && quote == null &&
+            (!sending || state.purchase?.quote == null)) {
+            purchaseStatus.append("\n" + if (sending) PaymentsText.PRICE_WAIT_TEXT else PaymentsText.PRICE_RETRY_TEXT)
+        }
+        // These actions depend on the existing order, not on the new choice or its cancellation.
+        val payment = state.purchase?.payment
+        purchaseContinueButton.visibility = if (offered && checkoutOpenPolicy.canContinue(payment)) View.VISIBLE else View.GONE
+        purchaseCheckButton.visibility = if (offered && payment != null) View.VISIBLE else View.GONE
+        purchaseReference.text = payment?.let { PaymentsText.checkoutReferenceText(it) }.orEmpty()
+        purchaseReference.visibility = if (offered && purchaseReference.text.isNotEmpty()) View.VISIBLE else View.GONE
     }
 
     /** The accepted purchase status plus the visible checkout-open error, when one exists. */

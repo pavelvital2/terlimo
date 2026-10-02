@@ -31,10 +31,37 @@ internal object PaymentsText {
     }
 
     fun methodLabel(method: String): String? = when (method) {
-        "card" -> "Карта"
-        "sbp" -> "СБП"
-        "crypto" -> "Криптовалюта"
+        "card" -> "💳 MIR"
+        "sbp" -> "🏦 СБП (QR-код)"
+        "crypto" -> "🪙 Криптовалюта"
         else -> null
+    }
+
+    // Display order/labels from the production keyboard export of 2026-10-02.
+    // The wire duration and the server amount are never derived from these labels.
+    private val periodOrder = listOf("days:30", "months:3", "months:6")
+    private val methodOrder = listOf("sbp", "card", "crypto")
+    const val PAY_TEXT = "💳 Оплатить"
+    const val BACK_TEXT = "⬅️ Назад"
+    const val CANCEL_TEXT = "❌ Отмена"
+    const val PRICE_WAIT_TEXT = "Уточняем цену…"
+    const val PRICE_RETRY_TEXT = "Цена не подтверждена. Выберите способ оплаты ещё раз."
+
+    fun orderedPlans(plans: List<PaymentPlan>): List<PaymentPlan> =
+        PurchaseFlow.selectablePlans(plans).sortedBy { periodOrder.indexOf(it.durationCode) }
+
+    fun orderedMethods(plan: PaymentPlan): List<String> = methodOrder.filter { it in plan.methods }
+
+    fun purchasePlanLine(plan: PaymentPlan): String {
+        val period = when (plan.durationCode) {
+            "days:30" -> "1 мес."
+            "months:3" -> "3 мес."
+            "months:6" -> "6 мес."
+            else -> plan.durationCode
+        }
+        val amount = java.math.BigDecimal.valueOf(plan.amountMinor, 2).stripTrailingZeros()
+        val price = amount.setScale(maxOf(1, amount.scale())).toPlainString()
+        return "$period - $price ${plan.currency}"
     }
 
     /**

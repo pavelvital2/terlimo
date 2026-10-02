@@ -1,3 +1,23 @@
+# Browser checkout menu parity — source candidate 2026-10-02
+
+Base: 8230feb9e9b25e3dfa67dd1ff90f1c9b749d4e3a
+Commit: 67d50966b9a9fc520f278d8498038acf5170b3a9
+Tree: d01ef7f12f1c0fb8b66007a755872f20d6c23d2b
+Branch: laptop/browser-menu-parity-20261002
+
+Production export labels/order; tariff/method selection requests an internal quote.
+Only explicit Pay creates the invoice. Server prices, wire durations, durable keys,
+single-flight, browser correlation and deadlines remain authoritative. Back/Cancel
+clear local selection; existing pending order and Continue/Check survive.
+
+Checks: 10 targeted JVM PASS; after final queued-selection adjustment only 2 affected
+checks repeated, both PASS. Diff check clean. Full details in REPORT.md and test receipts.
+No APK/native build, install, phone, provider, invoice, server, production or push.
+Installed APKa23/native792 and rollbackef84 remain unchanged. This is source-ready,
+not a new device/merchant PASS. Full historical version passport follows unchanged.
+
+---
+
 # CAPTCHA build/install/short acceptance — 02.10.2026
 
 Incoming `whitelist-20261002-captcha-build-install-accept-v1`. Build/install, two required local fixtures after one fixture-only correction, ordinary catalogue/selection and final OFF completed.

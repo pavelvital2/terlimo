@@ -107,6 +107,21 @@ internal object PurchaseFlow {
         return !now.isBefore(expiry)
     }
 
+    /** Exact live quote for the selected server offer; shared by UI and service Pay guards. */
+    fun payableQuote(
+        current: PurchaseState?, plan: PaymentPlan?, method: String?, now: Instant,
+    ): PaymentQuote? {
+        if (current == null || plan == null || method == null || current.sending ||
+            current.phase !in setOf(QUOTE_READY, AWAITING_PAYMENT) || paidAwaitingBinding(current)) return null
+        val quote = current.quote ?: return null
+        if (current.selectedPlanId != plan.planId || current.selectedMethod != method ||
+            current.plans.firstOrNull { it.planId == plan.planId } != plan || method !in plan.methods ||
+            quote.method != method || quote.durationCode != plan.durationCode ||
+            quote.amountMinor != plan.amountMinor || quote.currency != plan.currency ||
+            quoteExpired(current, now)) return null
+        return quote
+    }
+
     /**
      * A quote that expired is a deliberate new attempt: the caller must drop the stale
      * quote and request a new one (with new host-owned keys), never silently reuse it.

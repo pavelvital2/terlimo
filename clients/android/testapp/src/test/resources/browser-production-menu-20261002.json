@@ -1,0 +1,16 @@
+{
+  "source_sha256": "0613dbee931072baeceb459afda06432eb992eae8df58d2484a0fdcbbabf831f",
+  "period_rows": [
+    "1 мес. - 200.0 RUB",
+    "3 мес. - 480.0 RUB",
+    "6 мес. - 840.0 RUB",
+    "⬅️ Назад"
+  ],
+  "payment_rows": [
+    "🏦 СБП (QR-код)",
+    "💳 MIR",
+    "🪙 Криптовалюта",
+    "❌ Отмена"
+  ],
+  "pay_button": "💳 Оплатить"
+}

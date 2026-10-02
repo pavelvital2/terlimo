@@ -1,0 +1,53 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Calculating task graph as no cached configuration is available for tasks: :testapp:testDebugUnitTest --tests xyz.terlimo.test.BrowserMenuTest --tests xyz.terlimo.test.PurchaseVisibilityTest --tests xyz.terlimo.test.CheckoutOpenPolicyTest.renderPurchaseHasNoUnconditionalDecideAndThePayTapArmsTheExplicitRequest --tests xyz.terlimo.test.PaymentsContractTest.plansListParsesStrictlyAndRendersExactLabels --tests xyz.terlimo.test.PaymentsContractTest.threeServerPlansKeepTheirOwnDurationAndAmount --tests xyz.terlimo.test.PaymentsContractTest.quoteParsesStrictlyAndRendersLocalExpiry
+Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+> Task :testapp:preBuild UP-TO-DATE
+> Task :testapp:preDebugBuild UP-TO-DATE
+> Task :testapp:preDebugUnitTestBuild UP-TO-DATE
+> Task :testapp:generateDebugResources FROM-CACHE
+> Task :testapp:packageDebugResources FROM-CACHE
+> Task :testapp:javaPreCompileDebug FROM-CACHE
+> Task :testapp:processDebugNavigationResources FROM-CACHE
+> Task :testapp:parseDebugLocalResources FROM-CACHE
+> Task :testapp:generateDebugRFile FROM-CACHE
+> Task :testapp:checkDebugAarMetadata
+> Task :testapp:compileDebugNavigationResources FROM-CACHE
+> Task :testapp:mapDebugSourceSetPaths
+> Task :testapp:mergeDebugResources FROM-CACHE
+> Task :testapp:createDebugCompatibleScreenManifests
+> Task :testapp:extractDeepLinksDebug FROM-CACHE
+> Task :testapp:processDebugMainManifest FROM-CACHE
+> Task :testapp:processDebugManifest FROM-CACHE
+> Task :testapp:processDebugManifestForPackage FROM-CACHE
+> Task :testapp:processDebugResources FROM-CACHE
+> Task :testapp:javaPreCompileDebugUnitTest FROM-CACHE
+> Task :testapp:compileDebugKotlin
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/CaptchaWebViewManager.kt:335:25 'var databaseEnabled: Boolean' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/CatalogDeadlineTimer.kt:112:24 Condition is always 'true'.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/HelpContent.kt:53:88 'field versionCode: Int' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:22:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:250:21 'constructor(p0: Activity!): IntentIntegrator' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:252:51 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:1308:20 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:1308:37 'static fun parseActivityResult(p0: Int, p1: Int, p2: Intent!): IntentResult!' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/ManlCaptchaWebViewManager.kt:351:13 'var databaseEnabled: Boolean' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:1139:33 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2663:26 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2732:69 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2766:73 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2825:69 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-browser-menu-parity-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/VpnReadinessProbe.kt:48:30 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+
+> Task :testapp:processDebugJavaRes
+> Task :testapp:compileDebugJavaWithJavac
+> Task :testapp:bundleDebugClassesToCompileJar
+> Task :testapp:bundleDebugClassesToRuntimeJar
+> Task :testapp:compileDebugUnitTestKotlin
+> Task :testapp:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :testapp:processDebugUnitTestJavaRes
+> Task :testapp:testDebugUnitTest
+
+BUILD SUCCESSFUL in 2m 21s
+25 actionable tasks: 11 executed, 14 from cache
+Configuration cache entry stored.
