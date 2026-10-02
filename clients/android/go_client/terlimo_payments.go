@@ -7,7 +7,8 @@ package main
 // `<action>_result` event that echoes attempt_id):
 //
 //	plans_list      no fields
-//	quote_create    plan_id, duration_code, method, idempotency_key
+//	quote_create    plan_id, duration_code, method, idempotency_key,
+//	                optional renew_extra_slot_ids (v2 server slot UUIDs)
 //	payment_create  quote_id, idempotency_key
 //	payment_get     payment_id
 //
@@ -26,6 +27,10 @@ package main
 //	  ok:    request_id, server_time, schema_version, payment_id, payment_status,
 //	         checkout_reference (string|null), credited_entitlement_revision
 //	         (string|null), access_application_state
+//
+// For payment_contract=2, each plan and quote additionally projects product (or
+// null); payments additionally project product, credit_state, credit_review_reason
+// and credited_product. The bridge envelope stays v=1 and schema_version stays1.0.
 //
 // Bounded error codes: INVALID_REQUEST (host field violates the contract or the
 // Idempotency-Key is absent), MOBILE_STATE_UNAVAILABLE, BUSY, TRANSPORT (any
@@ -141,14 +146,18 @@ func (m *managedMobile) handlePlansList(ctx context.Context) {
 	for _, plan := range plans.Plans {
 		methods := make([]string, 0, len(plan.Methods))
 		methods = append(methods, plan.Methods...)
-		projected = append(projected, bridgeMessage{
+		entry := bridgeMessage{
 			"plan_id":           plan.PlanID,
 			"title":             plan.Title,
 			"duration_code":     plan.DurationCode,
 			"base_device_limit": plan.BaseDeviceLimit,
 			"amount":            bridgeMessage{"amount_minor": plan.Amount.AmountMinor, "currency": plan.Amount.Currency},
 			"methods":           methods,
-		})
+		}
+		if plan.PaymentContract == 2 {
+			entry["product"] = paymentProductMessage(plan.Product)
+		}
+		projected = append(projected, entry)
 	}
 	m.sendPaymentEvent(bridgeMessage{"type": event, "state": "ok",
 		"request_id": plans.RequestID, "server_time": plans.ServerTime,
@@ -165,9 +174,14 @@ func (m *managedMobile) handleQuoteCreate(ctx context.Context, action bridgeMess
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, mobileHTTPTimeout)
 	defer cancel()
-	quote, apiError, err := m.client.CreateQuote(requestCtx,
+	selection, valid := paymentRenewalSelection(action)
+	if !valid {
+		m.sendPaymentError(event, paymentCodeInvalidRequest)
+		return
+	}
+	quote, apiError, err := m.client.CreateQuoteWithSelection(requestCtx,
 		action.string("plan_id"), action.string("duration_code"), action.string("method"),
-		action.string("idempotency_key"))
+		action.string("idempotency_key"), selection)
 	if errors.Is(err, accountaccess.ErrInvalidRequest) {
 		m.sendPaymentError(event, paymentCodeInvalidRequest)
 		return
@@ -180,12 +194,16 @@ func (m *managedMobile) handleQuoteCreate(ctx context.Context, action bridgeMess
 		m.sendPaymentError(event, paymentAPIErrorCode(apiError, true))
 		return
 	}
-	m.sendPaymentEvent(bridgeMessage{"type": event, "state": "ok",
+	message := bridgeMessage{"type": event, "state": "ok",
 		"request_id": quote.RequestID, "server_time": quote.ServerTime,
 		"schema_version": quote.SchemaVersion, "quote_id": quote.QuoteID,
 		"amount":        bridgeMessage{"amount_minor": quote.Amount.AmountMinor, "currency": quote.Amount.Currency},
 		"duration_code": quote.DurationCode, "device_limit": quote.DeviceLimit,
-		"method": quote.Method, "expires_at": quote.ExpiresAt})
+		"method": quote.Method, "expires_at": quote.ExpiresAt}
+	if quote.PaymentContract == 2 {
+		message["product"] = paymentProductMessage(quote.Product)
+	}
+	m.sendPaymentEvent(message)
 }
 
 func (m *managedMobile) handlePaymentCreate(ctx context.Context, action bridgeMessage) {
@@ -240,7 +258,7 @@ func (m *managedMobile) handlePaymentGet(ctx context.Context, action bridgeMessa
 // paymentResultMessage projects one payment response verbatim into the frozen event
 // fields. Nullable fields stay null when absent; nothing is fabricated or completed.
 func paymentResultMessage(event string, payment accountaccess.PaymentResponse) bridgeMessage {
-	return bridgeMessage{"type": event, "state": "ok",
+	message := bridgeMessage{"type": event, "state": "ok",
 		"request_id": payment.RequestID, "server_time": payment.ServerTime,
 		"schema_version":                payment.SchemaVersion,
 		"payment_id":                    payment.PaymentID,
@@ -248,6 +266,67 @@ func paymentResultMessage(event string, payment accountaccess.PaymentResponse) b
 		"checkout_reference":            payment.CheckoutReference,
 		"credited_entitlement_revision": payment.CreditedEntitlementRevision,
 		"access_application_state":      payment.AccessApplicationState}
+	if payment.PaymentContract == 2 {
+		message["product"] = paymentProductMessage(payment.Product)
+		message["credit_state"] = payment.CreditState
+		message["credit_review_reason"] = payment.CreditReviewReason
+		message["credited_product"] = paymentCreditedProductMessage(payment.CreditedProduct)
+	}
+	return message
+}
+
+func paymentRenewalSelection(action bridgeMessage) ([]string, bool) {
+	value, present := action["renew_extra_slot_ids"]
+	if !present {
+		return nil, true
+	}
+	var selection []string
+	switch ids := value.(type) {
+	case []string:
+		if ids == nil {
+			return nil, false
+		}
+		selection = append([]string{}, ids...)
+	case []any:
+		selection = make([]string, 0, len(ids))
+		for _, value := range ids {
+			id, ok := value.(string)
+			if !ok {
+				return nil, false
+			}
+			selection = append(selection, id)
+		}
+	default:
+		return nil, false
+	}
+	return selection, true
+}
+
+// Project only the reviewed public fields, preserving server amounts and periods.
+func paymentProductMessage(product *accountaccess.Product) any {
+	if product == nil {
+		return nil
+	}
+	extraSlots := make([]bridgeMessage, 0, len(product.ExtraSlots))
+	for _, slot := range product.ExtraSlots {
+		extraSlots = append(extraSlots, bridgeMessage{"slot_id": slot.SlotID, "expires_at": slot.ExpiresAt, "renew_amount_minor": slot.RenewAmountMinor})
+	}
+	selection := append([]string{}, product.RenewExtraSlotIDs...)
+	return bridgeMessage{
+		"kind": product.Kind, "plan_id": product.PlanID, "device_delta": product.DeviceDelta,
+		"target_entitlement_id": product.TargetEntitlementID, "target_valid_until": product.TargetValidUntil,
+		"valid_from": product.ValidFrom, "valid_until": product.ValidUntil,
+		"renew_extra_slot_ids": selection, "base_amount_minor": product.BaseAmountMinor,
+		"extra_amount_minor": product.ExtraAmountMinor, "device_limit": product.DeviceLimit, "extra_slots": extraSlots,
+	}
+}
+
+func paymentCreditedProductMessage(product *accountaccess.CreditedProduct) any {
+	if product == nil {
+		return nil
+	}
+	return bridgeMessage{"valid_from": product.ValidFrom, "valid_until": product.ValidUntil,
+		"device_limit": product.DeviceLimit, "current_device_limit": product.CurrentDeviceLimit}
 }
 
 // paymentAPIErrorCode maps one bounded server error envelope to the host vocabulary.

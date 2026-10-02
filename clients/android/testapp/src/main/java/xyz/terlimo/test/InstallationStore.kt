@@ -153,7 +153,7 @@ internal class InstallationStore(context: Context) {
     }
 
     fun writePurchaseAttempt(encoded: String) = synchronized(LOCK) {
-        require(encoded.toByteArray(Charsets.UTF_8).size in 2..16_384) { "PURCHASE_STATE_INVALID" }
+        require(encoded.toByteArray(Charsets.UTF_8).size in 2..900_000) { "PURCHASE_STATE_INVALID" }
         writeLocked(JSONObject(readLocked().toString()).put("purchase_attempt_state", encoded))
     }
 

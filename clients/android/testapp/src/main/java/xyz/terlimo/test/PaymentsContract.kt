@@ -2,10 +2,12 @@ package xyz.terlimo.test
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
 
 /**
- * S5 host projection of the frozen native payment bridge vocabulary (cdbef94,
- * go_client/terlimo_payments.go). This is a strict read of the events native emits:
+ * Host projection of the native payment bridge vocabulary. V1 and negotiated V2
+ * retain schema_version 1.0 and are distinguished by their exact field sets.
+ * This is a strict read of the events native emits:
  * every accepted key must be exactly the contract key set, required fields must be
  * present and enums are enforced. A malformed event is rejected and the last good
  * projection is kept; nothing is completed, coerced or fabricated.
@@ -23,6 +25,7 @@ internal data class PaymentPlan(
     val amountMinor: Long,
     val currency: String,
     val methods: List<String>,
+    val product: PaymentProduct? = null,
 )
 
 internal data class PaymentQuote(
@@ -33,6 +36,7 @@ internal data class PaymentQuote(
     val deviceLimit: Int,
     val method: String,
     val expiresAt: String,
+    val product: PaymentProduct? = null,
 )
 
 internal data class PaymentStatusView(
@@ -41,6 +45,10 @@ internal data class PaymentStatusView(
     val checkoutReference: String?,
     val creditedEntitlementRevision: String?,
     val accessApplicationState: String,
+    val product: PaymentProduct? = null,
+    val creditState: String? = null,
+    val creditReviewReason: String? = null,
+    val creditedProduct: CreditedPaymentProduct? = null,
 )
 
 internal sealed class PaymentsEvent {
@@ -86,6 +94,11 @@ internal object PaymentsContract {
     )
     val ACCESS_APPLICATION_STATES: Set<String> =
         setOf("not_requested", "pending", "applied", "retryable_failure", "rejected")
+    val CREDIT_STATES: Set<String> = setOf("unapplied", "applied", "needs_review")
+    val CREDIT_REVIEW_REASONS: Set<String> = setOf(
+        "owner_unbound", "owner_changed", "target_unavailable", "target_expired",
+        "target_period_changed", "extra_slot_unavailable",
+    )
 
     private val ENVELOPE = setOf("v", "attempt_id", "type", "state")
     private val PLANS_KEYS = ENVELOPE + setOf(
@@ -104,11 +117,29 @@ internal object PaymentsContract {
     private val PLAN_KEYS = setOf(
         "plan_id", "title", "duration_code", "base_device_limit", "amount", "methods",
     )
+    private val QUOTE_V2_KEYS = QUOTE_KEYS + "product"
+    private val PAYMENT_V2_KEYS = PAYMENT_KEYS + setOf(
+        "product", "credit_state", "credit_review_reason", "credited_product",
+    )
+    private val PLAN_V2_KEYS = PLAN_KEYS + "product"
+    private val PRODUCT_KEYS = setOf(
+        "kind", "plan_id", "device_delta", "target_entitlement_id", "target_valid_until",
+        "valid_from", "valid_until", "renew_extra_slot_ids", "base_amount_minor",
+        "extra_amount_minor", "device_limit", "extra_slots",
+    )
+    private val EXTRA_SLOT_KEYS = setOf("slot_id", "expires_at", "renew_amount_minor")
+    private val CREDITED_PRODUCT_KEYS = setOf(
+        "valid_from", "valid_until", "device_limit", "current_device_limit",
+    )
+    private val PRODUCT_PLAN_IDS = setOf(
+        "terlimo-30d", "terlimo-3m", "terlimo-6m", "terlimo-extra-device",
+    )
 
     private val REQUEST_ID = Regex("^[0-9a-f]{32}$")
     private val UTC_TIME = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$")
     private val REVISION = Regex("^(0|[1-9][0-9]{0,18})$")
     private val CURRENCY = Regex("^[A-Z]{3}$")
+    private val UUID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     fun parse(event: JSONObject): PaymentsEvent {
         try {
@@ -139,70 +170,102 @@ internal object PaymentsContract {
 
     private fun parsePlans(event: JSONObject, keys: Set<String>): PaymentsEvent.Plans {
         check(keys == PLANS_KEYS) { "PAYMENTS_INVALID" }
-        validateEnvelope(event)
         val revision = event.getString("plans_revision")
         check(revision.matches(REVISION)) { "PAYMENTS_INVALID" }
         val raw = event.getJSONArray("plans")
         val plans = ArrayList<PaymentPlan>(raw.length())
+        var planKeys: Set<String>? = null
         for (index in 0 until raw.length()) {
-            plans += parsePlan(raw.getJSONObject(index))
+            val plan = raw.getJSONObject(index)
+            val itemKeys = plan.keys().asSequence().toSet()
+            check(planKeys == null || planKeys == itemKeys) { "PAYMENTS_INVALID" }
+            planKeys = itemKeys
+            plans += parsePlan(plan)
         }
+        validateEnvelope(event, planKeys == PLAN_V2_KEYS)
+        if (planKeys == PLAN_V2_KEYS) strictString(event, "plans_revision")
         return PaymentsEvent.Plans(revision, plans)
     }
 
     private fun parsePlan(plan: JSONObject): PaymentPlan {
-        check(plan.keys().asSequence().toSet() == PLAN_KEYS) { "PAYMENTS_INVALID" }
-        val planId = plan.getString("plan_id")
-        val title = plan.getString("title")
-        val duration = plan.getString("duration_code")
+        val keys = plan.keys().asSequence().toSet()
+        val v2 = keys == PLAN_V2_KEYS
+        check(v2 || keys == PLAN_KEYS) { "PAYMENTS_INVALID" }
+        val planId = if (v2) strictString(plan, "plan_id") else plan.getString("plan_id")
+        val title = if (v2) strictString(plan, "title") else plan.getString("title")
+        val duration = if (v2) strictString(plan, "duration_code") else plan.getString("duration_code")
         check(planId.isNotEmpty() && planId.length <= 128 && title.length <= 128 &&
-            duration in DURATION_CODES) { "PAYMENTS_INVALID" }
-        val limit = plan.getInt("base_device_limit")
-        check(limit in 1..100) { "PAYMENTS_INVALID" }
+            validDuration(duration, v2)) { "PAYMENTS_INVALID" }
+        val limit = if (v2) strictInt(plan, "base_device_limit") else plan.getInt("base_device_limit")
+        check(if (v2) limit == 2 else limit in 1..100) { "PAYMENTS_INVALID" }
         val (amountMinor, currency) = parseMoney(plan.getJSONObject("amount"))
+        check(!v2 || (amountMinor > 0 && currency == "RUB")) { "PAYMENTS_INVALID" }
         val methods = parseMethods(plan.getJSONArray("methods"))
-        return PaymentPlan(planId, title, duration, limit, amountMinor, currency, methods)
+        val product = if (v2) nullableProduct(plan) else null
+        check(product == null || product.planId == planId) { "PAYMENTS_INVALID" }
+        return PaymentPlan(planId, title, duration, limit, amountMinor, currency, methods, product)
     }
 
     private fun parseQuote(event: JSONObject, keys: Set<String>): PaymentsEvent.Quote {
-        check(keys == QUOTE_KEYS) { "PAYMENTS_INVALID" }
-        validateEnvelope(event)
-        val quoteId = event.getString("quote_id")
-        val duration = event.getString("duration_code")
-        val method = event.getString("method")
-        val expiresAt = event.getString("expires_at")
+        val v2 = keys == QUOTE_V2_KEYS
+        check(v2 || keys == QUOTE_KEYS) { "PAYMENTS_INVALID" }
+        validateEnvelope(event, v2)
+        val quoteId = if (v2) strictUuid(event, "quote_id") else event.getString("quote_id")
+        val duration = if (v2) strictString(event, "duration_code") else event.getString("duration_code")
+        val method = if (v2) strictString(event, "method") else event.getString("method")
+        val expiresAt = if (v2) strictUtc(event, "expires_at") else event.getString("expires_at")
         check(quoteId.isNotEmpty() && quoteId.length <= 128 &&
-            duration in DURATION_CODES && method in METHODS && expiresAt.matches(UTC_TIME)) {
+            validDuration(duration, v2) && method in METHODS && expiresAt.matches(UTC_TIME)) {
             "PAYMENTS_INVALID"
         }
-        val limit = event.getInt("device_limit")
-        check(limit in 1..100) { "PAYMENTS_INVALID" }
+        val limit = if (v2) strictInt(event, "device_limit") else event.getInt("device_limit")
+        check(if (v2) limit >= 2 else limit in 1..100) { "PAYMENTS_INVALID" }
         val (amountMinor, currency) = parseMoney(event.getJSONObject("amount"))
+        check(!v2 || (amountMinor > 0 && currency == "RUB")) { "PAYMENTS_INVALID" }
+        val product = if (v2) nullableProduct(event) else null
+        check(product == null || product.deviceLimit == limit) { "PAYMENTS_INVALID" }
         return PaymentsEvent.Quote(PaymentQuote(
             quoteId = quoteId, amountMinor = amountMinor, currency = currency, durationCode = duration,
-            deviceLimit = limit, method = method, expiresAt = expiresAt,
+            deviceLimit = limit, method = method, expiresAt = expiresAt, product = product,
         ))
     }
 
     private fun parsePayment(type: String, event: JSONObject, keys: Set<String>): PaymentsEvent.Payment {
-        check(keys == PAYMENT_KEYS) { "PAYMENTS_INVALID" }
-        validateEnvelope(event)
-        val paymentId = event.getString("payment_id")
-        val status = event.getString("payment_status")
-        val applicationState = event.getString("access_application_state")
+        val v2 = keys == PAYMENT_V2_KEYS
+        check(v2 || keys == PAYMENT_KEYS) { "PAYMENTS_INVALID" }
+        validateEnvelope(event, v2)
+        val paymentId = if (v2) strictUuid(event, "payment_id") else event.getString("payment_id")
+        val status = if (v2) strictString(event, "payment_status") else event.getString("payment_status")
+        val applicationState = if (v2) strictString(event, "access_application_state") else event.getString("access_application_state")
         check(paymentId.isNotEmpty() && paymentId.length <= 128 &&
             status in PAYMENT_STATUSES && applicationState in ACCESS_APPLICATION_STATES) {
             "PAYMENTS_INVALID"
         }
         val reference = nullableBoundedString(event, "checkout_reference", 256)
         val credited = nullableBoundedString(event, "credited_entitlement_revision", 128)
+        val product = if (v2) nullableProduct(event) else null
+        val creditState = if (v2) strictString(event, "credit_state").also {
+            check(it in CREDIT_STATES) { "PAYMENTS_INVALID" }
+        } else null
+        val reviewReason = if (v2) nullableEnum(event, "credit_review_reason", CREDIT_REVIEW_REASONS) else null
+        val creditedProduct = if (v2 && !event.isNull("credited_product")) {
+            parseCreditedProduct(event.getJSONObject("credited_product"))
+        } else null
         return PaymentsEvent.Payment(type, PaymentStatusView(
             paymentId = paymentId, paymentStatus = status, checkoutReference = reference,
             creditedEntitlementRevision = credited, accessApplicationState = applicationState,
+            product = product, creditState = creditState, creditReviewReason = reviewReason,
+            creditedProduct = creditedProduct,
         ))
     }
 
-    private fun validateEnvelope(event: JSONObject) {
+    private fun validateEnvelope(event: JSONObject, v2: Boolean = false) {
+        if (v2) {
+            check(strictInt(event, "v") == 1 && strictString(event, "request_id").matches(REQUEST_ID) &&
+                validUtc(strictString(event, "server_time")) &&
+                strictString(event, "schema_version") == "1.0") { "PAYMENTS_INVALID" }
+            return
+        }
         val requestId = event.getString("request_id")
         val serverTime = event.getString("server_time")
         check(event.getInt("v") == 1 && requestId.matches(REQUEST_ID) &&
@@ -210,6 +273,108 @@ internal object PaymentsContract {
             "PAYMENTS_INVALID"
         }
     }
+
+    private fun nullableProduct(source: JSONObject): PaymentProduct? =
+        if (source.isNull("product")) null else parseProduct(source.getJSONObject("product"))
+
+    private fun parseProduct(product: JSONObject): PaymentProduct {
+        check(product.keys().asSequence().toSet() == PRODUCT_KEYS) { "PAYMENTS_INVALID" }
+        val kind = strictString(product, "kind")
+        val planId = strictString(product, "plan_id")
+        val delta = strictInt(product, "device_delta")
+        check(planId in PRODUCT_PLAN_IDS &&
+            ((kind == "subscription" && delta == 0 && planId != "terlimo-extra-device") ||
+                (kind == "device_addon" && delta == 1 && planId == "terlimo-extra-device"))) {
+            "PAYMENTS_INVALID"
+        }
+        val targetId = if (product.isNull("target_entitlement_id")) null
+            else strictUuid(product, "target_entitlement_id")
+        val targetUntil = if (product.isNull("target_valid_until")) null
+            else strictUtc(product, "target_valid_until")
+        val validFrom = strictUtc(product, "valid_from")
+        val validUntil = strictUtc(product, "valid_until")
+        check(Instant.parse(validUntil).isAfter(Instant.parse(validFrom))) { "PAYMENTS_INVALID" }
+        val rawIds = product.getJSONArray("renew_extra_slot_ids")
+        val ids = ArrayList<String>(rawIds.length())
+        val seenIds = HashSet<String>()
+        for (index in 0 until rawIds.length()) {
+            val raw = rawIds.get(index)
+            check(raw is String && raw.matches(UUID) && seenIds.add(raw.lowercase())) {
+                "PAYMENTS_INVALID"
+            }
+            ids += raw
+        }
+        val baseAmount = strictLong(product, "base_amount_minor")
+        val extraAmount = strictLong(product, "extra_amount_minor")
+        val limit = strictInt(product, "device_limit")
+        check(baseAmount >= 0 && extraAmount >= 0 && limit >= 2) { "PAYMENTS_INVALID" }
+        check(if (kind == "subscription") limit.toLong() == 2L + ids.size else
+            baseAmount == 0L && targetId != null && targetUntil != null && validUntil == targetUntil && ids.isEmpty()) {
+            "PAYMENTS_INVALID"
+        }
+        val rawSlots = product.getJSONArray("extra_slots")
+        val slots = ArrayList<PaymentExtraSlot>(rawSlots.length())
+        val seenSlots = HashSet<String>()
+        for (index in 0 until rawSlots.length()) {
+            val slot = rawSlots.getJSONObject(index)
+            check(slot.keys().asSequence().toSet() == EXTRA_SLOT_KEYS) { "PAYMENTS_INVALID" }
+            val slotId = strictUuid(slot, "slot_id")
+            check(seenSlots.add(slotId.lowercase())) { "PAYMENTS_INVALID" }
+            val expiresAt = strictUtc(slot, "expires_at")
+            val renewAmount = if (slot.isNull("renew_amount_minor")) null
+                else strictLong(slot, "renew_amount_minor").also {
+                    check(it > 0) { "PAYMENTS_INVALID" }
+                }
+            slots += PaymentExtraSlot(slotId, expiresAt, renewAmount)
+        }
+        return PaymentProduct(kind, planId, delta, targetId, targetUntil, validFrom, validUntil,
+            ids, baseAmount, extraAmount, limit, slots)
+    }
+
+    private fun parseCreditedProduct(product: JSONObject): CreditedPaymentProduct {
+        check(product.keys().asSequence().toSet() == CREDITED_PRODUCT_KEYS) { "PAYMENTS_INVALID" }
+        val from = strictUtc(product, "valid_from")
+        val until = if (product.isNull("valid_until")) null else strictUtc(product, "valid_until")
+        val limit = strictInt(product, "device_limit")
+        val currentLimit = strictInt(product, "current_device_limit")
+        check(limit >= 2 && currentLimit >= 2) { "PAYMENTS_INVALID" }
+        return CreditedPaymentProduct(from, until, limit, currentLimit)
+    }
+
+    private fun validDuration(duration: String, v2: Boolean): Boolean =
+        duration in DURATION_CODES ||
+            (v2 && duration.startsWith("until:") && validUtc(duration.removePrefix("until:")))
+
+    private fun validUtc(value: String): Boolean = value.matches(UTC_TIME) &&
+        runCatching { Instant.parse(value) }.isSuccess
+
+    private fun strictString(source: JSONObject, key: String): String {
+        val value = source.get(key)
+        check(value is String) { "PAYMENTS_INVALID" }
+        return value
+    }
+
+    private fun strictUuid(source: JSONObject, key: String): String =
+        strictString(source, key).also { check(it.matches(UUID)) { "PAYMENTS_INVALID" } }
+
+    private fun strictUtc(source: JSONObject, key: String): String =
+        strictString(source, key).also { check(validUtc(it)) { "PAYMENTS_INVALID" } }
+
+    private fun strictLong(source: JSONObject, key: String): Long {
+        val value = source.get(key)
+        check(value is Int || value is Long) { "PAYMENTS_INVALID" }
+        return (value as Number).toLong()
+    }
+
+    private fun strictInt(source: JSONObject, key: String): Int =
+        strictLong(source, key).also {
+            check(it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) { "PAYMENTS_INVALID" }
+        }.toInt()
+
+    private fun nullableEnum(source: JSONObject, key: String, allowed: Set<String>): String? =
+        if (source.isNull(key)) null else strictString(source, key).also {
+            check(it in allowed) { "PAYMENTS_INVALID" }
+        }
 
     private fun parseMoney(money: JSONObject): Pair<Long, String> {
         check(money.keys().asSequence().toSet() == MONEY_KEYS) { "PAYMENTS_INVALID" }

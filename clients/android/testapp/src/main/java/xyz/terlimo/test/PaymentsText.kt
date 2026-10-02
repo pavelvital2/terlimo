@@ -27,7 +27,9 @@ internal object PaymentsText {
         "days:30" -> "30 дней"
         "months:3" -> "3 месяца"
         "months:6" -> "6 месяцев"
-        else -> null
+        else -> durationCode.takeIf { it.startsWith("until:") }
+            ?.removePrefix("until:")?.let(LocalStamp::parseUtc)
+            ?.let { "до ${LocalStamp.format(it, ZoneId.systemDefault())}" }
     }
 
     fun methodLabel(method: String): String? = when (method) {
@@ -44,11 +46,13 @@ internal object PaymentsText {
     const val PAY_TEXT = "💳 Оплатить"
     const val BACK_TEXT = "⬅️ Назад"
     const val CANCEL_TEXT = "❌ Отмена"
+    const val EXTRA_RENEWAL_WARNING =
+        "Если продлить меньше дополнительных мест, после окончания их оплаченного срока последнее добавленное устройство будет отключено. Два базовых места сохранятся."
     const val PRICE_WAIT_TEXT = "Уточняем цену…"
     const val PRICE_RETRY_TEXT = "Цена не подтверждена. Выберите способ оплаты ещё раз."
 
     fun orderedPlans(plans: List<PaymentPlan>): List<PaymentPlan> =
-        PurchaseFlow.selectablePlans(plans).sortedBy { periodOrder.indexOf(it.durationCode) }
+        PurchaseFlow.selectablePlans(plans).sortedBy { periodOrder.indexOf(it.durationCode).takeIf { order -> order >= 0 } ?: periodOrder.size }
 
     fun orderedMethods(plan: PaymentPlan): List<String> = methodOrder.filter { it in plan.methods }
 
@@ -61,7 +65,9 @@ internal object PaymentsText {
         }
         val amount = java.math.BigDecimal.valueOf(plan.amountMinor, 2).stripTrailingZeros()
         val price = amount.setScale(maxOf(1, amount.scale())).toPlainString()
-        return "$period - $price ${plan.currency}"
+        return if (plan.product?.kind == "device_addon")
+            "Дополнительное место · ${durationLabel(plan.durationCode)} · $price ${plan.currency}"
+        else "$period - $price ${plan.currency}"
     }
 
     /**
@@ -90,13 +96,42 @@ internal object PaymentsText {
         val method = methodLabel(quote.method) ?: quote.method
         val expiry = LocalStamp.parseUtc(quote.expiresAt)
             ?.let { " · действует до ${LocalStamp.format(it, zone)} (местное время)" } ?: ""
-        return "$duration · ${priceLabel(quote.amountMinor, quote.currency)} · $method$expiry"
+        val product = quote.product
+        val details = product?.let {
+            val start = LocalStamp.parseUtc(it.validFrom)?.let { time -> LocalStamp.format(time, zone) }
+            val end = LocalStamp.parseUtc(it.validUntil)?.let { time -> LocalStamp.format(time, zone) }
+            val places = if (it.kind == "device_addon") "Ещё 1 место" else
+                "Базовые места: 2; продлить дополнительных: ${it.renewExtraSlotIds.size}"
+            "\n$places · с $start до $end (местное время)"
+        }.orEmpty()
+        return "$duration · ${priceLabel(quote.amountMinor, quote.currency)} · $method$expiry$details"
     }
+
+    fun extraSlotLine(slot: PaymentExtraSlot, currency: String, zone: ZoneId): String {
+        val until = LocalStamp.parseUtc(slot.expiresAt)?.let { LocalStamp.format(it, zone) }.orEmpty()
+        val renewal = slot.renewAmountMinor?.let { "продление ${priceLabel(it, currency)}" }
+            ?: "продление недоступно"
+        return "Место ${slot.slotId} · до $until · $renewal"
+    }
+
+    private fun creditedPeriod(payment: PaymentStatusView?, zone: ZoneId): String =
+        payment?.creditedProduct?.let {
+            val start = LocalStamp.parseUtc(it.validFrom)?.let { time -> LocalStamp.format(time, zone) }
+            val end = it.validUntil?.let(LocalStamp::parseUtc)?.let { time -> LocalStamp.format(time, zone) }
+            " Фактический период: с $start" + (end?.let { value -> " до $value" } ?: " без даты окончания") +
+                "; мест сейчас: ${it.currentDeviceLimit}."
+        }.orEmpty()
+
+    private fun reviewRequired(payment: PaymentStatusView?): Boolean =
+        payment?.paymentStatus == "paid" && payment.creditState == "needs_review"
+
+    private const val PAID_REVIEW_TEXT = "Оплата получена. Выдача доступа требует проверки. Повторная оплата не нужна."
+
 
     fun paymentStatusText(payment: PaymentStatusView): String = when (payment.paymentStatus) {
         "created" -> "Платёж создан. Ожидаем оплату."
         "pending" -> "Ожидаем оплату."
-        "paid" -> "Оплата получена. Подтверждаем подписку по серверу…"
+        "paid" -> if (reviewRequired(payment)) PAID_REVIEW_TEXT else "Оплата получена. Подтверждаем подписку по серверу…"
         "failed" -> "Платёж не прошёл."
         "expired" -> "Срок оплаты истёк."
         "refunded" -> "Платёж возвращён."
@@ -180,10 +215,20 @@ internal object PaymentsText {
         registration: AccountAccessProjection.Registration?,
         zone: ZoneId,
     ): String {
+        when (state?.recovery) {
+            "verify_account" -> return "Сохранён незавершённый запрос оплаты. Восстановите его после проверки аккаунта. Новый заказ пока недоступен."
+            "account_mismatch" -> return "Есть незавершённая оплата другого аккаунта. Войдите в исходный аккаунт, чтобы проверить её."
+            "legacy_unknown" -> return "Сохранена прежняя попытка оплаты без данных аккаунта. Не создавайте повторный заказ: состояние требует проверки поддержки."
+            "unreadable" -> return "Не удалось прочитать сохранённую оплату. Новый заказ заблокирован, чтобы не создать повторный. Обратитесь в поддержку."
+            "unknown_create" -> return if (state.sending) PURCHASE_SENDING_TEXT else
+                "Результат отправленного запроса оплаты ещё не подтверждён. Нажмите «Восстановить оплату»: будет проверен прежний запрос, без нового заказа." +
+                    (if (state.error != null) " Сейчас восстановить не удалось; исходный запрос сохранён." else "")
+        }
         val offered = state != null && PurchaseFlow.offered(registration)
         if (state == null || state.phase == PurchaseFlow.IDLE) {
             return if (offered) CHECK_AVAILABILITY_TEXT else PaymentsText.UNAVAILABLE_TEXT
         }
+        if (reviewRequired(state.payment)) return PAID_REVIEW_TEXT
         // One outstanding purchase request: show waiting and let no other line imply progress.
         if (state.sending) return PURCHASE_SENDING_TEXT
         return when (state.phase) {
@@ -211,7 +256,7 @@ internal object PaymentsText {
                 if (PurchaseFlow.paidAwaitingBinding(state) && registration?.state != "registered")
                     "Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить доступ."
                 else "Оплата получена. Ожидаем подтверждение подписки по серверу…"
-            PurchaseFlow.CONFIRMED -> "Оплата подтверждена сервером. Подписка обновлена."
+            PurchaseFlow.CONFIRMED -> "Оплата подтверждена сервером. Доступ обновлён." + creditedPeriod(state.payment, zone)
             else -> if (offered) CHECK_AVAILABILITY_TEXT else PaymentsText.UNAVAILABLE_TEXT
         }
     }

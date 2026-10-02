@@ -28,6 +28,8 @@ type Client struct {
 	BaseURL string
 	HTTP    Doer
 	Tokens  TokenSource
+	// PaymentContract opts the payment routes into v2; zero preserves strict v1.
+	PaymentContract int
 	// OnRequest/OnResponse are optional, secret-free observation hooks of the single
 	// request builder. OnRequest fires with status 0 immediately before the wire call,
 	// after bearer resolution; OnResponse fires with the HTTP status, or 0 when the

@@ -131,6 +131,8 @@ type Plan struct {
 	BaseDeviceLimit int      `json:"base_device_limit"`
 	Amount          Money    `json:"amount"`
 	Methods         []string `json:"methods"`
+	Product         *Product `json:"-"`
+	PaymentContract int      `json:"-"`
 }
 
 // UnmarshalJSON enforces the required plan field presence.
@@ -169,25 +171,28 @@ func (p *PlansResponse) UnmarshalJSON(raw []byte) error {
 
 // QuoteRequest is the POST /quotes body; Idempotency is header-only.
 type QuoteRequest struct {
-	PlanID       string `json:"plan_id"`
-	DurationCode string `json:"duration_code"`
-	Method       string `json:"method"`
+	PlanID            string   `json:"plan_id"`
+	DurationCode      string   `json:"duration_code"`
+	Method            string   `json:"method"`
+	RenewExtraSlotIDs []string `json:"renew_extra_slot_ids,omitempty"`
 }
 
 // QuoteResponse is the strict POST /quotes 200 body. duration_code, method and
 // expires_at are plain required strings in payment.json (only the request carries the
 // enums), so they are forwarded without an invented constraint.
 type QuoteResponse struct {
-	RequestID     string `json:"request_id"`
-	ServerTime    string `json:"server_time"`
-	SchemaVersion string `json:"schema_version"`
-	Status        string `json:"status"`
-	QuoteID       string `json:"quote_id"`
-	Amount        Money  `json:"amount"`
-	DurationCode  string `json:"duration_code"`
-	DeviceLimit   int    `json:"device_limit"`
-	Method        string `json:"method"`
-	ExpiresAt     string `json:"expires_at"`
+	RequestID       string   `json:"request_id"`
+	ServerTime      string   `json:"server_time"`
+	SchemaVersion   string   `json:"schema_version"`
+	Status          string   `json:"status"`
+	QuoteID         string   `json:"quote_id"`
+	Amount          Money    `json:"amount"`
+	DurationCode    string   `json:"duration_code"`
+	DeviceLimit     int      `json:"device_limit"`
+	Method          string   `json:"method"`
+	ExpiresAt       string   `json:"expires_at"`
+	Product         *Product `json:"-"`
+	PaymentContract int      `json:"-"`
 }
 
 // UnmarshalJSON enforces the required response field presence.
@@ -212,15 +217,20 @@ type PaymentCreateRequest struct {
 // checkout_reference and credited_entitlement_revision are optional nullable fields:
 // they are passed through verbatim (or nil) and never synthesized into a grant.
 type PaymentResponse struct {
-	RequestID                   string  `json:"request_id"`
-	ServerTime                  string  `json:"server_time"`
-	SchemaVersion               string  `json:"schema_version"`
-	Status                      string  `json:"status"`
-	PaymentID                   string  `json:"payment_id"`
-	PaymentStatus               string  `json:"payment_status"`
-	CheckoutReference           *string `json:"checkout_reference"`
-	CreditedEntitlementRevision *string `json:"credited_entitlement_revision"`
-	AccessApplicationState      string  `json:"access_application_state"`
+	RequestID                   string           `json:"request_id"`
+	ServerTime                  string           `json:"server_time"`
+	SchemaVersion               string           `json:"schema_version"`
+	Status                      string           `json:"status"`
+	PaymentID                   string           `json:"payment_id"`
+	PaymentStatus               string           `json:"payment_status"`
+	CheckoutReference           *string          `json:"checkout_reference"`
+	CreditedEntitlementRevision *string          `json:"credited_entitlement_revision"`
+	AccessApplicationState      string           `json:"access_application_state"`
+	Product                     *Product         `json:"-"`
+	CreditState                 string           `json:"-"`
+	CreditReviewReason          *string          `json:"-"`
+	CreditedProduct             *CreditedProduct `json:"-"`
+	PaymentContract             int              `json:"-"`
 }
 
 // UnmarshalJSON enforces the required response field presence.
@@ -403,12 +413,12 @@ func DecodeCheckoutSessionStrict(raw []byte) (CheckoutSessionResponse, error) {
 // TokenSource supplies the session bearer (and account-specific prices); without one
 // the request stays public. Token errors propagate, never falling back to public prices.
 func (c *Client) ListPlans(ctx context.Context) (PlansResponse, *ErrorResponse, error) {
-	raw, status, err := c.request(ctx, http.MethodGet, "/plans", nil, "")
+	raw, status, err := c.requestWithQuery(ctx, http.MethodGet, "/plans", nil, "", true, c.paymentQuery())
 	if err != nil {
 		return PlansResponse{}, nil, err
 	}
 	if status == http.StatusOK {
-		plans, err := DecodePlansStrict(raw)
+		plans, err := c.decodePlans(raw)
 		if err != nil {
 			return PlansResponse{}, nil, err
 		}
@@ -425,19 +435,39 @@ func (c *Client) ListPlans(ctx context.Context) (PlansResponse, *ErrorResponse, 
 // method are validated against the request schema; the host-owned Idempotency-Key is
 // forwarded verbatim in the header.
 func (c *Client) CreateQuote(ctx context.Context, planID, durationCode, method, idempotencyKey string) (QuoteResponse, *ErrorResponse, error) {
-	if !validOpaqueID(planID) || !validDurationCode(durationCode) || !validPaymentMethod(method) ||
+	return c.CreateQuoteWithSelection(ctx, planID, durationCode, method, idempotencyKey, nil)
+}
+
+// CreateQuoteWithSelection forwards server-owned extra slot IDs, never device IDs.
+func (c *Client) CreateQuoteWithSelection(ctx context.Context, planID, durationCode, method, idempotencyKey string, renewExtraSlotIDs []string) (QuoteResponse, *ErrorResponse, error) {
+	validPlanDuration := validOpaqueID(planID) && validDurationCode(durationCode)
+	if c.PaymentContract == 2 {
+		validPlanDuration = validProductPlanID(planID) && validDurationCodeV2(durationCode)
+		if !validSlotIDs(renewExtraSlotIDs) || (planID == "terlimo-extra-device" && len(renewExtraSlotIDs) != 0) {
+			return QuoteResponse{}, nil, ErrInvalidRequest
+		}
+	} else if len(renewExtraSlotIDs) != 0 {
+		return QuoteResponse{}, nil, ErrInvalidRequest
+	}
+	if !validPlanDuration || !validPaymentMethod(method) ||
 		!validIdempotencyKey(idempotencyKey) {
 		return QuoteResponse{}, nil, ErrInvalidRequest
 	}
 	body := QuoteRequest{PlanID: planID, DurationCode: durationCode, Method: method}
-	raw, status, err := c.requestWith(ctx, http.MethodPost, "/quotes", body, idempotencyKey, true)
+	if c.PaymentContract == 2 {
+		body.RenewExtraSlotIDs = append([]string(nil), renewExtraSlotIDs...)
+	}
+	raw, status, err := c.requestWithQuery(ctx, http.MethodPost, "/quotes", body, idempotencyKey, true, c.paymentQuery())
 	if err != nil {
 		return QuoteResponse{}, nil, err
 	}
 	if status == http.StatusOK {
-		quote, err := DecodeQuoteStrict(raw)
+		quote, err := c.decodeQuote(raw)
 		if err != nil {
 			return QuoteResponse{}, nil, err
+		}
+		if c.PaymentContract == 2 && !quoteMatchesV2Request(quote, body) {
+			return QuoteResponse{}, nil, fmt.Errorf("quote v2 request binding mismatch")
 		}
 		return quote, nil, nil
 	}
@@ -452,16 +482,16 @@ func (c *Client) CreateQuote(ctx context.Context, planID, durationCode, method, 
 // Idempotency-Key is forwarded verbatim; a changed body under the same key is the
 // server's IDEMPOTENCY_CONFLICT, never a native rewrite.
 func (c *Client) CreatePayment(ctx context.Context, quoteID, idempotencyKey string) (PaymentResponse, *ErrorResponse, error) {
-	if !validOpaqueID(quoteID) || !validIdempotencyKey(idempotencyKey) {
+	if !validOpaqueID(quoteID) || (c.PaymentContract == 2 && !validUUID(quoteID)) || !validIdempotencyKey(idempotencyKey) {
 		return PaymentResponse{}, nil, ErrInvalidRequest
 	}
 	body := PaymentCreateRequest{QuoteID: quoteID}
-	raw, status, err := c.requestWith(ctx, http.MethodPost, "/payments", body, idempotencyKey, true)
+	raw, status, err := c.requestWithQuery(ctx, http.MethodPost, "/payments", body, idempotencyKey, true, c.paymentQuery())
 	if err != nil {
 		return PaymentResponse{}, nil, err
 	}
 	if status == http.StatusOK {
-		payment, err := DecodePaymentStrict(raw)
+		payment, err := c.decodePayment(raw)
 		if err != nil {
 			return PaymentResponse{}, nil, err
 		}
@@ -477,15 +507,15 @@ func (c *Client) CreatePayment(ctx context.Context, quoteID, idempotencyKey stri
 // GetPayment reads owner-only provider status GET /payments/{id}. It is a pure read:
 // no effect, no grant, no second credit.
 func (c *Client) GetPayment(ctx context.Context, paymentID string) (PaymentResponse, *ErrorResponse, error) {
-	if !validPaymentPathID(paymentID) {
+	if !validPaymentPathID(paymentID) || (c.PaymentContract == 2 && !validUUID(paymentID)) {
 		return PaymentResponse{}, nil, ErrInvalidRequest
 	}
-	raw, status, err := c.requestWith(ctx, http.MethodGet, "/payments/"+paymentID, nil, "", true)
+	raw, status, err := c.requestWithQuery(ctx, http.MethodGet, "/payments/"+paymentID, nil, "", true, c.paymentQuery())
 	if err != nil {
 		return PaymentResponse{}, nil, err
 	}
 	if status == http.StatusOK {
-		payment, err := DecodePaymentStrict(raw)
+		payment, err := c.decodePayment(raw)
 		if err != nil {
 			return PaymentResponse{}, nil, err
 		}

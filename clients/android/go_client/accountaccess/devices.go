@@ -156,11 +156,11 @@ func DecodeDevicesStrict(raw []byte) (DevicesResponse, error) {
 	if !ValidRevision(body.Revision) {
 		return DevicesResponse{}, fmt.Errorf("devices revision invalid")
 	}
-	// Canonical: device_limit and slots_used are both 0..100 and independent (no slots<=limit).
-	if body.DeviceLimit == nil || *body.DeviceLimit < 0 || *body.DeviceLimit > 100 {
+	// Nonnegative server/Android Int32 counts; independent even after capacity expiry.
+	if body.DeviceLimit == nil || *body.DeviceLimit < 0 || *body.DeviceLimit > 1<<31-1 {
 		return DevicesResponse{}, fmt.Errorf("device_limit out of range")
 	}
-	if body.SlotsUsed == nil || *body.SlotsUsed < 0 || *body.SlotsUsed > 100 {
+	if body.SlotsUsed == nil || *body.SlotsUsed < 0 || *body.SlotsUsed > 1<<31-1 {
 		return DevicesResponse{}, fmt.Errorf("slots_used out of range")
 	}
 	seen := map[string]bool{}

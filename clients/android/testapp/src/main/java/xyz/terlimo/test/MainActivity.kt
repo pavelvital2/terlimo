@@ -63,9 +63,11 @@ class MainActivity : Activity() {
     private lateinit var purchaseReference: TextView
     private var purchasePlanId: String? = null
     private var purchaseMethod: String? = null
+    private var purchaseRenewExtraSlotIds: List<String> = emptyList()
     // An explicit new selection cannot reuse the previously displayed quote, even before
     // the service consumes its queued command. Recreation restores neither selection nor Pay.
     private var purchaseRejectedQuoteId: String? = null
+    private var displayedPurchaseQuote: PaymentQuote? = null
     // §3.2B: explicit-action checkout-open state (opened id, live attempt key, visible error).
     // Owned by CheckoutOpenPolicy; only an explicitly armed tap can open, and renders carry the
     // current attempt key so a refresh/replaced attempt/recreation can never auto-open.
@@ -118,6 +120,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
+        SessionService.restorePurchaseHint(installationStore)
         // §26.5: restore the persisted schedule and reconcile BEFORE building the Settings UI,
         // so the radio group shows the real stored mode. Idempotent: a recreation never
         // restarts the period.
@@ -377,7 +380,7 @@ class MainActivity : Activity() {
             visibility = View.GONE
             setOnClickListener {
                 val quote = selectedPurchaseQuote(SessionService.view.purchase)
-                if (quote == null || purchaseBusy()) {
+                if (quote == null || quote != displayedPurchaseQuote || purchaseBusy()) {
                     render(SessionService.view)
                     return@setOnClickListener
                 }
@@ -1581,27 +1584,70 @@ class MainActivity : Activity() {
 
     private fun selectedPurchaseQuote(current: PurchaseState?): PaymentQuote? {
         val plan = current?.plans?.firstOrNull { it.planId == purchasePlanId }
+        if (current?.selectedRenewExtraSlotIds != purchaseRenewExtraSlotIds.sorted()) return null
         return PurchaseFlow.payableQuote(current, plan, purchaseMethod, java.time.Instant.now())
             ?.takeIf { it.quoteId != purchaseRejectedQuoteId }
     }
 
     /** Back/Cancel abandon only the local selection, never the existing server order. */
     private fun clearPurchaseSelection(clearPlan: Boolean) {
-        if (clearPlan) purchasePlanId = null
+        if (clearPlan) {
+            purchasePlanId = null
+            purchaseRenewExtraSlotIds = emptyList()
+        }
         purchaseMethod = null
+        displayedPurchaseQuote = null
         purchaseRejectedQuoteId = SessionService.view.purchase?.quote?.quoteId
         checkoutOpenPolicy.clearAwaiting()
         render(SessionService.view)
     }
 
     private fun showPurchasePlans() {
-        if (purchaseBusy() || PurchaseFlow.paidAwaitingBinding(SessionService.view.purchase)) return
+        if (purchaseBusy() || PurchaseFlow.blocksNewPurchase(SessionService.view.purchase)) return
         val plans = PaymentsText.orderedPlans(SessionService.view.purchase?.plans.orEmpty())
         android.app.AlertDialog.Builder(this).setTitle("Тариф подписки")
             .setItems(plans.map(PaymentsText::purchasePlanLine).toTypedArray()) { _, index ->
                 if (!purchaseBusy()) {
                     clearPurchaseSelection(clearPlan = true)
                     purchasePlanId = plans[index].planId
+                    render(SessionService.view)
+                    showPurchaseExtraSlots()
+                }
+            }
+            .setNegativeButton(PaymentsText.BACK_TEXT) { _, _ -> clearPurchaseSelection(clearPlan = true) }
+            .setOnCancelListener { clearPurchaseSelection(clearPlan = true) }
+            .show()
+    }
+
+    /** Slot IDs belong to server-paid seats, never to the physical device list. */
+    private fun showPurchaseExtraSlots() {
+        val current = SessionService.view.purchase ?: return
+        val plan = current.plans.firstOrNull { it.planId == purchasePlanId } ?: return
+        val product = plan.product
+        val slots = product?.extraSlots.orEmpty()
+        if (product?.kind != "subscription" || slots.isEmpty()) {
+            purchaseRenewExtraSlotIds = emptyList()
+            showPurchaseMethods()
+            return
+        }
+        val checked = BooleanArray(slots.size)
+        val renewalTitle = TextView(this).apply {
+            text = "Какие дополнительные места продлить?\n\n" + PaymentsText.EXTRA_RENEWAL_WARNING
+            setPadding(24, 20, 24, 12)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setCustomTitle(renewalTitle)
+            .setMultiChoiceItems(slots.map {
+                PaymentsText.extraSlotLine(it, plan.currency, java.time.ZoneId.systemDefault())
+            }.toTypedArray(), checked) { dialog, index, selected ->
+                val allowed = selected && slots[index].renewAmountMinor != null
+                checked[index] = allowed
+                (dialog as android.app.AlertDialog).listView.setItemChecked(index, allowed)
+            }
+            .setPositiveButton("Далее") { _, _ ->
+                if (!purchaseBusy()) {
+                    purchaseRenewExtraSlotIds = slots.filterIndexed { index, _ -> checked[index] }
+                        .map { it.slotId }.sorted()
                     render(SessionService.view)
                     showPurchaseMethods()
                 }
@@ -1614,7 +1660,7 @@ class MainActivity : Activity() {
     private fun showPurchaseMethods() {
         val current = SessionService.view.purchase ?: return
         val plan = current.plans.firstOrNull { it.planId == purchasePlanId } ?: return
-        if (purchaseBusy() || PurchaseFlow.paidAwaitingBinding(current)) return
+        if (purchaseBusy() || PurchaseFlow.blocksNewPurchase(current)) return
         val methods = PaymentsText.orderedMethods(plan)
         android.app.AlertDialog.Builder(this).setTitle("Способ оплаты")
             .setItems(methods.map { PaymentsText.methodLabel(it).orEmpty() }.toTypedArray()) { _, index ->
@@ -1626,7 +1672,8 @@ class MainActivity : Activity() {
                         .setAction("purchase_quote")
                         .putExtra("plan_id", plan.planId)
                         .putExtra("duration_code", plan.durationCode)
-                        .putExtra("method", purchaseMethod))
+                        .putExtra("method", purchaseMethod)
+                        .putStringArrayListExtra("renew_extra_slot_ids", ArrayList(purchaseRenewExtraSlotIds)))
                     render(SessionService.view)
                 }
             }
@@ -1641,7 +1688,7 @@ class MainActivity : Activity() {
         val offered = PurchaseFlow.offered(registration)
         val plans = PaymentsText.orderedPlans(state.purchase?.plans.orEmpty())
         val sending = state.purchase?.sending == true
-        val bindingPaid = PurchaseFlow.paidAwaitingBinding(state.purchase)
+        val bindingPaid = PurchaseFlow.blocksNewPurchase(state.purchase)
         val plan = plans.firstOrNull { it.planId == purchasePlanId }
         if (plan == null) purchasePlanId = null
         if (plan == null || purchaseMethod !in plan.methods) purchaseMethod = null
@@ -1650,14 +1697,25 @@ class MainActivity : Activity() {
         purchasePlansButton.isEnabled = !sending
         purchasePlanButton.visibility = if (offered && plans.isNotEmpty() && !bindingPaid) View.VISIBLE else View.GONE
         purchasePlanButton.isEnabled = !sending
-        purchasePlanButton.text = plan?.let(PaymentsText::purchasePlanLine) ?: "Выбрать тариф"
+        purchasePlanButton.text = plan?.let {
+            PaymentsText.purchasePlanLine(it) + if (it.product?.kind == "subscription")
+                "\nБазовые места: ${it.baseDeviceLimit}. Продлить дополнительных: ${purchaseRenewExtraSlotIds.size}.\nОстальные сохранят прежние сроки."
+            else ""
+        } ?: "Выбрать тариф"
         purchaseMethodButton.visibility = if (offered && plan != null && !bindingPaid) View.VISIBLE else View.GONE
         purchaseMethodButton.isEnabled = !sending
         purchaseMethodButton.text = purchaseMethod?.let(PaymentsText::methodLabel) ?: "Выбрать способ оплаты"
         purchaseQuoteLine.visibility = if (offered && PurchaseVisibility.quoteLineVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
-        purchaseQuoteLine.text = quote?.let { PaymentsText.quoteLine(it, java.time.ZoneId.systemDefault()) }.orEmpty()
+        purchaseQuoteLine.text = quote?.let {
+            (if (state.purchase?.quotePriceChanged == true) "Сервер уточнил цену. Новое предложение:\n" else "") +
+                PaymentsText.quoteLine(it, java.time.ZoneId.systemDefault()) +
+                (if (it.product?.kind == "subscription" &&
+                    it.product.renewExtraSlotIds.size < it.product.extraSlots.size)
+                    "\n" + PaymentsText.EXTRA_RENEWAL_WARNING else "")
+        }.orEmpty()
         purchasePayButton.visibility = if (offered && PurchaseVisibility.payVisible(quote, bindingPaid)) View.VISIBLE else View.GONE
-        purchasePayButton.isEnabled = !sending && quote != null
+        displayedPurchaseQuote = quote.takeIf { offered && !sending && !bindingPaid }
+        purchasePayButton.isEnabled = displayedPurchaseQuote != null
 
         if (!offered || state.purchase?.phase == PurchaseFlow.ERROR || state.purchase?.phase == PurchaseFlow.UNAVAILABLE) {
             checkoutOpenPolicy.clearAwaiting()
@@ -1671,8 +1729,11 @@ class MainActivity : Activity() {
         }
         // These actions depend on the existing order, not on the new choice or its cancellation.
         val payment = state.purchase?.payment
-        purchaseContinueButton.visibility = if (offered && checkoutOpenPolicy.canContinue(payment)) View.VISIBLE else View.GONE
-        purchaseCheckButton.visibility = if (offered && payment != null) View.VISIBLE else View.GONE
+        purchaseContinueButton.visibility = if (checkoutOpenPolicy.canContinue(payment)) View.VISIBLE else View.GONE
+        val recovery = state.purchase?.recovery
+        purchaseCheckButton.visibility = if (payment != null || recovery != null) View.VISIBLE else View.GONE
+        purchaseCheckButton.text = if (payment == null && recovery != null) "Восстановить оплату" else "Проверить статус оплаты"
+        purchaseCheckButton.isEnabled = !sending && recovery !in setOf("legacy_unknown", "unreadable")
         purchaseReference.text = payment?.let { PaymentsText.checkoutReferenceText(it) }.orEmpty()
         purchaseReference.visibility = if (offered && purchaseReference.text.isNotEmpty()) View.VISIBLE else View.GONE
     }

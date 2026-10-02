@@ -133,9 +133,10 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 		return nil, err
 	}
 	client := &accountaccess.Client{
-		BaseURL: strings.TrimRight(start.MobileBaseURL, "/") + "/api/mobile/v1",
-		HTTP:    transport,
-		Tokens:  session,
+		BaseURL:         strings.TrimRight(start.MobileBaseURL, "/") + "/api/mobile/v1",
+		HTTP:            transport,
+		Tokens:          session,
+		PaymentContract: 2,
 	}
 	// Fixed, secret-free observation hooks: the /me wire response boundary and the
 	// /gateways request/status boundaries are emitted, with the same attempt base as the

@@ -145,6 +145,21 @@ type meEntitlement struct {
 	Plan                 *meEntitlementPlan `json:"plan,omitempty"`
 }
 
+// Capacity is a nonnegative server/Android Int32 count, without a commercial cap.
+// Required numbers cannot silently become zero through a missing or null field.
+func (e *meEntitlement) UnmarshalJSON(raw []byte) error {
+	type plain meEntitlement
+	var value plain
+	if err := unmarshalStrictRequired(raw, &value, "effective_device_limit", "slots_used"); err != nil {
+		return err
+	}
+	if err := requiredNonNull(raw, "effective_device_limit", "slots_used"); err != nil {
+		return err
+	}
+	*e = meEntitlement(value)
+	return nil
+}
+
 type onboardingHour struct {
 	State                string  `json:"state"`
 	StartedBy            string  `json:"started_by"`
@@ -335,8 +350,8 @@ func DecodeMeStrict(raw []byte) (MeResponse, error) {
 	default:
 		return MeResponse{}, fmt.Errorf("entitlement status enum invalid")
 	}
-	if me.Entitlement.EffectiveDeviceLimit < 0 || me.Entitlement.EffectiveDeviceLimit > 100 ||
-		me.Entitlement.SlotsUsed < 0 || me.Entitlement.SlotsUsed > 100 {
+	if me.Entitlement.EffectiveDeviceLimit < 0 || me.Entitlement.EffectiveDeviceLimit > 1<<31-1 ||
+		me.Entitlement.SlotsUsed < 0 || me.Entitlement.SlotsUsed > 1<<31-1 {
 		return MeResponse{}, fmt.Errorf("entitlement limits out of range")
 	}
 	if me.Entitlement.ValidFrom != nil && !ValidUtcTime(*me.Entitlement.ValidFrom) {

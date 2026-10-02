@@ -168,6 +168,8 @@ func newPaymentHarness(t *testing.T, paymentResponder func(w http.ResponseWriter
 		t.Fatalf("newManagedMobile: %v", err)
 	}
 	harness.mobile = mobile
+	// This harness pins the original v1 fixtures; managed production opts into v2.
+	mobile.client.PaymentContract = 0
 	go func() {
 		mobile.run(ctx, bridge)
 		close(harness.done)

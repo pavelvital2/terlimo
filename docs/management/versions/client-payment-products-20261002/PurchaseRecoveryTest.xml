@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="xyz.terlimo.test.PurchaseRecoveryTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-02T16:14:58.189Z" hostname="DESKTOP-LKLUNRD" time="0.427">
+  <properties/>
+  <testcase name="paidReviewSurvivesRestartAndCannotBeReleasedByBrowserOrExistingRights" classname="xyz.terlimo.test.PurchaseRecoveryTest" time="0.211"/>
+  <testcase name="paidCompletionRequiresFreshMatchingRightsAndPlansBeforeNextPurchase" classname="xyz.terlimo.test.PurchaseRecoveryTest" time="0.066"/>
+  <testcase name="unknownWriteRestartsWithFrozenSelectionAndSameKeysEvenAfterExpiry" classname="xyz.terlimo.test.PurchaseRecoveryTest" time="0.038"/>
+  <testcase name="knownPaymentRestartsOnExistingStatusWithoutCreateOrBrowserAck" classname="xyz.terlimo.test.PurchaseRecoveryTest" time="0.022"/>
+  <testcase name="quoteOnlyAndProvenTerminalAllowDeliberateNewSelection" classname="xyz.terlimo.test.PurchaseRecoveryTest" time="0.034"/>
+  <testcase name="storageFailureCannotSendPayOrDiscardUnknownOrderAndLegacyIsNotGuessed" classname="xyz.terlimo.test.PurchaseRecoveryTest" time="0.024"/>
+  <testcase name="otherOrUnverifiedAccountCannotSeeOrReplaySavedOrder" classname="xyz.terlimo.test.PurchaseRecoveryTest" time="0.027"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

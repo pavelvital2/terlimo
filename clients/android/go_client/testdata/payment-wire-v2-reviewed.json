@@ -1,0 +1,777 @@
+{
+  "origin": "actual HTTP serialized endpoints over temporary PostgreSQL + Fakeprovider; synthetic identities; no secrets/live traffic; only serializer projection corrected to omit internal extra_price_basis, all other captured fields retained",
+  "subscription": {
+    "plans_envelope": {
+      "request_id": "48a19f688d51a0913d5bbfe29f9d0bd0",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "plans": [
+        {
+          "plan_id": "terlimo-30d",
+          "title": "30 дней",
+          "duration_code": "days:30",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 1000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-30d",
+            "device_delta": 0,
+            "target_entitlement_id": null,
+            "target_valid_until": null,
+            "valid_from": "2026-10-02T15:07:49Z",
+            "valid_until": "2026-11-01T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 1000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": []
+          }
+        },
+        {
+          "plan_id": "terlimo-3m",
+          "title": "3 месяца",
+          "duration_code": "months:3",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 48000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-3m",
+            "device_delta": 0,
+            "target_entitlement_id": null,
+            "target_valid_until": null,
+            "valid_from": "2026-10-02T15:07:49Z",
+            "valid_until": "2027-01-02T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 48000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": []
+          }
+        },
+        {
+          "plan_id": "terlimo-6m",
+          "title": "6 месяцев",
+          "duration_code": "months:6",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 84000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-6m",
+            "device_delta": 0,
+            "target_entitlement_id": null,
+            "target_valid_until": null,
+            "valid_from": "2026-10-02T15:07:49Z",
+            "valid_until": "2027-04-02T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 84000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": []
+          }
+        }
+      ],
+      "plans_revision": "936931352402854970"
+    },
+    "quote_envelope": {
+      "request_id": "1cec82b7531ce62b1f7d9440641e6959",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "quote_id": "4f17c044-839c-4a27-8d92-60f3175e3de3",
+      "amount": {
+        "amount_minor": 1000,
+        "currency": "RUB"
+      },
+      "duration_code": "days:30",
+      "device_limit": 2,
+      "method": "sbp",
+      "expires_at": "2026-10-02T15:22:49Z",
+      "product": {
+        "kind": "subscription",
+        "plan_id": "terlimo-30d",
+        "device_delta": 0,
+        "target_entitlement_id": null,
+        "target_valid_until": null,
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-11-01T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 1000,
+        "extra_amount_minor": 0,
+        "device_limit": 2,
+        "extra_slots": []
+      }
+    },
+    "created_envelope": {
+      "request_id": "e102c8fa71ca1cf417e018e60260fd6a",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "payment_id": "00b32b5d-4af7-44a2-ab80-70e1eb8cec15",
+      "payment_status": "pending",
+      "checkout_reference": "https://pay.test/00b32b5d-4af7-44a2-ab80-70e1eb8cec15",
+      "credited_entitlement_revision": null,
+      "access_application_state": "not_requested",
+      "product": {
+        "kind": "subscription",
+        "plan_id": "terlimo-30d",
+        "device_delta": 0,
+        "target_entitlement_id": null,
+        "target_valid_until": null,
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-11-01T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 1000,
+        "extra_amount_minor": 0,
+        "device_limit": 2,
+        "extra_slots": []
+      },
+      "credit_state": "unapplied",
+      "credit_review_reason": null,
+      "credited_product": null
+    }
+  },
+  "addon": {
+    "plans_envelope": {
+      "request_id": "e5e8ae3db1efaaa552e794916aef3478",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "plans": [
+        {
+          "plan_id": "terlimo-30d",
+          "title": "30 дней",
+          "duration_code": "days:30",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 20000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-30d",
+            "device_delta": 0,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-03T15:07:49Z",
+            "valid_until": "2026-11-02T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 20000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": []
+          }
+        },
+        {
+          "plan_id": "terlimo-3m",
+          "title": "3 месяца",
+          "duration_code": "months:3",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 48000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-3m",
+            "device_delta": 0,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-03T15:07:49Z",
+            "valid_until": "2027-01-03T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 48000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": []
+          }
+        },
+        {
+          "plan_id": "terlimo-6m",
+          "title": "6 месяцев",
+          "duration_code": "months:6",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 84000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-6m",
+            "device_delta": 0,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-03T15:07:49Z",
+            "valid_until": "2027-04-03T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 84000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": []
+          }
+        },
+        {
+          "plan_id": "terlimo-extra-device",
+          "title": "Дополнительное устройство",
+          "duration_code": "until:2026-10-03T15:07:49Z",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 334,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "device_addon",
+            "plan_id": "terlimo-extra-device",
+            "device_delta": 1,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-02T15:07:49Z",
+            "valid_until": "2026-10-03T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 0,
+            "extra_amount_minor": 334,
+            "device_limit": 3,
+            "extra_slots": []
+          }
+        }
+      ],
+      "plans_revision": "713357362393227134"
+    },
+    "quote_envelope": {
+      "request_id": "8f1f9845a11074643029776e8e6beb26",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "quote_id": "b7289d19-5e81-424f-a800-1e9b1b457be5",
+      "amount": {
+        "amount_minor": 334,
+        "currency": "RUB"
+      },
+      "duration_code": "until:2026-10-03T15:07:49Z",
+      "device_limit": 3,
+      "method": "sbp",
+      "expires_at": "2026-10-02T15:22:49Z",
+      "product": {
+        "kind": "device_addon",
+        "plan_id": "terlimo-extra-device",
+        "device_delta": 1,
+        "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-10-03T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 0,
+        "extra_amount_minor": 334,
+        "device_limit": 3,
+        "extra_slots": []
+      }
+    },
+    "created_envelope": {
+      "request_id": "4a8b7d6f12bb7e99757de667650f5b4d",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "payment_id": "5c74f186-59d1-4f5f-a74e-2620fa424109",
+      "payment_status": "pending",
+      "checkout_reference": "https://pay.test/5c74f186-59d1-4f5f-a74e-2620fa424109",
+      "credited_entitlement_revision": null,
+      "access_application_state": "not_requested",
+      "product": {
+        "kind": "device_addon",
+        "plan_id": "terlimo-extra-device",
+        "device_delta": 1,
+        "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-10-03T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 0,
+        "extra_amount_minor": 334,
+        "device_limit": 3,
+        "extra_slots": []
+      },
+      "credit_state": "unapplied",
+      "credit_review_reason": null,
+      "credited_product": null
+    },
+    "paid_envelope": {
+      "request_id": "5bb78192dde393d69e1e008f02a068df",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "payment_id": "5c74f186-59d1-4f5f-a74e-2620fa424109",
+      "payment_status": "paid",
+      "checkout_reference": "https://pay.test/5c74f186-59d1-4f5f-a74e-2620fa424109",
+      "credited_entitlement_revision": "8",
+      "access_application_state": "retryable_failure",
+      "product": {
+        "kind": "device_addon",
+        "plan_id": "terlimo-extra-device",
+        "device_delta": 1,
+        "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-10-03T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 0,
+        "extra_amount_minor": 334,
+        "device_limit": 3,
+        "extra_slots": []
+      },
+      "credit_state": "applied",
+      "credit_review_reason": null,
+      "credited_product": {
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-10-03T15:07:49Z",
+        "device_limit": 3,
+        "current_device_limit": 3
+      }
+    }
+  },
+  "callback_amount_mismatch": {
+    "status": "ok",
+    "result": "amount_mismatch"
+  },
+  "selected_renewal": {
+    "plans_envelope": {
+      "request_id": "92d4186475ac560c68244a73da39d8a7",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "plans": [
+        {
+          "plan_id": "terlimo-30d",
+          "title": "30 дней",
+          "duration_code": "days:30",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 20000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-30d",
+            "device_delta": 0,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-03T15:07:49Z",
+            "valid_until": "2026-11-02T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 20000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": [
+              {
+                "slot_id": "02549d09-ff05-47e7-bea9-dfe45ca1203c",
+                "expires_at": "2026-10-03T15:07:49Z",
+                "renew_amount_minor": 10000
+              },
+              {
+                "slot_id": "2bb48e90-c76d-4ff4-964e-c177dc60ed5b",
+                "expires_at": "2026-10-03T03:07:49Z",
+                "renew_amount_minor": 10167
+              }
+            ]
+          }
+        },
+        {
+          "plan_id": "terlimo-3m",
+          "title": "3 месяца",
+          "duration_code": "months:3",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 48000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-3m",
+            "device_delta": 0,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-03T15:07:49Z",
+            "valid_until": "2027-01-03T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 48000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": [
+              {
+                "slot_id": "02549d09-ff05-47e7-bea9-dfe45ca1203c",
+                "expires_at": "2026-10-03T15:07:49Z",
+                "renew_amount_minor": 30000
+              },
+              {
+                "slot_id": "2bb48e90-c76d-4ff4-964e-c177dc60ed5b",
+                "expires_at": "2026-10-03T03:07:49Z",
+                "renew_amount_minor": 30167
+              }
+            ]
+          }
+        },
+        {
+          "plan_id": "terlimo-6m",
+          "title": "6 месяцев",
+          "duration_code": "months:6",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 84000,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "subscription",
+            "plan_id": "terlimo-6m",
+            "device_delta": 0,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-03T15:07:49Z",
+            "valid_until": "2027-04-03T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 84000,
+            "extra_amount_minor": 0,
+            "device_limit": 2,
+            "extra_slots": [
+              {
+                "slot_id": "02549d09-ff05-47e7-bea9-dfe45ca1203c",
+                "expires_at": "2026-10-03T15:07:49Z",
+                "renew_amount_minor": 60000
+              },
+              {
+                "slot_id": "2bb48e90-c76d-4ff4-964e-c177dc60ed5b",
+                "expires_at": "2026-10-03T03:07:49Z",
+                "renew_amount_minor": 60167
+              }
+            ]
+          }
+        },
+        {
+          "plan_id": "terlimo-extra-device",
+          "title": "Дополнительное устройство",
+          "duration_code": "until:2026-10-03T15:07:49Z",
+          "base_device_limit": 2,
+          "amount": {
+            "amount_minor": 334,
+            "currency": "RUB"
+          },
+          "methods": [
+            "sbp",
+            "card",
+            "crypto"
+          ],
+          "product": {
+            "kind": "device_addon",
+            "plan_id": "terlimo-extra-device",
+            "device_delta": 1,
+            "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+            "target_valid_until": "2026-10-03T15:07:49Z",
+            "valid_from": "2026-10-02T15:07:49Z",
+            "valid_until": "2026-10-03T15:07:49Z",
+            "renew_extra_slot_ids": [],
+            "base_amount_minor": 0,
+            "extra_amount_minor": 334,
+            "device_limit": 5,
+            "extra_slots": [
+              {
+                "slot_id": "02549d09-ff05-47e7-bea9-dfe45ca1203c",
+                "expires_at": "2026-10-03T15:07:49Z",
+                "renew_amount_minor": null
+              },
+              {
+                "slot_id": "2bb48e90-c76d-4ff4-964e-c177dc60ed5b",
+                "expires_at": "2026-10-03T03:07:49Z",
+                "renew_amount_minor": null
+              }
+            ]
+          }
+        }
+      ],
+      "plans_revision": "482690787697531095"
+    },
+    "quote_envelope": {
+      "request_id": "7cf733613a0fe9bf189a8d66a74dcc05",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "quote_id": "fe6b69a7-82b9-4d01-80cd-d60e42c21b65",
+      "amount": {
+        "amount_minor": 30167,
+        "currency": "RUB"
+      },
+      "duration_code": "days:30",
+      "device_limit": 3,
+      "method": "sbp",
+      "expires_at": "2026-10-02T15:22:49Z",
+      "product": {
+        "kind": "subscription",
+        "plan_id": "terlimo-30d",
+        "device_delta": 0,
+        "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-03T15:07:49Z",
+        "valid_until": "2026-11-02T15:07:49Z",
+        "renew_extra_slot_ids": [
+          "2bb48e90-c76d-4ff4-964e-c177dc60ed5b"
+        ],
+        "base_amount_minor": 20000,
+        "extra_amount_minor": 10167,
+        "device_limit": 3,
+        "extra_slots": [
+          {
+            "slot_id": "02549d09-ff05-47e7-bea9-dfe45ca1203c",
+            "expires_at": "2026-10-03T15:07:49Z",
+            "renew_amount_minor": 10000
+          },
+          {
+            "slot_id": "2bb48e90-c76d-4ff4-964e-c177dc60ed5b",
+            "expires_at": "2026-10-03T03:07:49Z",
+            "renew_amount_minor": 10167
+          }
+        ]
+      }
+    },
+    "created_envelope": {
+      "request_id": "26577f78d0e922a7a37b7b960b82b291",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "payment_id": "13f5033c-7434-423e-ba12-9fd871ff57a4",
+      "payment_status": "pending",
+      "checkout_reference": "https://pay.test/13f5033c-7434-423e-ba12-9fd871ff57a4",
+      "credited_entitlement_revision": null,
+      "access_application_state": "not_requested",
+      "product": {
+        "kind": "subscription",
+        "plan_id": "terlimo-30d",
+        "device_delta": 0,
+        "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-03T15:07:49Z",
+        "valid_until": "2026-11-02T15:07:49Z",
+        "renew_extra_slot_ids": [
+          "2bb48e90-c76d-4ff4-964e-c177dc60ed5b"
+        ],
+        "base_amount_minor": 20000,
+        "extra_amount_minor": 10167,
+        "device_limit": 3,
+        "extra_slots": [
+          {
+            "slot_id": "02549d09-ff05-47e7-bea9-dfe45ca1203c",
+            "expires_at": "2026-10-03T15:07:49Z",
+            "renew_amount_minor": 10000
+          },
+          {
+            "slot_id": "2bb48e90-c76d-4ff4-964e-c177dc60ed5b",
+            "expires_at": "2026-10-03T03:07:49Z",
+            "renew_amount_minor": 10167
+          }
+        ]
+      },
+      "credit_state": "unapplied",
+      "credit_review_reason": null,
+      "credited_product": null
+    },
+    "paid_envelope": {
+      "request_id": "c001c45b32f055494124332b06837804",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "payment_id": "13f5033c-7434-423e-ba12-9fd871ff57a4",
+      "payment_status": "paid",
+      "checkout_reference": "https://pay.test/13f5033c-7434-423e-ba12-9fd871ff57a4",
+      "credited_entitlement_revision": "9",
+      "access_application_state": "retryable_failure",
+      "product": {
+        "kind": "subscription",
+        "plan_id": "terlimo-30d",
+        "device_delta": 0,
+        "target_entitlement_id": "49128c87-5800-4325-8927-aaa58249c78e",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-03T15:07:49Z",
+        "valid_until": "2026-11-02T15:07:49Z",
+        "renew_extra_slot_ids": [
+          "2bb48e90-c76d-4ff4-964e-c177dc60ed5b"
+        ],
+        "base_amount_minor": 20000,
+        "extra_amount_minor": 10167,
+        "device_limit": 3,
+        "extra_slots": [
+          {
+            "slot_id": "02549d09-ff05-47e7-bea9-dfe45ca1203c",
+            "expires_at": "2026-10-03T15:07:49Z",
+            "renew_amount_minor": 10000
+          },
+          {
+            "slot_id": "2bb48e90-c76d-4ff4-964e-c177dc60ed5b",
+            "expires_at": "2026-10-03T03:07:49Z",
+            "renew_amount_minor": 10167
+          }
+        ]
+      },
+      "credit_state": "applied",
+      "credit_review_reason": null,
+      "credited_product": {
+        "valid_from": "2026-10-03T15:07:49Z",
+        "valid_until": "2026-11-02T15:07:49Z",
+        "device_limit": 3,
+        "current_device_limit": 4
+      }
+    }
+  },
+  "paid_needs_review": {
+    "quote_envelope": {
+      "request_id": "8cfc43ea42f5828516d21cb2bc861845",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "quote_id": "cef757ef-f719-4b75-a2e5-14afc0164262",
+      "amount": {
+        "amount_minor": 334,
+        "currency": "RUB"
+      },
+      "duration_code": "until:2026-10-03T15:07:49Z",
+      "device_limit": 3,
+      "method": "sbp",
+      "expires_at": "2026-10-02T15:22:49Z",
+      "product": {
+        "kind": "device_addon",
+        "plan_id": "terlimo-extra-device",
+        "device_delta": 1,
+        "target_entitlement_id": "fe5615b4-f00c-42a8-9ce0-6a421aca5848",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-10-03T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 0,
+        "extra_amount_minor": 334,
+        "device_limit": 3,
+        "extra_slots": []
+      }
+    },
+    "created_envelope": {
+      "request_id": "62998a0bc066198d7a7eca1701c9e2ff",
+      "server_time": "2026-10-02T15:07:49Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "payment_id": "c385813e-064a-4e16-b9e5-0bd765f6be1a",
+      "payment_status": "pending",
+      "checkout_reference": "https://pay.test/c385813e-064a-4e16-b9e5-0bd765f6be1a",
+      "credited_entitlement_revision": null,
+      "access_application_state": "not_requested",
+      "product": {
+        "kind": "device_addon",
+        "plan_id": "terlimo-extra-device",
+        "device_delta": 1,
+        "target_entitlement_id": "fe5615b4-f00c-42a8-9ce0-6a421aca5848",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-10-03T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 0,
+        "extra_amount_minor": 334,
+        "device_limit": 3,
+        "extra_slots": []
+      },
+      "credit_state": "unapplied",
+      "credit_review_reason": null,
+      "credited_product": null
+    },
+    "status_envelope": {
+      "request_id": "b9f8d1774564234e434ebf9a66c90a7b",
+      "server_time": "2026-10-02T15:07:51Z",
+      "schema_version": "1.0",
+      "status": "ok",
+      "payment_id": "c385813e-064a-4e16-b9e5-0bd765f6be1a",
+      "payment_status": "paid",
+      "checkout_reference": "https://pay.test/c385813e-064a-4e16-b9e5-0bd765f6be1a",
+      "credited_entitlement_revision": null,
+      "access_application_state": "pending",
+      "product": {
+        "kind": "device_addon",
+        "plan_id": "terlimo-extra-device",
+        "device_delta": 1,
+        "target_entitlement_id": "fe5615b4-f00c-42a8-9ce0-6a421aca5848",
+        "target_valid_until": "2026-10-03T15:07:49Z",
+        "valid_from": "2026-10-02T15:07:49Z",
+        "valid_until": "2026-10-03T15:07:49Z",
+        "renew_extra_slot_ids": [],
+        "base_amount_minor": 0,
+        "extra_amount_minor": 334,
+        "device_limit": 3,
+        "extra_slots": []
+      },
+      "credit_state": "needs_review",
+      "credit_review_reason": "target_expired",
+      "credited_product": null
+    }
+  },
+  "expired_target_quote_error": {
+    "http_status": 409,
+    "body": {
+      "request_id": "d85a4be1e65c1c0f7e8c1a0afdc9f4c3",
+      "server_time": "2026-10-02T15:07:51Z",
+      "schema_version": "1.0",
+      "status": "error",
+      "code": "PAYMENT_STATE_INVALID",
+      "retryable": false
+    }
+  }
+}

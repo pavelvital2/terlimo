@@ -1,0 +1,25 @@
+{
+  "suite": {
+    "name": "xyz.terlimo.test.PurchaseRecoveryTest",
+    "tests": "7",
+    "skipped": "0",
+    "failures": "0",
+    "errors": "0",
+    "timestamp": "2026-10-02T16:14:58.189Z",
+    "hostname": "DESKTOP-LKLUNRD",
+    "time": "0.427"
+  },
+  "cases": [
+    "paidReviewSurvivesRestartAndCannotBeReleasedByBrowserOrExistingRights",
+    "paidCompletionRequiresFreshMatchingRightsAndPlansBeforeNextPurchase",
+    "unknownWriteRestartsWithFrozenSelectionAndSameKeysEvenAfterExpiry",
+    "knownPaymentRestartsOnExistingStatusWithoutCreateOrBrowserAck",
+    "quoteOnlyAndProvenTerminalAllowDeliberateNewSelection",
+    "storageFailureCannotSendPayOrDiscardUnknownOrderAndLegacyIsNotGuessed",
+    "otherOrUnverifiedAccountCannotSeeOrReplaySavedOrder"
+  ],
+  "scope": "only PurchaseRecoveryTest; no old suites",
+  "initial_pass": true,
+  "final_pass": true,
+  "xml_sha256": "424ac6d1de7e220cfade25f910408d3bf22d965e48899ee485947808675e99ca"
+}

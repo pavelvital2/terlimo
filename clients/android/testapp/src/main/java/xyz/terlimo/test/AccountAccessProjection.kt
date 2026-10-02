@@ -168,9 +168,8 @@ internal object AccountAccessParser {
         check(entitlement.getString("type") in ENTITLEMENT_TYPES &&
             entitlement.getString("status") in ENTITLEMENT_STATUSES &&
             entitlement.getString("revision").matches(REVISION)) { "ACCOUNT_ACCESS_INVALID" }
-        val limit = entitlement.getInt("effective_device_limit")
-        val slots = entitlement.getInt("slots_used")
-        check(limit in 0..100 && slots in 0..100) { "ACCOUNT_ACCESS_INVALID" }
+        val limit = deviceCount(entitlement, "effective_device_limit")
+        val slots = deviceCount(entitlement, "slots_used")
         val validFrom = nullableString(entitlement, "valid_from")
         val validUntil = nullableString(entitlement, "valid_until")
         val sourceRef = nullableString(entitlement, "source_ref")
@@ -349,4 +348,13 @@ internal object AccountAccessParser {
         dataAccess == "subscription_data" && perpetualCommercial && validUntil == null
 
     private fun utcTime(value: String): Boolean = value.matches(UTC_TIME)
+    /** Server/Android Int32 capacity; no commercial cap or slots <= limit assumption. */
+    private fun deviceCount(source: JSONObject, key: String): Int {
+        val value = source.opt(key)
+        check(value is Int || value is Long) { "ACCOUNT_ACCESS_INVALID" }
+        val count = (value as Number).toLong()
+        check(count in 0..Int.MAX_VALUE.toLong()) { "ACCOUNT_ACCESS_INVALID" }
+        return count.toInt()
+    }
+
 }

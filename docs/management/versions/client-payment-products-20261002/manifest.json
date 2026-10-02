@@ -1,0 +1,54 @@
+{
+  "event_id": "laptop-20261002-payment-restart-recovery-source-v1",
+  "source": "laptop",
+  "target": "whitelist",
+  "reply_to": "whitelist-20261002-payment-restart-recovery-laptop-v1",
+  "utc": "2026-10-02T16:16:49.302958+00:00",
+  "commit": "c56fb9580a8d46aa065a6a69eb59b31ac21fc2ba",
+  "tree": "8ba64391739dd1e66348f2cd8d085b4c40f904e3",
+  "parent": "d9acd1e71494dfa2bc97280a02dbffd52a8374fa",
+  "full_patch_base": "948e6a86aa65a13cd72509dda61ad74e7d14aaeb",
+  "source_review_sha256": "db3687aac4bc428fdfa8726824311e517d4d2c6060c09163a77dd5db88fda20b",
+  "files": [
+    {
+      "name": "REPORT.md",
+      "bytes": 8950,
+      "sha256": "fbc040502dfb9b73f99670a529c7cd9daa4bb556fbfedd5900f9f8889202f1a2"
+    },
+    {
+      "name": "payment-client-full.patch",
+      "bytes": 255557,
+      "sha256": "76602fd6a5b2a416628cae43dbd9aefb44e1b2c13ff6ecdae3b9aad80da7d02f"
+    },
+    {
+      "name": "restart-recovery-delta.patch",
+      "bytes": 60050,
+      "sha256": "e2e6711d60a2be6f32981205927ea410de0da45b1d73682aa75d1f0e9aed3939"
+    },
+    {
+      "name": "README.VERSION.md",
+      "bytes": 70732,
+      "sha256": "f50eee74d38ab3b57121cad7c43d1769e92b15aeee0cf5f8f602b2ad265f966e"
+    },
+    {
+      "name": "tests-summary.json",
+      "bytes": 945,
+      "sha256": "3f69571ff500072a7e2b2a31a5ddbdf7273a2b8912392827049e9c9caee96b8d"
+    },
+    {
+      "name": "verification.log",
+      "bytes": 547,
+      "sha256": "5e5e37bfff15b2c4f972001fe7c228d1dd716fea554fae83157ff51495869a2b"
+    },
+    {
+      "name": "jvm-targeted.log",
+      "bytes": 5714,
+      "sha256": "1a7d72d155768bbd59018be9ae534236224485bcb23efbaf9f2ee52f82dae71a"
+    },
+    {
+      "name": "PurchaseRecoveryTest.xml",
+      "bytes": 1358,
+      "sha256": "424ac6d1de7e220cfade25f910408d3bf22d965e48899ee485947808675e99ca"
+    }
+  ]
+}

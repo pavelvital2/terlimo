@@ -2,6 +2,35 @@ package xyz.terlimo.test
 
 import java.time.Instant
 
+/** Exact business selection; prices and quoted periods remain server-owned offers. */
+internal data class PurchaseSelection(
+    val planId: String,
+    val durationCode: String,
+    val method: String,
+    val productKind: String? = null,
+    val targetEntitlementId: String? = null,
+    val targetValidUntil: String? = null,
+    val renewExtraSlotIds: List<String> = emptyList(),
+) {
+    companion object {
+        fun fromPlan(
+            plan: PaymentPlan, method: String, renewExtraSlotIds: List<String> = emptyList(),
+        ): PurchaseSelection? {
+            if (method !in plan.methods || renewExtraSlotIds.map { it.lowercase() }.distinct().size != renewExtraSlotIds.size) return null
+            val product = plan.product
+            if (product?.kind != "subscription" && renewExtraSlotIds.isNotEmpty()) return null
+            if (renewExtraSlotIds.any { id -> product?.extraSlots?.none {
+                    it.slotId == id && it.renewAmountMinor != null
+                } != false }) return null
+            return PurchaseSelection(plan.planId, plan.durationCode, method, product?.kind,
+                product?.targetEntitlementId, product?.targetValidUntil, renewExtraSlotIds.sorted())
+        }
+    }
+}
+
+/** The offer displayed by quoteReady, frozen together with its complete selection. */
+internal data class PurchaseQuoteBinding(val quote: PaymentQuote, val selection: PurchaseSelection)
+
 /**
  * Bounded host-local purchase flow state for the S5 payment surface. It is a pure
  * projection of accepted server results: [PurchaseFlow.CONFIRMED] is reachable only
@@ -11,10 +40,17 @@ import java.time.Instant
  */
 internal data class PurchaseState(
     val phase: String = PurchaseFlow.IDLE,
+    val ownerAccountRef: String? = null,
+    val recovery: String? = null,
     val plansRevision: String? = null,
     val plans: List<PaymentPlan> = emptyList(),
     val selectedPlanId: String? = null,
     val selectedMethod: String? = null,
+    val selectedRenewExtraSlotIds: List<String> = emptyList(),
+    val quoteBinding: PurchaseQuoteBinding? = null,
+    val quotePriceChanged: Boolean = false,
+    val freshMeConfirmed: Boolean = false,
+    val confirmationPlansLoaded: Boolean = false,
     val quote: PaymentQuote? = null,
     val payment: PaymentStatusView? = null,
     /**
@@ -45,14 +81,29 @@ internal object PurchaseFlow {
     fun offered(registration: AccountAccessProjection.Registration?): Boolean =
         registration?.purchaseAvailable == true
 
-    /** Plans the UI may offer: a known duration label and at least one selectable method. */
+    /** Plans need a known server duration, including a finite addon target. */
     fun selectablePlans(plans: List<PaymentPlan>): List<PaymentPlan> = plans.filter { plan ->
-        PaymentsText.durationLabel(plan.durationCode) != null &&
+        (PaymentsText.durationLabel(plan.durationCode) != null ||
+            (plan.product?.kind == "device_addon" && plan.durationCode.startsWith("until:") &&
+                LocalStamp.parseUtc(plan.durationCode.removePrefix("until:")) != null)) &&
             plan.methods.any { PaymentsText.methodLabel(it) != null }
+    }
+
+    fun selection(current: PurchaseState?): PurchaseSelection? {
+        val base = current ?: return null
+        val plan = base.plans.firstOrNull { it.planId == base.selectedPlanId } ?: return null
+        return PurchaseSelection.fromPlan(plan, base.selectedMethod ?: return null, base.selectedRenewExtraSlotIds)
     }
 
     fun plansLoaded(current: PurchaseState?, revision: String, plans: List<PaymentPlan>): PurchaseState {
         val base = current ?: PurchaseState()
+        // Refresh catalog data without releasing the paid receipt or the no-Pay barrier.
+        if (base.payment?.paymentStatus == "paid") return confirmIfReady(base.copy(
+            plansRevision = revision, plans = plans,
+            confirmationPlansLoaded = base.payment.product == null || plans.any { it.product != null },
+            sending = false, error = null))
+        if (blocksNewPurchase(base)) return base.copy(
+            plansRevision = revision, plans = plans, sending = false, error = null)
         val selectable = selectablePlans(plans)
         val selected = selectable.firstOrNull { it.planId == base.selectedPlanId } ?: selectable.firstOrNull()
         val method = when {
@@ -60,46 +111,97 @@ internal object PurchaseFlow {
             base.selectedPlanId == selected.planId && base.selectedMethod in selected.methods -> base.selectedMethod
             else -> selected.methods.firstOrNull()
         }
-        return base.copy(
-            phase = PLANS,
-            plansRevision = revision,
-            plans = plans,
-            selectedPlanId = selected?.planId,
-            selectedMethod = method,
-            // A quote stays valid only while the selected plan is unchanged; a different
-            // selection must request a new quote instead of silently paying an old one.
-            quote = if (base.selectedPlanId == selected?.planId) base.quote else null,
-            // The create correlation follows the same attempt: a replaced selection drops it.
-            createAck = if (base.selectedPlanId == selected?.planId) base.createAck else null,
-            sending = false,
-            error = null,
-        )
+        val ids = if (selected != null && selected.planId == base.selectedPlanId && selected.product?.kind == "subscription")
+            base.selectedRenewExtraSlotIds.filter { id -> selected.product.extraSlots.any {
+                it.slotId == id && it.renewAmountMinor != null
+            } } else emptyList()
+        val updated = base.copy(plansRevision = revision, plans = plans, selectedPlanId = selected?.planId,
+            selectedMethod = method, selectedRenewExtraSlotIds = ids, sending = false, error = null)
+        val sameSelection = selection(base) != null && selection(base) == selection(updated)
+        return updated.copy(phase = if (sameSelection && base.quote != null) base.phase else PLANS,
+            quote = if (sameSelection) base.quote else null,
+            quoteBinding = if (sameSelection) base.quoteBinding else null,
+            quotePriceChanged = sameSelection && base.quotePriceChanged,
+            createAck = if (sameSelection) base.createAck else null)
     }
 
     fun selectPlan(current: PurchaseState?, planId: String): PurchaseState {
         val base = current ?: return PurchaseState()
+        if (base.sending || blocksNewPurchase(base)) return base
         val plan = selectablePlans(base.plans).firstOrNull { it.planId == planId } ?: return base
         if (base.selectedPlanId == planId) return base
-        return base.copy(
-            selectedPlanId = plan.planId,
-            selectedMethod = plan.methods.firstOrNull(),
-            // A different plan invalidates the previous plan's quote; it is never reused silently.
-            quote = null,
-            // The replaced attempt's create correlation is dropped with its quote.
-            createAck = null,
-        )
+        return invalidateOffer(base.copy(selectedPlanId = plan.planId,
+            selectedMethod = plan.methods.firstOrNull(), selectedRenewExtraSlotIds = emptyList()))
     }
 
     fun selectMethod(current: PurchaseState?, method: String): PurchaseState {
         val base = current ?: return PurchaseState()
+        if (base.sending || blocksNewPurchase(base)) return base
         val plan = base.plans.firstOrNull { it.planId == base.selectedPlanId } ?: return base
         if (method !in plan.methods || base.selectedMethod == method) return base
-        return base.copy(selectedMethod = method, quote = null, createAck = null)
+        return invalidateOffer(base.copy(selectedMethod = method))
     }
 
-    fun quoteReady(current: PurchaseState?, quote: PaymentQuote): PurchaseState =
-        (current ?: PurchaseState()).copy(
-            phase = QUOTE_READY, quote = quote, error = null, createAck = null, sending = false)
+    fun selectRenewExtraSlots(current: PurchaseState?, ids: List<String>): PurchaseState {
+        val base = current ?: return PurchaseState()
+        if (base.sending || blocksNewPurchase(base)) return base
+        val plan = base.plans.firstOrNull { it.planId == base.selectedPlanId } ?: return base
+        val selected = PurchaseSelection.fromPlan(plan, base.selectedMethod ?: return base, ids) ?: return base
+        if (selected.renewExtraSlotIds == base.selectedRenewExtraSlotIds) return base
+        return invalidateOffer(base.copy(selectedRenewExtraSlotIds = selected.renewExtraSlotIds))
+    }
+
+    private fun invalidateOffer(base: PurchaseState): PurchaseState = base.copy(
+        phase = if (base.phase == CONFIRMED) CONFIRMED else PLANS,
+        quote = null, quoteBinding = null, quotePriceChanged = false, createAck = null)
+
+    /** Explicitly display a new exact server offer before its Pay can become actionable. */
+    fun quoteReady(
+        current: PurchaseState?, quote: PaymentQuote, selection: PurchaseSelection? = selection(current),
+    ): PurchaseState {
+        val base = current ?: PurchaseState()
+        if (blocksNewPurchase(base)) return base.copy(sending = false)
+        val plan = base.plans.firstOrNull { it.planId == base.selectedPlanId }
+        if (selection == null || plan == null) return base.copy(phase = QUOTE_READY, quote = quote,
+            quoteBinding = null, quotePriceChanged = false, error = null, createAck = null, sending = false)
+        val expectedAmount = initialOfferAmount(plan, selection)
+        if (selection != PurchaseFlow.selection(base) || !quoteMatchesSelection(quote, plan, selection) ||
+            expectedAmount == null || (quote.product == null && quote.amountMinor != expectedAmount))
+            return failure(invalidateOffer(base), "PAYMENT_STATE_INVALID")
+        return base.copy(phase = QUOTE_READY, quote = quote, quoteBinding = PurchaseQuoteBinding(quote, selection),
+            quotePriceChanged = quote.amountMinor != expectedAmount, error = null, createAck = null, sending = false,
+            payment = if (base.phase == CONFIRMED) null else base.payment,
+            freshMeConfirmed = false, confirmationPlansLoaded = false)
+    }
+
+    /** Sum only server renewal prices; no client prorata or inferred slot composition. */
+    private fun initialOfferAmount(plan: PaymentPlan, selection: PurchaseSelection): Long? {
+        return try {
+            if (plan.product?.kind != "subscription") plan.amountMinor else {
+                var amount = plan.product.baseAmountMinor
+                for (id in selection.renewExtraSlotIds) {
+                    val renewal = plan.product.extraSlots.firstOrNull { it.slotId == id }?.renewAmountMinor
+                    if (renewal == null) return null
+                    amount = Math.addExact(amount, renewal)
+                }
+                amount
+            }
+        } catch (_: ArithmeticException) { null }
+    }
+
+    private fun quoteMatchesSelection(quote: PaymentQuote, plan: PaymentPlan, selected: PurchaseSelection): Boolean {
+        if (quote.method != selected.method || quote.durationCode != selected.durationCode ||
+            quote.currency != plan.currency || quote.amountMinor <= 0) return false
+        val product = quote.product
+        if (product == null) return selected.productKind == null && selected.renewExtraSlotIds.isEmpty()
+        return product.kind == selected.productKind && product.planId == selected.planId &&
+            product.targetEntitlementId == selected.targetEntitlementId &&
+            product.targetValidUntil == selected.targetValidUntil &&
+            product.renewExtraSlotIds.distinct().size == product.renewExtraSlotIds.size &&
+            product.renewExtraSlotIds.sorted() == selected.renewExtraSlotIds &&
+            product.deviceDelta == plan.product?.deviceDelta && quote.deviceLimit == product.deviceLimit &&
+            (product.kind != "subscription" || product.deviceLimit == plan.baseDeviceLimit + selected.renewExtraSlotIds.size)
+    }
 
     fun quoteExpired(current: PurchaseState?, now: Instant): Boolean {
         val quote = current?.quote ?: return false
@@ -112,13 +214,15 @@ internal object PurchaseFlow {
         current: PurchaseState?, plan: PaymentPlan?, method: String?, now: Instant,
     ): PaymentQuote? {
         if (current == null || plan == null || method == null || current.sending ||
-            current.phase !in setOf(QUOTE_READY, AWAITING_PAYMENT) || paidAwaitingBinding(current)) return null
+            current.phase !in setOf(QUOTE_READY, AWAITING_PAYMENT) || blocksNewPurchase(current)) return null
         val quote = current.quote ?: return null
+        val selected = selection(current) ?: return null
+        val binding = current.quoteBinding ?: return null
         if (current.selectedPlanId != plan.planId || current.selectedMethod != method ||
             current.plans.firstOrNull { it.planId == plan.planId } != plan || method !in plan.methods ||
-            quote.method != method || quote.durationCode != plan.durationCode ||
-            quote.amountMinor != plan.amountMinor || quote.currency != plan.currency ||
-            quoteExpired(current, now)) return null
+            binding.quote != quote || binding.selection != selected ||
+            !quoteMatchesSelection(quote, plan, selected) ||
+            (quote.product == null && quote.amountMinor != plan.amountMinor) || quoteExpired(current, now)) return null
         return quote
     }
 
@@ -128,7 +232,8 @@ internal object PurchaseFlow {
      */
     fun quoteExpiredState(current: PurchaseState?): PurchaseState =
         (current ?: PurchaseState()).copy(
-            phase = ERROR, quote = null, error = "QUOTE_EXPIRED", createAck = null, sending = false)
+            phase = ERROR, quote = null, quoteBinding = null, quotePriceChanged = false,
+            error = "QUOTE_EXPIRED", createAck = null, sending = false)
 
     /** Marks the explicit purchase request as outstanding (single-flight captured). */
     fun sending(current: PurchaseState?): PurchaseState =
@@ -148,8 +253,12 @@ internal object PurchaseFlow {
             "created", "pending", "paid" -> null
             else -> "PAYMENT_STATUS_UNKNOWN"
         }
-        return (current ?: PurchaseState()).copy(
-            phase = phase, payment = payment, error = error, sending = false)
+        val base = current ?: PurchaseState()
+        val sameReceipt = base.payment == payment
+        return base.copy(phase = if (sameReceipt && base.phase == CONFIRMED) CONFIRMED else phase,
+            payment = payment, error = error, sending = false,
+            freshMeConfirmed = sameReceipt && base.freshMeConfirmed,
+            confirmationPlansLoaded = sameReceipt && base.confirmationPlansLoaded)
     }
 
     /**
@@ -165,6 +274,8 @@ internal object PurchaseFlow {
      * but binding has not happened, so a fresh /me cannot confirm it. The client must not offer
      * another payment and must offer the mandatory Telegram registration instead (S5 §3.2C).
      */
+    fun blocksNewPurchase(state: PurchaseState?): Boolean = state?.recovery != null || paidAwaitingBinding(state)
+
     fun paidAwaitingBinding(state: PurchaseState?): Boolean {
         val base = state ?: return false
         return base.payment?.paymentStatus == "paid" && base.phase != CONFIRMED
@@ -177,17 +288,21 @@ internal object PurchaseFlow {
 
     fun failure(current: PurchaseState?, code: String): PurchaseState {
         val base = current ?: PurchaseState()
+        if (base.payment?.paymentStatus == "paid") return base.copy(error = code, sending = false)
         return if (PaymentsText.isUnavailable(code))
             base.copy(phase = UNAVAILABLE, error = code, createAck = null, sending = false)
         else base.copy(phase = ERROR, error = code, createAck = null, sending = false)
     }
 
-    /** A failed plans refresh cannot leave an older offer or quote actionable. */
-    fun plansFailure(current: PurchaseState?, code: String): PurchaseState = failure(
-        (current ?: PurchaseState()).copy(
-            plansRevision = null, plans = emptyList(), selectedPlanId = null,
-            selectedMethod = null, quote = null, payment = null, createAck = null, sending = false,
-        ), code)
+    /** A failed refresh invalidates offers while preserving any paid receipt and barrier. */
+    fun plansFailure(current: PurchaseState?, code: String): PurchaseState {
+        val base = current ?: PurchaseState()
+        if (blocksNewPurchase(base)) return base.copy(
+            error = code, sending = false, confirmationPlansLoaded = false)
+        return failure(base.copy(plansRevision = null, plans = emptyList(), selectedPlanId = null,
+            selectedMethod = null, selectedRenewExtraSlotIds = emptyList(), quote = null,
+            quoteBinding = null, quotePriceChanged = false, createAck = null, sending = false), code)
+    }
 
     /** A definitive terminal payment state ends the attempt; retry becomes a new key pair. */
     fun terminalPayment(payment: PaymentStatusView): Boolean =
@@ -201,9 +316,30 @@ internal object PurchaseFlow {
     fun onFreshMe(current: PurchaseState?, projection: AccountAccessProjection): PurchaseState {
         val base = current ?: return PurchaseState()
         if (base.phase != AWAITING_CONFIRMATION) return base
-        val creditedRevision = base.payment?.creditedEntitlementRevision ?: return base
-        if (projection.entitlement.status != "active" || projection.entitlement.type != "paid" ||
-            projection.entitlement.revision != creditedRevision) return base
+        val unconfirmed = base.copy(freshMeConfirmed = false)
+        val payment = base.payment ?: return unconfirmed
+        if (payment.creditState == "needs_review" || payment.creditState == "unapplied") return unconfirmed
+        val creditedRevision = payment.creditedEntitlementRevision ?: return unconfirmed
+        val entitlement = projection.entitlement
+        if (entitlement.status != "active" || entitlement.type != "paid" ||
+            entitlement.revision != creditedRevision) return unconfirmed
+        if (payment.product != null) {
+            val actual = payment.creditedProduct ?: return unconfirmed
+            if (payment.creditState != "applied" || entitlement.validUntil != actual.validUntil ||
+                entitlement.effectiveDeviceLimit != actual.currentDeviceLimit ||
+                LocalStamp.parseUtc(actual.validFrom) == null ||
+                (actual.validUntil != null && LocalStamp.parseUtc(actual.validUntil) == null)) return unconfirmed
+        }
+        return confirmIfReady(base.copy(freshMeConfirmed = true))
+    }
+
+    private fun confirmIfReady(base: PurchaseState): PurchaseState {
+        val payment = base.payment ?: return base
+        if (base.phase != AWAITING_CONFIRMATION || payment.paymentStatus != "paid" ||
+            payment.creditState in setOf("needs_review", "unapplied") || !base.freshMeConfirmed) return base
+        if (payment.creditState != null && !base.confirmationPlansLoaded) return base
+        if (payment.product != null && (!base.confirmationPlansLoaded || payment.creditedProduct == null ||
+                payment.creditState != "applied")) return base
         return base.copy(phase = CONFIRMED, error = null)
     }
 
@@ -213,8 +349,13 @@ internal object PurchaseFlow {
 /** The frozen host->native payment actions; the host sends exactly these fields. */
 internal sealed class PurchaseOperation {
     object Plans : PurchaseOperation()
-    data class Quote(val planId: String, val durationCode: String, val method: String) : PurchaseOperation()
-    data class Payment(val quoteId: String) : PurchaseOperation()
+    object Recover : PurchaseOperation()
+    data class Quote(
+        val planId: String, val durationCode: String, val method: String,
+        val renewExtraSlotIds: List<String> = emptyList(),
+        val selection: PurchaseSelection? = null,
+    ) : PurchaseOperation()
+    data class Payment(val quoteId: String, val recovery: Boolean = false) : PurchaseOperation()
     data class PaymentGet(val paymentId: String) : PurchaseOperation()
 }
 

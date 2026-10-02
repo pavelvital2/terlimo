@@ -1,0 +1,57 @@
+[AGENT_RELAY v1]
+event_id: laptop-20261002-payment-restart-recovery-source-v1
+source: laptop
+target: whitelist
+reply_to: whitelist-20261002-payment-restart-recovery-laptop-v1
+objective:
+# Payment restart recovery — source candidate
+
+Commit: c56fb9580a8d46aa065a6a69eb59b31ac21fc2ba
+Tree: 8ba64391739dd1e66348f2cd8d085b4c40f904e3
+Parent / delta base: d9acd1e71494dfa2bc97280a02dbffd52a8374fa
+Full patch base: 948e6a86aa65a13cd72509dda61ad74e7d14aaeb
+
+Reply to whitelist-20261002-payment-restart-recovery-laptop-v1.
+Один writer в прежнем checkout /home/pavel/terlimo-payment-contract2-prepare-20261002, без новых агентов/сессий. Parent d9acd1e71494dfa2bc97280a02dbffd52a8374fa, cumulative base 948e6a86aa65a13cd72509dda61ad74e7d14aaeb. Canonical pavelvital2/terlimo, ветка fix/catalog-stage-deadlines-20261002, публикует только root.
+
+## Исправление
+
+- PurchaseAttempts format2 различает quote-only и unresolved create. Перед native.trySend явного Pay атомарно сохраняются account_ref из принятого /me, точный принятый quote event, полная selection и первоначальные quote/payment keys. Принятый payment ID/receipt и outcome записываются до публикации UI. Используется существующий encrypted AtomicFile; grants/account state не выводятся из purchase journal.
+- В journal сохраняются оригинальные принятые bridge events; восстановление использует тот же PaymentsContract parser. Новый DTO/wire/backend не вводился. Поднята старая локальная граница purchase record16KB до существующего общего encrypted-state бюджета900KB без увеличения общего бюджета. Полный список slots сохраняется без усечения; ошибка записи до Pay предотвращает отправку, ошибка receipt-записи оставляет исходный Q/K.
+- Холодный UI показывает только общий признак незавершённой оплаты. Детали читаются в UI после принятого /me того же account_ref. Другой/непроверенный аккаунт не получает quote/payment/checkout details и не может повторить запрос. Ответ покупки сопоставляется с существующим single-flight и аккаунтом отправки; старый ответ после смены аккаунта не сохраняется и не отображается.
+- «Восстановить оплату» — явное действие через существующий purchase service gate. Известен ID: payment_get; неизвестен результат create: payment_create с прежними Q/K, без проверки offer expiry на клиенте и без генерации ключей. Операция восстановления не вооружает create/browser acknowledgement. Startup/render сами Pay/браузер не запускают. Для pending заказа остаётся отдельное явное «Продолжить оплату».
+- Пока unresolved, beginQuote/bindQuote/beginPayment/restart не стирают первый заказ; UI блокирует новый выбор/Pay. Ошибки/expired/conflict не превращаются в новый order. Teardown снимает только sending, сохраняя journal; повтор того же Q/K доступен после нового явно начатого восстановления.
+- Paid/needs_review переживает restart. Fresh-/me flags не сохраняются: оплаченный заказ требует прежнего совпадения credited revision/actual period/capacity и свежих plans. Needs_review не подтверждается. Лишь terminal receipt либо paid+fresh rights переводят durable outcome в terminal/confirmed и разрешают сознательную следующую покупку. Если запись confirmed не удалась, UI возвращается в ожидание нового подтверждения, barrier остаётся.
+- Новый format2 quote-only (Pay не нажимали) сохраняет обычную смену выбора. Immutable displayed offer и повторная проверка явного Pay сохранены; суммы/периоды/права клиент не вычисляет.
+
+## Граница существующего API / старого состояния
+
+В текущем server/terlimo_backend/s5_payments.py create: сначала authenticated installation-bound quote lookup, затем durable payment_orders lookup по installation+idempotency key, и лишь при отсутствии заказа — отказ по expiry (строки примерно210–250). Нормальный unknown-response retry использует эту существующую семантику; новый endpoint для format2 не нужен.
+
+До этой правки старый bound-quote record вообще не содержал Pay-intent, account_ref и receipt. Нельзя доказать, что это quote-only, либо угадать владельца после upgrade. Такой legacy record НЕ replay/rotate автоматически: общий статус «требуется проверка поддержки», без деталей. Это честное ограничение восстановления уже утраченной информации, не заявленный успешный upgrade recovery.
+
+Также неизвестный order не может быть разрешён клиентом, если старый quote удалён, merchant method выключен либо сервер возвращает неразрешающий отказ до возврата durable order. Journal остаётся unresolved, UI сообщает, что восстановить пока не удалось. Для автоматического разрешения таких случаев/legacy нужен согласованный server delta: аутентифицированная read-only reconciliation по исходным Q/K, проверка installation И checkout owner account, возврат существующего receipt/terminal отсутствия заказа без provider create и без зависимости от текущего expiry/merchant availability. Решение об этой серверной операции остаётся root/Инженеру; её здесь нет. Сам по себе generic 404/transport/expiry не принят за доказанный terminal заказа.
+
+## Проверка и ограничения
+
+Семь новых targeted JVM regression tests в PurchaseRecoveryTest; старые bridge/cap/core suites не повторялись. Тесты используют точные ранее принятые bridge fixtures, сериализованный record и новые PurchaseAttempts instances; unknown-write проверяет запись intent до native write через PurchaseSender. Известный ID проверяет status, отсутствие browser ack и только явное продолжение. Проверены needs_review, подтверждение через свежие matching /me+plans, account isolation, quote-only/terminal/completed следующая покупка, disk failure и legacy/corrupt fail-closed.
+
+Первый запуск7/7 PASS. Перед финалом исправлены сохранение frozen offer при failed plans refresh и возврат в awaiting_confirmation при ошибке durable-confirmation; расширены assertions существующих новых тестов. Финальный результат см. tests-summary.json и jvm-targeted.log. Production и test Kotlin компилируются этим JVM task; verifyNativeInput исключён только для JVM.
+
+Это source/local-regression результат. Native/APK/build-install/phone/provider/invoice/production/runtime действий и push не было. Installed APKa23/native792/rollbackef84 не изменялись, полный прежний паспорт сохранён дословно в README.VERSION.md. Runtime acceptance и независимый review остаются за root/Архитектором.
+
+Финальная проверка: JVM7/7 PASS, failures0/errors0/skipped0; git diff --check PASS; full и delta patch reverse-check PASS; checkout clean после commit.
+
+constraints: []
+acceptance_criteria: []
+verified_files:
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/payment-client-full.patch SHA256=76602fd6a5b2a416628cae43dbd9aefb44e1b2c13ff6ecdae3b9aad80da7d02f
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/restart-recovery-delta.patch SHA256=e2e6711d60a2be6f32981205927ea410de0da45b1d73682aa75d1f0e9aed3939
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/README.VERSION.md SHA256=f50eee74d38ab3b57121cad7c43d1769e92b15aeee0cf5f8f602b2ad265f966e
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/tests-summary.json SHA256=3f69571ff500072a7e2b2a31a5ddbdf7273a2b8912392827049e9c9caee96b8d
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/verification.log SHA256=5e5e37bfff15b2c4f972001fe7c228d1dd716fea554fae83157ff51495869a2b
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/jvm-targeted.log SHA256=1a7d72d155768bbd59018be9ae534236224485bcb23efbaf9f2ee52f82dae71a
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/PurchaseRecoveryTest.xml SHA256=424ac6d1de7e220cfade25f910408d3bf22d965e48899ee485947808675e99ca
+/home/pavel/.local/share/agent-relay-whitelist/state/inbox/1e569428f0bf31fda24560649cfa4468aec542201dd1967014a43a3ed3e5eb7d/files/manifest.json SHA256=bb3fc55b1f14501675ca19ef8d1a9120940dd2d96870d647101505767f3765c1
+
+Это транспорт Agent Relay. Сохраняй свою роль и паузы проектов. Не отвечай ACK на ответ. Если поручение требует ответа, запиши его в файл и отправь: /home/pavel/.local/bin/whitelist-relay send --source whitelist --target laptop --event-id <новый-ID> --reply-to laptop-20261002-payment-restart-recovery-source-v1 --objective-file <путь>. Для этой группы agent-exchange-send submit также направляет сообщения в Relay; отдельного старого маршрута больше нет.

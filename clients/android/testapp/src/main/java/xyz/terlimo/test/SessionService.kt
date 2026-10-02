@@ -241,6 +241,8 @@ class SessionService : Service() {
     private val purchaseAttempts by lazy { PurchaseAttempts(InstallationPurchaseAttemptStore(storage)) }
     /** Local correlation of the explicitly sent payment_create with its result (no wire pairing). */
     private val paymentCreates = PaymentCreateTracker()
+    private var purchaseVerifiedAccountRef: String? = null
+    private var purchaseRequestAccountRef: String? = null
     /** Host-owned single-flight: at most one Quote/Payment request outstanding on the stream. */
     private val purchaseFlight = PurchaseSingleFlight()
     /** Truthful send orchestration around the single-flight capture (no swallowed exceptions). */
@@ -455,6 +457,7 @@ class SessionService : Service() {
         else registerReceiver(lifecycleReceiver, lifecycleFilter)
         lifecycleRegistered = true
         storage = InstallationStore(this)
+        restorePurchaseHint(storage)
         // Seed the last verified catalog/selection from durable storage when no
         // session is active, so an ordinary Disconnect survives Service recreation.
         if (view.nodes.isEmpty()) {
@@ -1031,17 +1034,19 @@ class SessionService : Service() {
                 val planId = intent.getStringExtra("plan_id").orEmpty()
                 val durationCode = intent.getStringExtra("duration_code").orEmpty()
                 val method = intent.getStringExtra("method").orEmpty()
+                val renewIds = intent.getStringArrayListExtra("renew_extra_slot_ids")?.toList().orEmpty()
                 // Only the currently displayed server plan may be quoted; the extras are
                 // never trusted past that check.
                 val plan = view.purchase?.plans?.firstOrNull { it.planId == planId }
+                val selection = plan?.let { PurchaseSelection.fromPlan(it, method, renewIds) }
                 if (purchaseFlight.busy() || view.purchase?.sending == true) {
                     publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
-                } else if (!stopping.get() && plan != null && plan.durationCode == durationCode &&
-                    method in plan.methods && !PurchaseFlow.paidAwaitingBinding(view.purchase)) {
-                    val selected = PurchaseFlow.selectMethod(
-                        PurchaseFlow.selectPlan(view.purchase, planId), method)
+                } else if (!stopping.get() && plan != null && selection != null && plan.durationCode == durationCode &&
+                    method in plan.methods && !PurchaseFlow.blocksNewPurchase(view.purchase)) {
+                    val selected = PurchaseFlow.selectRenewExtraSlots(PurchaseFlow.selectMethod(
+                        PurchaseFlow.selectPlan(view.purchase, planId), method), selection.renewExtraSlotIds)
                     publish(view.copy(purchase = selected.copy(quote = null, createAck = null, sending = true)))
-                    handlePurchaseOperation(PurchaseOperation.Quote(planId, durationCode, method))
+                    handlePurchaseOperation(PurchaseOperation.Quote(planId, durationCode, method, selection.renewExtraSlotIds, selection))
                 } else {
                     publish(view.copy(purchase = PurchaseFlow.failure(view.purchase,
                         if (stopping.get()) "MOBILE_STATE_UNAVAILABLE" else "INVALID_REQUEST")))
@@ -1055,6 +1060,8 @@ class SessionService : Service() {
                     // attempt keys are not rotated while the request is unanswered.
                     purchaseFlight.busy() ->
                         publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
+                    PurchaseFlow.blocksNewPurchase(current) ->
+                        publish(view.copy(purchase = PurchaseFlow.failure(current, "PURCHASE_RECOVERY_REQUIRED")))
                     quoteId.isEmpty() || current?.quote?.quoteId != quoteId ->
                         publish(view.copy(purchase = PurchaseFlow.failure(current, "QUOTE_EXPIRED")))
                     // An expired quote is a new attempt: keys rotate, the stale quote is dropped
@@ -1073,10 +1080,7 @@ class SessionService : Service() {
                 }
             }
             "purchase_check" -> {
-                val paymentId = view.purchase?.payment?.paymentId
-                if (!stopping.get() && paymentId != null) {
-                    handlePurchaseOperation(PurchaseOperation.PaymentGet(paymentId))
-                }
+                if (!stopping.get()) handlePurchaseOperation(PurchaseOperation.Recover)
             }
             "cancel" -> {
                 val captchaOwner = intent.getStringExtra(ManlCaptchaWebViewManager.EXTRA_CAPTCHA_OWNER)
@@ -1100,6 +1104,7 @@ class SessionService : Service() {
     private fun begin(link: String, requiredNetwork: Network? = null, recoveryGeneration: Long? = null,
         catalogRequestId: String? = null) {
         var startedAttempt: String? = null
+        purchaseVerifiedAccountRef = null
         try {
             lastReadiness = emptyMap()
             lastRelay = emptyMap()
@@ -1364,8 +1369,13 @@ class SessionService : Service() {
                             // S5 grant discipline: a paid purchase is confirmed only through
                             // this accepted fresh /me projection with an active entitlement.
                             // No payment status, redirect or checkout return writes access.
+                            val accountRef = updated.projection.account.accountRef
+                            purchaseVerifiedAccountRef = accountRef
                             val previousPurchase = view.purchase
-                            val nextPurchase = PurchaseFlow.onFreshMe(previousPurchase, updated.projection)
+                            val ownerMatches = accountRef != null && previousPurchase?.ownerAccountRef == accountRef
+                            val scopedPurchase = if (ownerMatches) previousPurchase else
+                                purchaseAttempts.recoveryState(accountRef) ?: PurchaseState(ownerAccountRef = accountRef)
+                            val nextPurchase = PurchaseFlow.onFreshMe(scopedPurchase, updated.projection)
                             // A different account identity invalidates any device list and any
                             // outstanding delete correlation: a late reply must not apply to a
                             // different account. sessionGeneration is a reused counter and is
@@ -1395,7 +1405,7 @@ class SessionService : Service() {
                                 ),
                                 purchase = nextPurchase))
                             if (nextPurchase.phase == PurchaseFlow.CONFIRMED &&
-                                previousPurchase?.phase != PurchaseFlow.CONFIRMED) {
+                                (previousPurchase?.phase != PurchaseFlow.CONFIRMED || previousPurchase.recovery != null)) {
                                 // The purchase is confirmed by the server projection; the
                                 // attempt identity is done, so the next purchase starts with
                                 // a fresh key pair. The cold purchase attempt is released.
@@ -1988,13 +1998,24 @@ class SessionService : Service() {
      * the durable [PurchaseAttempts] policy and is persisted before this send; this method
      * never generates a key itself and never sends an action outside the frozen set.
      */
-    private fun sendPurchaseOperation(attempt: String, operation: PurchaseOperation) {
+    private fun sendPurchaseOperation(attempt: String, requestedOperation: PurchaseOperation) {
+        val operation = try {
+            if (requestedOperation == PurchaseOperation.Recover)
+                purchaseAttempts.recoveryOperation(purchaseVerifiedAccountRef)
+            else requestedOperation
+        } catch (_: Exception) {
+            publishActive(attempt, view.copy(purchase = purchaseAttempts.recoveryState(purchaseVerifiedAccountRef)
+                ?: PurchaseFlow.failure(view.purchase, "PURCHASE_RECOVERY_UNAVAILABLE")))
+            if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+            return
+        }
         if (stopping.get() || gate.active != attempt) return
         // No live native connection: a local pre-send refusal, nothing reaches the wire and no
         // durable key is rotated.
         val connection = native ?: return
         val kind = when (operation) {
             PurchaseOperation.Plans -> PurchaseFlightKind.PLANS
+            PurchaseOperation.Recover -> error("PURCHASE_STATE_INVALID")
             is PurchaseOperation.Quote -> PurchaseFlightKind.QUOTE
             is PurchaseOperation.Payment -> PurchaseFlightKind.PAYMENT
             is PurchaseOperation.PaymentGet -> PurchaseFlightKind.PAYMENT_GET
@@ -2008,13 +2029,18 @@ class SessionService : Service() {
         val outcome = purchaseSender.send(
             request = flight,
             prepare = {
+                purchaseRequestAccountRef = purchaseVerifiedAccountRef
                 when (operation) {
+                    PurchaseOperation.Recover -> error("PURCHASE_STATE_INVALID")
                     PurchaseOperation.Plans ->
                         JSONObject().put("type", PaymentsContract.ACTION_PLANS_LIST)
                     is PurchaseOperation.Quote -> {
+                        val selection = operation.selection ?: PurchaseFlow.selection(view.purchase)
+                        check(selection != null && selection == PurchaseFlow.selection(view.purchase) &&
+                            selection.planId == operation.planId && selection.durationCode == operation.durationCode &&
+                            selection.method == operation.method && selection.renewExtraSlotIds == operation.renewExtraSlotIds.sorted())
                         val before = purchaseAttempts.current()
-                        val record = purchaseAttempts.beginQuote(
-                            operation.planId, operation.durationCode, operation.method)
+                        val record = purchaseAttempts.beginQuote(selection)
                         // A new quote attempt identity replaces the previous one: the old create
                         // correlation must not survive the replacement.
                         if (before?.attemptId != record.attemptId) paymentCreates.clear()
@@ -2022,23 +2048,40 @@ class SessionService : Service() {
                         JSONObject().put("type", PaymentsContract.ACTION_QUOTE_CREATE)
                             .put("plan_id", operation.planId).put("duration_code", operation.durationCode)
                             .put("method", operation.method).put("idempotency_key", record.quoteKey)
+                            .put("renew_extra_slot_ids", org.json.JSONArray(selection.renewExtraSlotIds))
                     }
                     is PurchaseOperation.Payment -> {
-                        // Recheck after a cold service start/queued send as well as at the tap.
-                        val current = view.purchase
-                        check(PurchaseFlow.payableQuote(current,
-                            current?.plans?.firstOrNull { it.planId == current.selectedPlanId },
-                            current?.selectedMethod, java.time.Instant.now())?.quoteId == operation.quoteId)
-                        val record = purchaseAttempts.beginPayment(operation.quoteId)
-                        // Only this explicit send of this exact quote may later build an ack; the
-                        // single-flight gate guarantees it is the only create on the stream.
-                        paymentCreates.onSent(operation.quoteId)
+                        val record = if (operation.recovery) {
+                            // Recovery uses the first explicit Pay's durable Q/K even after
+                            // offer expiry; the server performs lookup before expiry validation.
+                            paymentCreates.clear()
+                            purchaseAttempts.retryCreate(purchaseVerifiedAccountRef).also {
+                                check(it.quoteId == operation.quoteId)
+                            }
+                        } else {
+                            val current = view.purchase ?: error("PURCHASE_STATE_INVALID")
+                            val owner = purchaseVerifiedAccountRef ?: error("PURCHASE_ACCOUNT_REQUIRED")
+                            check(current.ownerAccountRef == owner)
+                            val quote = PurchaseFlow.payableQuote(current,
+                                current.plans.firstOrNull { it.planId == current.selectedPlanId },
+                                current.selectedMethod, java.time.Instant.now()) ?: error("QUOTE_EXPIRED")
+                            check(quote.quoteId == operation.quoteId)
+                            purchaseAttempts.markCreate(owner, quote).also {
+                                paymentCreates.onSent(operation.quoteId)
+                            }
+                        }
                         purchaseFlight.attachKey(flight, record.paymentKey)
+                        publishActive(attempt, view.copy(purchase = (view.purchase ?: PurchaseState()).copy(
+                            recovery = "unknown_create", ownerAccountRef = record.order?.accountRef)))
                         JSONObject().put("type", PaymentsContract.ACTION_PAYMENT_CREATE)
                             .put("quote_id", operation.quoteId).put("idempotency_key", record.paymentKey)
                     }
-                    is PurchaseOperation.PaymentGet -> JSONObject()
-                        .put("type", PaymentsContract.ACTION_PAYMENT_GET).put("payment_id", operation.paymentId)
+                    is PurchaseOperation.PaymentGet -> {
+                        val record = purchaseAttempts.current() ?: error("PURCHASE_STATE_INVALID")
+                        check(record.order?.accountRef == purchaseVerifiedAccountRef && purchaseVerifiedAccountRef != null &&
+                            record.order?.payment?.paymentId == operation.paymentId)
+                        JSONObject().put("type", PaymentsContract.ACTION_PAYMENT_GET).put("payment_id", operation.paymentId)
+                    }
                 }
             },
             write = { connection.trySend(it) },
@@ -2074,6 +2117,16 @@ class SessionService : Service() {
             android.util.Log.w("WDTT/Payments", "rejected")
             return
         }
+        val resultType = event.getString("type")
+        val holder = purchaseFlight.holder() ?: return
+        if (holder.kind.resultType != resultType || holder.attempt != attempt) return
+        if (purchaseRequestAccountRef != purchaseVerifiedAccountRef) {
+            purchaseFlight.releaseOn(resultType)
+            paymentCreates.clear()
+            publishActive(attempt, view.copy(purchase = purchaseAttempts.recoveryState(purchaseVerifiedAccountRef)
+                ?: PurchaseState(ownerAccountRef = purchaseVerifiedAccountRef)))
+            return
+        }
         // Release the single-flight holder only through the matching result/failure type of the
         // outstanding operation; a GET result can never release a create holder.
         when (parsed) {
@@ -2085,7 +2138,7 @@ class SessionService : Service() {
         when (parsed) {
             is PaymentsEvent.Failure -> {
                 if (parsed.code == "IDEMPOTENCY_CONFLICT") {
-                    purchaseAttempts.restart()
+                    runCatching { purchaseAttempts.restart() }
                     paymentCreates.clear()
                 }
                 // A failed create is an abandoned attempt: no later result may correlate.
@@ -2096,15 +2149,30 @@ class SessionService : Service() {
                 publishActive(attempt, view.copy(purchase = failed))
                 if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
             }
-            is PaymentsEvent.Plans ->
-                publishActive(attempt, view.copy(purchase =
-                    PurchaseFlow.plansLoaded(view.purchase, parsed.plansRevision, parsed.plans)))
+            is PaymentsEvent.Plans -> {
+                val previous = view.purchase
+                val result = PurchaseFlow.plansLoaded(previous, parsed.plansRevision, parsed.plans)
+                publishActive(attempt, view.copy(purchase = result))
+                if (result.phase == PurchaseFlow.CONFIRMED && (previous?.phase != PurchaseFlow.CONFIRMED || previous.recovery != null))
+                    releaseConfirmedColdPurchase(attempt)
+            }
             is PaymentsEvent.Quote -> {
-                purchaseAttempts.bindQuote(parsed.quote.quoteId)
-                publishActive(attempt, view.copy(purchase = PurchaseFlow.quoteReady(view.purchase, parsed.quote)))
+                val result = PurchaseFlow.quoteReady(view.purchase, parsed.quote, purchaseAttempts.current()?.selection)
+                if (result.quoteBinding?.quote == parsed.quote)
+                    purchaseAttempts.bindQuote(parsed.quote.quoteId, event.toString())
+                publishActive(attempt, view.copy(purchase = result))
                 if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
             }
             is PaymentsEvent.Payment -> {
+                val saved = try { purchaseAttempts.savePayment(purchaseVerifiedAccountRef, event.toString()) }
+                catch (_: Exception) {
+                    paymentCreates.clear()
+                    publishActive(attempt, view.copy(purchase = PurchaseFlow.failure(
+                        purchaseAttempts.recoveryState(purchaseVerifiedAccountRef) ?: view.purchase,
+                        "PURCHASE_STATE_UNAVAILABLE")))
+                    if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                    return
+                }
                 // Only the payment_create_result of the explicitly sent operation may carry
                 // the correlated acknowledgement; a get result never sets or refreshes it.
                 val ack = paymentCreates.onCreateResult(parsed.type, parsed.payment)
@@ -2118,17 +2186,22 @@ class SessionService : Service() {
                     ack != null -> PurchaseFlow.paymentCreateResult(view.purchase, parsed.payment, ack)
                     else -> PurchaseFlow.paymentGetResult(view.purchase, parsed.payment)
                 }
-                publishActive(attempt, view.copy(purchase = result))
+                publishActive(attempt, view.copy(purchase = result.copy(
+                    ownerAccountRef = saved.order?.accountRef,
+                    recovery = if (saved.unresolved) "known_payment" else null)))
                 when {
                     parsed.payment.paymentStatus == "paid" -> {
                         // Existing fresh-/me trigger (registration refresh command, no new
                         // endpoint); the entitlement is only updated by the resulting accepted
                         // account_access projection, never by this payment status.
                         native?.send(JSONObject().put("type", "refresh_telegram_registration"))
+                        // Contract 2 also refreshes the authenticated seat inventory. Neither
+                        // result grants access locally; the flow requires matching server facts.
+                        if (parsed.payment.creditState != null)
+                            sendPurchaseOperation(attempt, PurchaseOperation.Plans)
                         armPurchaseConfirmationWindow(attempt)
                     }
                     PurchaseFlow.terminalPayment(parsed.payment) -> {
-                        purchaseAttempts.restart()
                         if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
                     }
                     else -> if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
@@ -2151,7 +2224,14 @@ class SessionService : Service() {
      * released by [PurchaseGate.stopCold]. This is not the rights state machine.
      */
     private fun releaseConfirmedColdPurchase(attempt: String) {
-        purchaseAttempts.restart()
+        try {
+            purchaseAttempts.confirm(purchaseVerifiedAccountRef, view.purchase ?: return)
+            publishActive(attempt, view.copy(purchase = view.purchase?.copy(recovery = null)))
+        } catch (_: Exception) {
+            publishActive(attempt, view.copy(purchase = (view.purchase ?: PurchaseState()).copy(
+                recovery = "known_payment", phase = PurchaseFlow.AWAITING_CONFIRMATION,
+                freshMeConfirmed = false, error = "PURCHASE_STATE_UNAVAILABLE")))
+        }
         paymentCreates.clear()
         if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
     }
@@ -3088,6 +3168,8 @@ class SessionService : Service() {
         // Transport teardown fences the old native stream: any outstanding purchase request
         // is dropped here, and its late callbacks are excluded by the attempt gate.
         purchaseFlight.reset()
+        purchaseVerifiedAccountRef = null
+        purchaseRequestAccountRef = null
         // Attempt teardown: no pending create result may correlate into a dead attempt.
         paymentCreates.clear()
         // §26.2: a launch auto-connect never survives teardown/Disconnect.
@@ -3099,6 +3181,8 @@ class SessionService : Service() {
         // Ownership of the teardown is established: no in-flight devices token may survive
         // its attempt (a stuck token would block every later send). A previously published
         // refusal/timeout/transport/malformed error is preserved.
+        // The stream is fenced; a lost create remains durable but cannot stay UI-busy.
+        if (view.purchase?.sending == true) publish(view.copy(purchase = view.purchase?.copy(sending = false)))
         val releasedDevices = DevicesPolicy.releaseInFlight(view.devices, "SERVICE_UNAVAILABLE")
         if (releasedDevices != view.devices) publish(view.copy(devices = releasedDevices))
         connectOnCatalog = null
@@ -3232,6 +3316,14 @@ class SessionService : Service() {
         @Volatile internal var view = ViewState()
             private set
         @Volatile private var runningService: SessionService? = null
+
+        /** Local disk read only. Fresh processes show no account/order details or auto actions. */
+        internal fun restorePurchaseHint(storage: InstallationStore) {
+            if (view.purchase == null) {
+                val hint = PurchaseAttempts(InstallationPurchaseAttemptStore(storage)).recoveryState(null)
+                if (hint != null) publish(view.copy(purchase = hint))
+            }
+        }
 
         /** True while a SessionService instance exists; Off toggles never create one. */
         internal fun isRunning(): Boolean = runningService != null

@@ -73,4 +73,21 @@ class DevicesContractTest {
             """{"v":1,"attempt_id":"a","type":"device_delete_result","state":"error","code":"DEVICE_REMOVED","client_request_id":"devdel-9"}"""))
         assertEquals(DevicesEvent.Failure("device_delete_result", "DEVICE_REMOVED", "devdel-9"), deleteError)
     }
+    @Test fun deviceCountsAcceptInt32WithoutCommercialCapAndRejectLossyNumbers() {
+        for (limit in listOf(0, 101, Int.MAX_VALUE)) {
+            val event = JSONObject(validList())
+            val counts = event
+            counts.put("device_limit", limit).put("slots_used", Int.MAX_VALUE)
+            val parsed = (DevicesContract.parse(event) as DevicesEvent.List).list
+            assertEquals(limit, parsed.deviceLimit)
+        }
+        for (field in listOf("device_limit", "slots_used")) {
+            for (bad in listOf(-1, 1.5, 1.0, Int.MAX_VALUE.toLong() + 1, Long.MAX_VALUE, "101", JSONObject.NULL)) {
+                val event = JSONObject(validList())
+                (event).put(field, bad)
+                assertThrows(IllegalStateException::class.java) { (DevicesContract.parse(event) as DevicesEvent.List).list }
+            }
+        }
+    }
+
 }

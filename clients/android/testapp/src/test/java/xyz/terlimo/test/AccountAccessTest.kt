@@ -229,4 +229,21 @@ class AccountAccessTest {
         assertNotNull(AccountAccessPolicy.accept(snapshot.chain, "1", null))
         assertNull(AccountAccessPolicy.accept(snapshot.chain, "2", null))
     }
+    @Test fun deviceCountsAcceptInt32WithoutCommercialCapAndRejectLossyNumbers() {
+        for (limit in listOf(0, 101, Int.MAX_VALUE)) {
+            val event = JSONObject(eventJson())
+            val counts = event.getJSONObject("entitlement")
+            counts.put("effective_device_limit", limit).put("slots_used", Int.MAX_VALUE)
+            val parsed = AccountAccessParser.parse(event)
+            assertEquals(limit, parsed.entitlement.effectiveDeviceLimit)
+        }
+        for (field in listOf("effective_device_limit", "slots_used")) {
+            for (bad in listOf(-1, 1.5, 1.0, Int.MAX_VALUE.toLong() + 1, Long.MAX_VALUE, "101", JSONObject.NULL)) {
+                val event = JSONObject(eventJson())
+                (event.getJSONObject("entitlement")).put(field, bad)
+                assertThrows(IllegalStateException::class.java) { AccountAccessParser.parse(event) }
+            }
+        }
+    }
+
 }

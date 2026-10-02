@@ -102,10 +102,8 @@ internal object DevicesContract {
     private fun parseList(event: JSONObject): DevicesList {
         check(event.keys().asSequence().toSet() == LIST_KEYS &&
             event.getString("schema_version") == "1.0") { "DEVICES_INVALID" }
-        val limit = event.getInt("device_limit")
-        val used = event.getInt("slots_used")
-        // Canonical: both are 0..100 and independent (no slots <= limit constraint).
-        check(limit in 0..100 && used in 0..100) { "DEVICES_INVALID" }
+        val limit = deviceCount(event, "device_limit")
+        val used = deviceCount(event, "slots_used")
         val revision = event.getString("revision")
         check(revision.matches(Regex("^(0|[1-9][0-9]{0,18})$"))) { "DEVICES_INVALID" }
         val array = event.getJSONArray("devices")
@@ -152,4 +150,13 @@ internal object DevicesContract {
         return DeviceDeleteResult(requestId, status, operationId, event.getBoolean("slot_released"),
             applicationState, residual)
     }
+    /** Server/Android Int32 capacity; no commercial cap or slots <= limit assumption. */
+    private fun deviceCount(source: JSONObject, key: String): Int {
+        val value = source.opt(key)
+        check(value is Int || value is Long) { "DEVICES_INVALID" }
+        val count = (value as Number).toLong()
+        check(count in 0..Int.MAX_VALUE.toLong()) { "DEVICES_INVALID" }
+        return count.toInt()
+    }
+
 }
