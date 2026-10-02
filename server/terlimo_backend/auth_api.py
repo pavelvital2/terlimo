@@ -219,6 +219,7 @@ class InstallationSessionService:
         async with self._db.acquire() as connection:
             if phase is not None:
                 phase.mark("challenge_pool_acquire_end")
+                phase.backend(connection)
                 phase.mark("rate_queries_begin")
             recent = await connection.fetchval(
                 """
@@ -229,6 +230,8 @@ class InstallationSessionService:
                 """,
                 fingerprint,
             )
+            if phase is not None:
+                phase.mark("rate_count_end")
             if recent >= self._settings.challenge_rate_limit_per_minute:
                 raise ApiError("RATE_LIMITED", retry_after_ms=60000)
             # Atomic public cap on the shared PostgreSQL: correct across API processes and
@@ -446,6 +449,7 @@ class InstallationSessionService:
         async with self._db.acquire() as connection:
             if phase is not None:
                 phase.mark("session_pool_acquire_end")
+                phase.backend(connection)
             decision = "created"
             stored_result: dict[str, Any] | None = None
             if phase is not None:
@@ -590,6 +594,7 @@ class InstallationSessionService:
         async with self._db.acquire() as connection:
             if phase is not None:
                 phase.mark("verify_challenge_pool_acquire_end")
+                phase.backend(connection)
                 phase.mark("verify_challenge_fetch_begin")
             challenge = await connection.fetchrow(
                 "SELECT * FROM auth_challenges WHERE challenge_id = $1", challenge_id
@@ -627,6 +632,7 @@ class InstallationSessionService:
             async with self._db.acquire() as connection:
                 if phase is not None:
                     phase.mark("key_pool_acquire_end")
+                    phase.backend(connection)
                     phase.mark("key_fetch_begin")
                 stored = await connection.fetchrow(
                     """
@@ -650,7 +656,8 @@ class InstallationSessionService:
             try:
                 if phase is not None:
                     phase.mark("keyload_begin")
-                public_key = pop.load_public_key(stored["public_key_spki_b64"])
+                public_key = (pop.load_public_key(stored["public_key_spki_b64"]) if phase is None
+                              else pop.load_public_key(stored["public_key_spki_b64"], observer=phase.mark))
                 if phase is not None:
                     phase.mark("keyload_end")
             except pop.PopError as exc:
@@ -670,6 +677,7 @@ class InstallationSessionService:
                 expected={},
                 known_top_level=pop.KNOWN_TOP_LEVEL,
                 server_known_fields=pop.KNOWN_TOP_LEVEL,
+                observer=phase.mark if phase is not None else None,
             )
             if phase is not None:
                 phase.mark("proof_verify_end")

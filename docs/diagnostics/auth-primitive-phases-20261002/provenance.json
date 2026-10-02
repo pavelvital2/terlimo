@@ -1,0 +1,52 @@
+{
+  "accepted_canonical_reference": "fdf94ba874c36fe7a951386bcaad9c078831a981",
+  "local_exact_runtime_snapshot_base": "282c78fc9bba9f5078b9c4b7030ad5c9dfc44539",
+  "canonical_object_available_locally": false,
+  "files": [
+    {
+      "name": "auth_api.py",
+      "base_SHA256": "012f13205c75fb45ab0f3e04c4331d9e1f5dde50b824cadc96eced461daacf94",
+      "runtime_exact_match": true
+    },
+    {
+      "name": "auth_api_phase.py",
+      "base_SHA256": "a74508eb149b7192b583db0d7811bd855128d19086db787affb87d0e63da39f7",
+      "runtime_exact_match": true
+    },
+    {
+      "name": "service_relay.py",
+      "base_SHA256": "6f6ca3081b0c2dbf1de97b0434516ad6fa109fe29b595a33d4c94f96fd41f83d",
+      "runtime_exact_match": true
+    },
+    {
+      "name": "pop.py",
+      "base_SHA256": "020f9c9cec744f64ad3d3bd012a7d8a93a0e7df0d52e5ab38d7e93f5427c9599",
+      "runtime_exact_match": true
+    }
+  ],
+  "candidate_commit": "d90a0b7cacad1d0aa302800ed79635d72710197c",
+  "candidate_files": [
+    {
+      "name": "auth_api.py",
+      "SHA256": "383ffff577a9fce802b43e7d7593237e924bd2634aeeb22e6531470d940f3ca2"
+    },
+    {
+      "name": "auth_api_phase.py",
+      "SHA256": "6598ad43f5c0f17d6f4057168be3e39d0ccef5ed12250dec23b0ae5414eaba08"
+    },
+    {
+      "name": "pop.py",
+      "SHA256": "54d38342e02e73f98f00e5a6eb882354f36ac01af11e5b0ec5b3b78e4a7ec7fe"
+    }
+  ],
+  "unchanged": [
+    {
+      "name": "terlimo_backend/service_relay.py",
+      "SHA256": "6f6ca3081b0c2dbf1de97b0434516ad6fa109fe29b595a33d4c94f96fd41f83d"
+    },
+    {
+      "name": "README.VERSION.md",
+      "SHA256": "179d776ff2388b255c65ef5edeff4edc86a0f4634bdbc15277ac9c5cdca861c3"
+    }
+  ]
+}

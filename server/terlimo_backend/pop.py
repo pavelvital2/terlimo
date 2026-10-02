@@ -7,9 +7,9 @@ cannot diverge:
     auth/pop_canonical.py  sha256 262b9acc0ba74a02211793cb928002060aa6ead7494f0abaca5459086a4d1751
     auth/POP_PAYLOAD_V1.md sha256 2de387a7e3b85590850c41d5491653c2304b93fedb083a91b361d623d42fd122
 
-The function bodies are kept verbatim from the contract module; only the module
-docstring and the `installation_fingerprint` helper are added. No network, no secret
-store, stdlib + cryptography only.
+Contract operations and validation order are retained; optional payload-free
+diagnostic observer guards and the `installation_fingerprint` helper are added.
+No network, no secret store, stdlib + cryptography only.
 
 Test vectors: vectors/auth_vectors.json (TEST-ONLY synthetic key, not a secret).
 """
@@ -133,6 +133,14 @@ def _reject_non_canonical(obj: Any) -> None:
             _reject_non_canonical(value)
 
 
+def _observe(observer, phase: str, **metadata) -> None:
+    """Optional diagnostics cannot affect PoP results or exceptions."""
+    try:
+        observer(phase, metadata=metadata or None)
+    except Exception:
+        pass
+
+
 def parse_strict(data: bytes) -> Any:
     return json.loads(data.decode("utf-8"), object_pairs_hook=_no_duplicates)
 
@@ -218,15 +226,21 @@ def check_top_level_fields(payload: dict[str, Any], known: Iterable[str]) -> Non
         raise PopError("unknown top-level field: " + ",".join(sorted(unknown)))
 
 
-def decode_signed_payload(signed_payload_b64: str) -> tuple[bytes, Any]:
+def decode_signed_payload(signed_payload_b64: str, *, observer=None) -> tuple[bytes, Any]:
     """Decode and prove canonical: re-canonicalization must equal the received bytes."""
     raw = b64url_decode(signed_payload_b64)
+    if observer is not None:
+        _observe(observer, "payload_decode_end", signed_payload_bytes=len(raw))
     try:
         obj = parse_strict(raw)
     except (ValueError, UnicodeError) as exc:
         raise PopError("malformed signed payload") from exc
+    if observer is not None:
+        _observe(observer, "payload_jsonparse_end")
     if canonical_json(obj) != raw:
         raise PopError("non-canonical signed payload")
+    if observer is not None:
+        _observe(observer, "payload_canonical_end")
     return raw, obj
 
 
@@ -336,9 +350,11 @@ def verify_proof(
     expected: dict[str, Any],
     known_top_level: Iterable[str],
     server_known_fields: Iterable[str],
+    observer=None,
 ) -> dict[str, Any]:
     """Full verifier path (POP_PAYLOAD_V1.md section 3): returns the validated payload."""
-    raw, payload = decode_signed_payload(signed_payload_b64)
+    raw, payload = (decode_signed_payload(signed_payload_b64) if observer is None
+                    else decode_signed_payload(signed_payload_b64, observer=observer))
     if sha256_hex(raw) != payload_hash:
         raise PopError("payload_hash mismatch")
     check_top_level_fields(payload, known_top_level)
@@ -350,9 +366,15 @@ def verify_proof(
     if payload.get("nonce") != nonce_b64:
         raise PopError("nonce inner/outer mismatch")
     message = pop_message(request_id, challenge_id, nonce_b64, raw)
-    if not verify(public_key, message, signature_b64):
+    if observer is not None:
+        _observe(observer, "proof_fields_message_end")
+    valid = (verify(public_key, message, signature_b64) if observer is None
+             else verify(public_key, message, signature_b64, observer=observer))
+    if not valid:
         raise PopError("PROOF_INVALID")
     bind_fields(payload, expected)
+    if observer is not None:
+        _observe(observer, "proof_binding_end")
     return payload
 
 
@@ -361,25 +383,38 @@ def sign(private_key, message: bytes) -> str:
     return b64url_encode(der)
 
 
-def verify(public_key, message: bytes, signature_b64: str) -> bool:
+def verify(public_key, message: bytes, signature_b64: str, *, observer=None) -> bool:
     try:
-        public_key.verify(b64url_decode(signature_b64), message, ec.ECDSA(hashes.SHA256()))
+        signature = b64url_decode(signature_b64)
+        if observer is not None:
+            _observe(observer, "ecdsa_verify_begin", signature_bytes=len(signature))
+        public_key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
+        if observer is not None:
+            _observe(observer, "ecdsa_verify_end")
         return True
     except (InvalidSignature, PopError, ValueError):
+        if observer is not None:
+            _observe(observer, "proof_signature_rejected")
         return False
 
 
-def load_public_key(spki_b64: str):
+def load_public_key(spki_b64: str, *, observer=None):
     """Load a strict P-256 SPKI public key from canonical unpadded base64url."""
     raw = b64url_decode(spki_b64)
+    if observer is not None:
+        _observe(observer, "key_decode_end", key_der_bytes=len(raw))
     try:
         key = serialization.load_der_public_key(raw)
     except (ValueError, TypeError) as exc:
         raise PopError("bad public key") from exc
+    if observer is not None:
+        _observe(observer, "key_derparse_end")
     if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
         raise PopError("unsupported public key")
     if key.key_size != 256:
         raise PopError("unsupported public key size")
+    if observer is not None:
+        _observe(observer, "key_validation_end", algorithm="p256")
     return key
 
 

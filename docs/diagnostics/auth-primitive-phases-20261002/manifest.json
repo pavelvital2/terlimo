@@ -1,0 +1,60 @@
+{
+  "authority": "whitelist-20261002-auth-primitive-phase-source-prepare-v1",
+  "files": [
+    {
+      "name": "auth_api.py",
+      "bytes": 51281,
+      "SHA256": "383ffff577a9fce802b43e7d7593237e924bd2634aeeb22e6531470d940f3ca2"
+    },
+    {
+      "name": "auth_api_phase.py",
+      "bytes": 5577,
+      "SHA256": "6598ad43f5c0f17d6f4057168be3e39d0ccef5ed12250dec23b0ae5414eaba08"
+    },
+    {
+      "name": "measure_primitive_overhead.py",
+      "bytes": 2080,
+      "SHA256": "65c656c6934e07f0d443dccb161e2af6200379f89457e6004097be22ac244397"
+    },
+    {
+      "name": "observe_pg_wait.py",
+      "bytes": 2888,
+      "SHA256": "a24140deac33ae99d63ce3b0b2dc373d1d7d79a99bb5fe72462b37d6340b22d0"
+    },
+    {
+      "name": "overhead.safe.json",
+      "bytes": 951,
+      "SHA256": "abbe5a3fcb7fb68e14932ef3ffe19a71199c8063ce611727d3b63b636b8c2fee"
+    },
+    {
+      "name": "pop.py",
+      "bytes": 14929,
+      "SHA256": "54d38342e02e73f98f00e5a6eb882354f36ac01af11e5b0ec5b3b78e4a7ec7fe"
+    },
+    {
+      "name": "primitive.patch",
+      "bytes": 23451,
+      "SHA256": "9edecfea6a4258924d06213077c51101858d401d8a7438dd38f50cb604a5b30f"
+    },
+    {
+      "name": "provenance.json",
+      "bytes": 1661,
+      "SHA256": "027c76ee33d6e651a7f5d205bb5f56dbc2a5881f1fd40ade7f8328208d0287fc"
+    },
+    {
+      "name": "report.md",
+      "bytes": 9289,
+      "SHA256": "6af5ad08f505f11cb4946ffab66797e90038318cb26912f978613c1c795f3c31"
+    },
+    {
+      "name": "test_primitive_phases.py",
+      "bytes": 6773,
+      "SHA256": "b559bd0c96740af6629715d26f14c355e4f70e518f5972070ac6d58724ffc260"
+    },
+    {
+      "name": "tests.txt",
+      "bytes": 99,
+      "SHA256": "6209a75ece51a9b1632e7d7b4482f579ecd2eaf4bd4f0b5a5cd4df3cbc8defe1"
+    }
+  ]
+}

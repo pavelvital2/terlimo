@@ -1,0 +1,35 @@
+{
+  "off": {
+    "first": {
+      "wall_ms": 4.699875,
+      "thread_CPU_ms": 4.700124
+    },
+    "warm20": {
+      "wall_ms": {
+        "median": 0.19122499999999998,
+        "max": 0.281049
+      },
+      "thread_CPU_ms": {
+        "median": 0.19218000000000002,
+        "max": 0.282159
+      }
+    }
+  },
+  "on": {
+    "first": {
+      "wall_ms": 4.863954,
+      "thread_CPU_ms": 4.865003
+    },
+    "warm20": {
+      "wall_ms": {
+        "median": 0.6761539999999999,
+        "max": 1.060147
+      },
+      "thread_CPU_ms": {
+        "median": 0.676809,
+        "max": 1.06088
+      }
+    }
+  },
+  "limits": "One OFF/ON pair of exec-fresh children,20warm trials, synthetic282byte proof. First operation after module imports separately observed; no repeated generic benchmark. Sink formats no log text; real IO logger cost not measured. Different subprocess scheduling/provider first-use confounds cold difference; not historical API CPU proof."
+}

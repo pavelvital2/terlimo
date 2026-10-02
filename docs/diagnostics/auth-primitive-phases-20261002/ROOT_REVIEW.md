@@ -1,0 +1,9 @@
+# AUTH primitive diagnostic review
+
+12 inbound SHA verified. Three deployed preimages and unchanged relay/pop provenance matched exact root canonicalfdf94ba. Whole six-file patch applies to canonical server subtree, runtime3files match supplied candidate hashes. Source review: count marker after COUNT before rejection/UPSERT; no SQL mutation change. PoP optional callbacks guarded, exceptions swallowed, original parse/validation/ECDSA order/returns retained. Metadata allowlist only integer lengths/backendPID and p256;42session/13challenge records fit63budget. OFF no observer/clocks/proc; tiny guardedbranches remain. Mark bookkeeping and non-atomic counters not pureprimitive cost.
+
+Executor10 affected offline tests reviewed. Root independently ran existing PoP contract-vector suite in isolatedcandidate with same backendvenv:8passed0.14s, noAPI/DB/phone. No duplicate broadtests. New overheadOFF4.700/ON4.864msfirst, warmCPUdelta0.4846ms, no real sinkIO, not previousONmarginalproof. Full101 unchanged, no productPASS.
+
+OptionalPGwait observer source reviewed but not selected for next execution: exactPID arrives in bufferedrecord afterrequest; no verified live prequerymapping yet. Do not add guessedPID/multiple observerstreams or block next prepared client run. SplitSQL andcrypto spans are sufficient next discriminator; backendPID retained for later precise mapping if needed.
+
+Publication through root canonicalpavelvital2/terlimo, donor neverpush. TEST apply only auth_api.py/auth_api_phase.py/pop.py, backup exactpreimages/env. API-only restart suffices because relay source unchanged; preserve relay/nodePIDs unless concrete dependency showsotherwise. ExistingTESTstate/flagsOFF/readiness verification; nophone/liveflagactivation duringapply. Later singlepreparedrun uses acceptedhelperdccbcf7a and actualdeploymentreadiness.

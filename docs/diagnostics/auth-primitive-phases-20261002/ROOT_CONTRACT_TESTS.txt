@@ -1,0 +1,2 @@
+Exact isolatedcandidate d90a0b7; PYTHONDONTWRITEBYTECODE=1 backendvenv python -m pytest -p no:cacheprovider -q tests/test_pop_contract.py
+8 passed in 0.14s

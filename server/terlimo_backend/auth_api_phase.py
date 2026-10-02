@@ -46,7 +46,7 @@ class AuthApiPhase:
         self.omitted = 0
         self.finished = False
 
-    def mark(self, phase: str, outcome: str = "ok") -> None:
+    def mark(self, phase: str, outcome: str = "ok", *, metadata: dict | None = None) -> None:
         try:
             if self.finished or re.fullmatch(r"[a-z_]{1,64}", phase) is None:
                 return
@@ -63,8 +63,17 @@ class AuthApiPhase:
             except Exception:
                 cpu = None
             sched = _schedstat() if same_tid else None
+            safe_metadata = {}
+            if metadata:
+                for name in ("key_der_bytes", "signed_payload_bytes", "signature_bytes", "pg_backend_pid"):
+                    value = metadata.get(name)
+                    if type(value) is int and 0 <= value <= 2**31 - 1:
+                        safe_metadata[name] = value
+                if metadata.get("algorithm") == "p256":
+                    safe_metadata["algorithm"] = "p256"
             self.records.append({
                 "seq": len(self.records), "phase": phase, "outcome": outcome,
+                **({"metadata": safe_metadata} if safe_metadata else {}),
                 "utc": datetime.now(UTC).isoformat(), "wall_ns": wall,
                 "elapsed_ns": wall - self.started, "native_tid": tid,
                 "thread_cpu_ns": cpu,
@@ -77,6 +86,15 @@ class AuthApiPhase:
             })
         except Exception:
             return  # Timing/log failures cannot alter the business operation.
+
+    def backend(self, connection) -> None:
+        """Read the already-known asyncpg backend PID; no extra SQL."""
+        if self.finished or len(self.records) >= MAX_RECORDS - 1:
+            return
+        try:
+            self.mark("pg_backend", metadata={"pg_backend_pid": connection.get_server_pid()})
+        except Exception:
+            pass
 
     def activate(self, request_id: str) -> None:
         try:
