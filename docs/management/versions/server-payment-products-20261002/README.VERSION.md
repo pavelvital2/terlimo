@@ -1,3 +1,15 @@
+# Legacy paid base correction — 2026-10-02
+
+Supersedes failed TEST candidate84a1543 for runtime application. That candidate changed four old finite paid limits1->2 on worker startup; scoped guarded rollback restored original rows/schema/source and readiness. It was NOT accepted for runtime.
+
+Current source adds durable paid_base_device_limit in migration0037, retaining legacy0/1 during reads/grants/maintenance; extra purchase adds exactly1 and expiry restores oldbase. Ordinary confirmed subscription renewal setsbase2 atomically. 0036UP checksum unchanged; DOWN guards strengthened with credited receipts and required37-before36 order. Exact16 finalpre/post files and one isolatedPG regression in legacy-paid-base-accepted. Root reviewed code and results without rerunning accepted suites. Corrected runtime application remains pending.
+
+Prepared TEST installation:16files, pending0036+0037, provider/routingOFF, API/workeronly. Preserve priorcolumns incl limits/revisions/ends/sourceplan; compare row fingerprints excluding ONLY addedbasecolumn and documented additivepaymentcolumns. Backup beforewrites; no blindDBrestore. After realfinancialactivity retain schema/ledger/ownerroute, forwardrepair.
+
+Historical passport below is retained verbatim; earlier source acceptance does not imply runtime acceptance.
+
+---
+
 # Server payment products and callback ownership — 2026-10-02
 
 Source acceptance; runtime application and real payments remain pending.

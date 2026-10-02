@@ -104,7 +104,7 @@ async def ensure_grant(
                installation.public_key_fingerprint, installation.public_key_spki_b64,
                installation.state AS installation_state, installation.environment,
                entitlement.id AS entitlement_id, entitlement.status AS entitlement_status,
-               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit,
+               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit, entitlement.paid_base_device_limit,
                gateway.id AS gateway_id, gateway.gateway_key, gateway.registry_state,
                gateway.environment AS gateway_environment,
                gateway.endpoints AS gateway_endpoints,
@@ -163,7 +163,7 @@ async def ensure_grant(
         return "no_entitlement"
 
     from .payment_products import binding_paid_capacity
-    capacity, deadline = await binding_paid_capacity(connection,{"id":row["entitlement_id"],"account_id":row["account_id"],"kind":row["kind"],"ends_at":row["ends_at"],"device_limit":row["device_limit"]},binding_id,now)
+    capacity, deadline = await binding_paid_capacity(connection,{"id":row["entitlement_id"],"account_id":row["account_id"],"kind":row["kind"],"ends_at":row["ends_at"],"device_limit":row["device_limit"],"paid_base_device_limit":row["paid_base_device_limit"]},binding_id,now)
     if not capacity:
         return "device_limit_reached"
     not_after = _technical_not_after(deadline, now, max_lease_seconds)
@@ -358,7 +358,7 @@ async def ensure_hour_grant(
                installation.public_key_fingerprint, installation.public_key_spki_b64,
                installation.state AS installation_state, installation.environment,
                entitlement.id AS entitlement_id, entitlement.status AS entitlement_status,
-               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit,
+               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit, entitlement.paid_base_device_limit,
                gateway.id AS gateway_id, gateway.gateway_key, gateway.registry_state,
                gateway.environment AS gateway_environment,
                gateway.endpoints AS gateway_endpoints,

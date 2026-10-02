@@ -2,9 +2,15 @@
 DO $$ BEGIN
  IF EXISTS (SELECT 1 FROM paid_extra_slots WHERE source_order_id IS NOT NULL)
  OR EXISTS (SELECT 1 FROM s5_payment_quotes WHERE product IS NOT NULL)
- OR EXISTS (SELECT 1 FROM payment_orders WHERE months=0 OR credit_review_reason IS NOT NULL OR amount<>trunc(amount))
+ OR EXISTS (SELECT 1 FROM payment_orders WHERE months=0 OR credit_review_reason IS NOT NULL OR credited_product IS NOT NULL OR amount<>trunc(amount))
  OR EXISTS (SELECT 1 FROM payment_events WHERE amount<>trunc(amount))
  THEN RAISE EXCEPTION 'commercial activity exists: retain additive schema and ledger'; END IF;
+END $$;
+-- 0037 must be reverted first; otherwise its durable base would lose its extra ledger.
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+            AND table_name='entitlements' AND column_name='paid_base_device_limit')
+ THEN RAISE EXCEPTION 'paid base migration must be reverted before payment products'; END IF;
 END $$;
 DROP TABLE paid_extra_slots;
 ALTER TABLE s5_payment_quotes DROP COLUMN product;

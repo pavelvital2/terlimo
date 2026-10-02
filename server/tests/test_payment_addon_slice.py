@@ -384,7 +384,7 @@ async def test_whole_days_snapshot_and_zero_offer_boundary(settings_factory,monk
     from terlimo_backend.payment_products import quote_product,public_product,product_of
     from terlimo_backend.auth_api import rfc3339
     now=datetime(2026,10,2,15,0,tzinfo=UTC);owner=uuid.uuid4();slot=uuid.uuid4()
-    target={'id':uuid.uuid4(),'starts_at':now-timedelta(days=20),'ends_at':now+timedelta(days=10,hours=5),'source_plan':{'duration_code':'days:30'}}
+    target={'id':uuid.uuid4(),'starts_at':now-timedelta(days=20),'ends_at':now+timedelta(days=10,hours=5),'source_plan':{'duration_code':'days:30'},'paid_base_device_limit':2}
     class Connection:
         existing=None
         async def fetchrow(self,sql,*args):

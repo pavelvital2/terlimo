@@ -1,0 +1,23 @@
+{
+  "isolated_PG": true,
+  "legacy_backfill_bases": {
+    "zero": 0,
+    "legacy": 1,
+    "base2": 2,
+    "extra": 2,
+    "null": 2,
+    "indefinite": 2,
+    "trial": 2
+  },
+  "maintenance_twice_no_old_limit_revision_change": true,
+  "read_me_effective_limit": 1,
+  "second_binding_before_addon": "device_limit_reached; no grant",
+  "addon_once": "1->2, base1, same end, revision+1; duplicate unchanged",
+  "expiry": "2->1, second grant denied; base1 persisted",
+  "normal_confirmed_renewal": "base2/current2 atomically; duplicate unchanged",
+  "NULL_zero_invalid_guard": "PASS",
+  "down_before_money": "0037 down/reapply PASS",
+  "down_after_money": "0037 and0036 guards reject;0036 credited_product guard retained even for v1 receipts",
+  "0036_checksum_unchanged": true,
+  "node_provider_network": false
+}

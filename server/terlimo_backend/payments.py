@@ -645,7 +645,7 @@ async def apply_paid_entitlement(
             "SELECT id, account_id FROM account_bindings WHERE installation_id = $1 AND status = 'active'",
             order["installation_id"],
         )
-        from .payment_products import order_product, validate_credit_target, paid_limit, renew_slots
+        from .payment_products import order_product, validate_credit_target, paid_limit, renew_slots, slots
         product = order_product(order)
         if binding is None:
             if product:
@@ -699,7 +699,7 @@ async def apply_paid_entitlement(
                 new_end = paid_end(credit_start, duration)
                 credit_end = new_end
                 await renew_slots(connection,order,existing["id"],new_end)
-                new_limit = await paid_limit(connection,existing,now)
+                new_limit = BASE_LIMIT + len(await slots(connection,existing["id"],now))
                 plan = _order_plan(order)
                 # A NEW credited order replaces the active plan snapshot in the same revision; a
                 # replay of the same payment never reaches here (applied guard above), and an
@@ -708,7 +708,7 @@ async def apply_paid_entitlement(
                     """
                     UPDATE entitlements
                     SET ends_at = $2, revision = revision + 1,
-                        source_plan = $3::jsonb, device_limit = $4
+                        source_plan = $3::jsonb, device_limit = $4, paid_base_device_limit = 2
                     WHERE id = $1
                     RETURNING id, revision
                     """,

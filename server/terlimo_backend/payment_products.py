@@ -42,7 +42,7 @@ async def slots(connection, entitlement_id, now=None):
 async def paid_limit(connection, entitlement, now=None):
     if entitlement["kind"] != "paid" or entitlement["ends_at"] is None:
         return int(entitlement["device_limit"] or 2)
-    return 2 + len(await slots(connection, entitlement["id"], now))
+    return int(entitlement["paid_base_device_limit"]) + len(await slots(connection, entitlement["id"], now))
 
 
 def _micros(delta):
@@ -100,7 +100,7 @@ async def quote_product(connection, settings, account_id, *, addon, selected, mo
     if addon:
         extra_minor = override_minor or prorata_minor(target["ends_at"],target["starts_at"],now,basis_months)
         amount_minor = extra_minor
-        limit = 2+len(available)+1
+        limit = int(target["paid_base_device_limit"])+len(available)+1
         period_from,period_until,plan_id = now,target["ends_at"],ADDON_PLAN
     else:
         extra_minor = sum(slot["renew_amount_minor"] for slot in extra_views if uuid.UUID(slot["slot_id"]) in chosen)
@@ -168,7 +168,7 @@ async def refresh_expired_limits(connection, *, limit=100):
     # Existing maintenance loop: materialize only changed limits; reads below also derive expiry exactly.
     async with connection.transaction():
         rows = await connection.fetch("""SELECT e.* FROM entitlements e WHERE e.kind='paid' AND e.ends_at IS NOT NULL
-           AND e.device_limit <> 2 + (SELECT count(*) FROM paid_extra_slots s WHERE s.entitlement_id=e.id AND s.expires_at>now())
+           AND e.device_limit <> e.paid_base_device_limit + (SELECT count(*) FROM paid_extra_slots s WHERE s.entitlement_id=e.id AND s.expires_at>now())
            ORDER BY e.id LIMIT $1 FOR UPDATE OF e SKIP LOCKED""",limit)
         for row in rows:
             value = await paid_limit(connection,row)
@@ -191,12 +191,13 @@ async def binding_paid_capacity(connection, entitlement, binding_id, now=None):
     rank = ranks.get(binding_id)
     if rank is None:
         return False, now
-    if rank <= 2:
+    base = int(entitlement["paid_base_device_limit"])
+    if rank <= base:
         return True, entitlement["ends_at"]
     extra = sorted((row["expires_at"] for row in await slots(connection,entitlement["id"],now)),reverse=True)
-    if rank-3 >= len(extra):
+    if rank-base-1 >= len(extra):
         return False, now
-    deadline = min(entitlement["ends_at"],extra[rank-3])
+    deadline = min(entitlement["ends_at"],extra[rank-base-1])
     return deadline > now, deadline
 
 
@@ -234,9 +235,9 @@ async def cap_existing_extra_grants(connection, *, max_lease_seconds, limit=100)
     ) e ON e.kind='paid' AND e.ends_at IS NOT NULL
     JOIN LATERAL (
         SELECT expires_at FROM paid_extra_slots WHERE entitlement_id=e.id AND expires_at>now()
-        ORDER BY expires_at DESC OFFSET GREATEST(0,b.rank-3) LIMIT 1
+        ORDER BY expires_at DESC OFFSET GREATEST(0,b.rank-e.paid_base_device_limit-1) LIMIT 1
     ) s ON true
-    WHERE b.rank>2 AND g.not_after>LEAST(e.ends_at,s.expires_at)
+    WHERE b.rank>e.paid_base_device_limit AND g.not_after>LEAST(e.ends_at,s.expires_at)
     ORDER BY s.expires_at,g.id LIMIT $1""",limit)
     from .gateway_control import ensure_grant
     count = 0
