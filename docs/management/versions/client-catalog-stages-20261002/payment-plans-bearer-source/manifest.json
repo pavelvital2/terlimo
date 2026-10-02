@@ -1,0 +1,33 @@
+{
+  "reply_to": "whitelist-20261002-payment-plans-bearer-laptop-v1",
+  "base": "c47d8beb3baa844cf60d625aad37c62f5f91f9e9",
+  "commit": "9c0027db1e197913dd2ab354f786287694655d4b",
+  "tree": "951304239cf50cd3e5a9a62558bb7d159aa3832d",
+  "files": [
+    {
+      "name": "REPORT.md",
+      "bytes": 3849,
+      "sha256": "9efa8bf9e2c9ad00eaf475dbdaf12c3b5ea942438444b06e0c62399bd649f5cd"
+    },
+    {
+      "name": "README.VERSION.md",
+      "bytes": 65108,
+      "sha256": "365e685c768c530f11113e2c12c1584d6a16df73b66ac99602e80a449c324e7b"
+    },
+    {
+      "name": "payment-plans-bearer.patch",
+      "bytes": 8086,
+      "sha256": "8e4615dd7e8d4782d84e7403b28226b84004dabf0e059454901d2ce43bc8d2a5"
+    },
+    {
+      "name": "targeted.log",
+      "bytes": 312,
+      "sha256": "3f2e3eb2d417909875f1884dcdd22156202c3042821710cf2314a7dff37eb882"
+    }
+  ],
+  "tests_passed": 2,
+  "native_rebuild_required": true,
+  "native_apk_built": false,
+  "phone_used": false,
+  "pushed": false
+}

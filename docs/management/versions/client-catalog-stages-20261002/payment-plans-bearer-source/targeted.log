@@ -1,0 +1,6 @@
+=== RUN   TestPaymentClientPlansUsesExistingBearerAndPreservesAuthFailure
+--- PASS: TestPaymentClientPlansUsesExistingBearerAndPreservesAuthFailure (0.08s)
+=== RUN   TestPaymentClientPublicPlansIsBearerless
+--- PASS: TestPaymentClientPublicPlansIsBearerless (0.02s)
+PASS
+ok  	wg-turn-client/accountaccess	0.112s

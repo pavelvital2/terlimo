@@ -2,7 +2,7 @@ package accountaccess
 
 // STEP03.4 payment surface: strict plans/quote/payment/checkout-session contract
 // consumption on the same client/transport seam as the account-access routes
-// (contract basis contracts-3e12f6f9: openapi/mobile_v1.yaml paths /plans GET public,
+// (contract basis contracts-3e12f6f9: openapi/mobile_v1.yaml paths /plans GET with optional authentication,
 // /quotes POST, /payments POST, /payments/{id} GET, /payments/{id}/checkout-session POST
 // and schemas/payment.json + schemas/common.json).
 //
@@ -145,7 +145,7 @@ func (p *Plan) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// PlansResponse is the strict public GET /plans 200 body.
+// PlansResponse is the strict GET /plans 200 body, identical with or without authentication.
 type PlansResponse struct {
 	RequestID     string `json:"request_id"`
 	ServerTime    string `json:"server_time"`
@@ -399,10 +399,11 @@ func DecodeCheckoutSessionStrict(raw []byte) (CheckoutSessionResponse, error) {
 	return response, nil
 }
 
-// ListPlans reads the public bounded plans list GET /plans. No bearer is attached and
-// no session is required: the contract marks this route public (security: []).
+// ListPlans reads the bounded GET /plans list with optional authentication. An existing
+// TokenSource supplies the session bearer (and account-specific prices); without one
+// the request stays public. Token errors propagate, never falling back to public prices.
 func (c *Client) ListPlans(ctx context.Context) (PlansResponse, *ErrorResponse, error) {
-	raw, status, err := c.requestWith(ctx, http.MethodGet, "/plans", nil, "", false)
+	raw, status, err := c.request(ctx, http.MethodGet, "/plans", nil, "")
 	if err != nil {
 		return PlansResponse{}, nil, err
 	}

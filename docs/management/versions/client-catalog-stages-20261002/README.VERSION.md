@@ -1,3 +1,22 @@
+# Payment plans optional Bearer — source candidate 2026-10-02
+
+Base: c47d8beb3baa844cf60d625aad37c62f5f91f9e9
+Commit: 9c0027db1e197913dd2ab354f786287694655d4b
+Tree: 951304239cf50cd3e5a9a62558bb7d159aa3832d
+
+ListPlans now uses the existing TokenSource via the normal request builder.
+Nil source stays public; token failure propagates without anonymous retry.
+Endpoint/body/deadlines/session refresh policy unchanged. Two focused local HTTP
+tests PASS; no menu/core/full suites repeated. See REPORT.md and targeted.log.
+
+IMPORTANT: this changes Go source. The corrected version requires a NEW native
+build and APK after review; reuse of native792 cannot include this fix.
+Installed APKa23/native792 and rollbackef84 are untouched. No native/APK build,
+install, phone, provider, invoice, runtime change, money or push performed.
+Full previous passport follows unchanged as historical evidence.
+
+---
+
 # Browser checkout menu parity — source candidate 2026-10-02
 
 Base: 8230feb9e9b25e3dfa67dd1ff90f1c9b749d4e3a

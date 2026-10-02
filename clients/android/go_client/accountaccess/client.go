@@ -90,9 +90,9 @@ func (c *Client) request(ctx context.Context, method, path string, body any, ide
 	return c.requestWith(ctx, method, path, body, idempotencyKey, true)
 }
 
-// requestWith is the single bounded request builder. withBearer=false is used only for
-// the public /plans read: no Authorization header is attached and the TokenSource is
-// never consulted on that path.
+// requestWith is the single bounded request builder. withBearer requests the existing
+// TokenSource when configured; its errors propagate without an anonymous retry.
+// A nil TokenSource leaves Authorization absent (including the public /plans read).
 func (c *Client) requestWith(ctx context.Context, method, path string, body any, idempotencyKey string, withBearer bool) ([]byte, int, error) {
 	return c.requestWithQuery(ctx, method, path, body, idempotencyKey, withBearer, "")
 }

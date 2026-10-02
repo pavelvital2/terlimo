@@ -75,3 +75,13 @@ No phone install, ADB, VPN launch, live VK/TEST call, server change or physical
 device PASS is implied by compilation or host tests. Live issuer/pin agreement,
 native execution, foreground lifecycle, DNS/WireGuard/data flow, expiry/revoke
 under suspend, and system-VPN restoration require explicit TEST acceptance.
+
+## Payment plans: optional session authentication
+
+Native `accountaccess.Client.ListPlans` uses the existing service TokenSource and
+HTTP/service-channel route for `GET /plans`. If configured, that source supplies the
+Bearer so plans reflect the same account pricing as quotes. Token acquisition or
+validation errors propagate; there is no retry with anonymous prices. With no
+TokenSource the public request remains allowed, without Authorization. No token or
+account ID comes from the UI; no new login flow is introduced. Existing session
+refresh policy, request deadline, endpoint and response/bridge schemas are unchanged.

@@ -485,8 +485,51 @@ func TestPaymentClientRejectsInvalidHostInputWithoutRequest(t *testing.T) {
 	}
 }
 
-// TestPaymentClientPublicPlansIsBearerless proves /plans is read exactly as the public
-// contract route: no Authorization header and no TokenSource consultation.
+type plansTokenSource struct {
+	value string
+	err   error
+	calls int
+}
+
+func (s *plansTokenSource) Bearer(context.Context) (string, error) {
+	s.calls++
+	return s.value, s.err
+}
+
+func TestPaymentClientPlansUsesExistingBearerAndPreservesAuthFailure(t *testing.T) {
+	plansRaw := paymentsFixture(t, "plans_response.json", paymentsPlansFixtureSHA)
+	capture := &paymentCapture{respond: func(writer http.ResponseWriter, request *http.Request) bool {
+		writeFixture(writer, plansRaw)
+		return true
+	}}
+	client, _ := paymentTestClient(t, capture)
+	tokens := &plansTokenSource{value: "synthetic-existing-session"}
+	client.Tokens = tokens
+	_, apiError, err := client.ListPlans(context.Background())
+	if err != nil || apiError != nil {
+		t.Fatalf("plans: %v %v", apiError, err)
+	}
+	requests := capture.snapshot()
+	if tokens.calls != 1 || len(requests) != 1 {
+		t.Fatalf("token calls=%d, requests=%d; want one each", tokens.calls, len(requests))
+	}
+	request := requests[0]
+	if request.Auth != "Bearer synthetic-existing-session" || request.Method != http.MethodGet ||
+		request.Path != "/api/mobile/v1/plans" || request.Body != "" || request.Key != "" {
+		t.Fatal("plans did not preserve the authenticated GET request contract")
+	}
+	// The same configured source now fails to obtain/validate its token. No public
+	// request may escape, even though that would produce a perfectly valid plans body.
+	tokens.value = ""
+	tokens.err = errors.New("synthetic token validation failure")
+	_, apiError, err = client.ListPlans(context.Background())
+	if !errors.Is(err, tokens.err) || apiError != nil || tokens.calls != 2 || capture.count() != 1 {
+		t.Fatal("token error was hidden or retried as an anonymous plans request")
+	}
+}
+
+// TestPaymentClientPublicPlansIsBearerless preserves anonymous access when no token
+// source exists; optional authentication must not become a login requirement.
 func TestPaymentClientPublicPlansIsBearerless(t *testing.T) {
 	plansRaw := paymentsFixture(t, "plans_response.json", paymentsPlansFixtureSHA)
 	capture := &paymentCapture{respond: func(writer http.ResponseWriter, request *http.Request) bool {
@@ -498,7 +541,7 @@ func TestPaymentClientPublicPlansIsBearerless(t *testing.T) {
 	}}
 	server := httptest.NewServer(capture.handler())
 	defer server.Close()
-	client := &Client{BaseURL: server.URL + "/api/mobile/v1", HTTP: server.Client(), Tokens: StaticToken("test-bearer")}
+	client := &Client{BaseURL: server.URL + "/api/mobile/v1", HTTP: server.Client()}
 	plans, apiError, err := client.ListPlans(context.Background())
 	if err != nil || apiError != nil {
 		t.Fatalf("plans: %v %v", apiError, err)
@@ -507,7 +550,8 @@ func TestPaymentClientPublicPlansIsBearerless(t *testing.T) {
 		t.Fatalf("plans projection wrong: %+v", plans)
 	}
 	requests := capture.snapshot()
-	if len(requests) != 1 || requests[0].Auth != "" || requests[0].Method != http.MethodGet {
+	if len(requests) != 1 || requests[0].Auth != "" || requests[0].Method != http.MethodGet ||
+		requests[0].Path != "/api/mobile/v1/plans" || requests[0].Body != "" || requests[0].Key != "" {
 		t.Fatalf("plans request was not public GET: %+v", requests)
 	}
 }
