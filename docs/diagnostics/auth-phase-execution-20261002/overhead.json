@@ -1,0 +1,37 @@
+{
+  "filtered_existing_sink": {
+    "off": {
+      "wall_median_ns": 32180,
+      "wall_p95_ns": 50886,
+      "thread_cpu_median_ns": 32230
+    },
+    "on": {
+      "wall_median_ns": 764610,
+      "wall_p95_ns": 1083209,
+      "thread_cpu_median_ns": 765285
+    },
+    "samples_per_mode": 200,
+    "phase_records_per_on_request": 20,
+    "writes_per_on_request": 0,
+    "log_bytes_including_warmup": 0,
+    "median_wall_delta_ns": 732430
+  },
+  "standard_stream_sink": {
+    "off": {
+      "wall_median_ns": 46998,
+      "wall_p95_ns": 72997,
+      "thread_cpu_median_ns": 47058
+    },
+    "on": {
+      "wall_median_ns": 1180102,
+      "wall_p95_ns": 3263927,
+      "thread_cpu_median_ns": 1178094
+    },
+    "samples_per_mode": 200,
+    "phase_records_per_on_request": 20,
+    "writes_per_on_request": 1,
+    "log_bytes_including_warmup": 1476993,
+    "median_wall_delta_ns": 1133104
+  },
+  "limits": "Local synthetic coroutine; real proc/thread counters; temporary file StreamHandler flush, no fsync/journald. Shared thread/host. Not production overhead, historical attribution, or zero overhead."
+}

@@ -418,17 +418,22 @@ class InstallationSessionService:
     # ------------------------------------------------------------------ session
 
     async def create_session(
-        self, body: dict[str, Any], *, idempotency_header: str | None = None
+        self, body: dict[str, Any], *, idempotency_header: str | None = None,
+        phase: AuthApiPhase | None = None
     ) -> dict[str, Any]:
         body = _require_object(body, frozenset({"proof"}))
         proof = self._proof_object(body.get("proof"))
         request_id = self._proof_request_id(proof)
+        if phase is not None:
+            phase.activate(request_id)
+            phase.mark("session_validated")
         challenge, payload = await self._verified_payload(
             proof,
             public_key=None,
             expected_scope="session",
             expected_op=OP_SESSION,
             request_id=request_id,
+            **({"phase": phase} if phase is not None else {}),
         )
         fingerprint = payload.get("installation_id")
         if not isinstance(fingerprint, str) or not fingerprint:
@@ -436,10 +441,18 @@ class InstallationSessionService:
         scopes = self._requested_scopes(payload, request_id)
         idempotency_key = self._required_idempotency_key(payload, idempotency_header)
 
+        if phase is not None:
+            phase.mark("session_pool_acquire_begin")
         async with self._db.acquire() as connection:
+            if phase is not None:
+                phase.mark("session_pool_acquire_end")
             decision = "created"
             stored_result: dict[str, Any] | None = None
+            if phase is not None:
+                phase.mark("session_transaction_begin")
             async with connection.transaction():
+                if phase is not None:
+                    phase.mark("session_transaction_entered")
                 installation = await connection.fetchrow(
                     """
                     SELECT id, state, environment
@@ -470,6 +483,8 @@ class InstallationSessionService:
                 )
                 await self._consume_challenge(connection, challenge["challenge_id"], request_id)
                 digest = self._business_digest(payload, request_id)
+                if phase is not None:
+                    phase.mark("session_apply_begin")
                 stored_result, decision = await self._idempotent_apply(
                     connection,
                     environment=challenge["environment"],
@@ -483,6 +498,10 @@ class InstallationSessionService:
                         connection, installation["id"], fingerprint, scopes, link
                     ),
                 )
+                if phase is not None:
+                    phase.mark("session_apply_end")
+            if phase is not None:
+                phase.mark("session_transaction_end")
             if decision == "conflict":
                 raise ApiError(
                     "IDEMPOTENCY_CONFLICT",
@@ -495,6 +514,8 @@ class InstallationSessionService:
                     details={"reason": "idempotent_result_window_elapsed"},
                     request_id=request_id,
                 )
+        if phase is not None:
+            phase.mark("session_pool_release_end")
         stored_result["request_id"] = request_id
         stored_result["server_time"] = rfc3339(now_utc())
         stored_result["schema_version"] = SCHEMA_VERSION
@@ -561,12 +582,22 @@ class InstallationSessionService:
         expected_scope: str,
         expected_op: str,
         request_id: str,
+        phase: AuthApiPhase | None = None,
     ) -> tuple[asyncpg.Record, dict[str, Any]]:
         challenge_id = proof["challenge_id"]
+        if phase is not None:
+            phase.mark("verify_challenge_pool_begin")
         async with self._db.acquire() as connection:
+            if phase is not None:
+                phase.mark("verify_challenge_pool_acquire_end")
+                phase.mark("verify_challenge_fetch_begin")
             challenge = await connection.fetchrow(
                 "SELECT * FROM auth_challenges WHERE challenge_id = $1", challenge_id
             )
+            if phase is not None:
+                phase.mark("verify_challenge_fetch_end")
+        if phase is not None:
+            phase.mark("verify_challenge_pool_release_end")
         if challenge is None:
             raise ApiError("PROOF_INVALID", details={"reason": "unknown_challenge"}, request_id=request_id)
         if challenge["used_at"] is not None:
@@ -583,11 +614,20 @@ class InstallationSessionService:
         if public_key is None:
             # The session route has no unsigned key material: the signed payload names the
             # installation and the verification key is resolved from the stored installation.
+            if phase is not None:
+                phase.mark("payload_preview_begin")
             _, preview = self._decode_payload(proof, request_id)
+            if phase is not None:
+                phase.mark("payload_preview_end")
             fingerprint = preview.get("installation_id")
             if not isinstance(fingerprint, str) or len(fingerprint) != 64:
                 raise ApiError("PROOF_INVALID", request_id=request_id)
+            if phase is not None:
+                phase.mark("key_pool_acquire_begin")
             async with self._db.acquire() as connection:
+                if phase is not None:
+                    phase.mark("key_pool_acquire_end")
+                    phase.mark("key_fetch_begin")
                 stored = await connection.fetchrow(
                     """
                     SELECT public_key_spki_b64
@@ -597,6 +637,10 @@ class InstallationSessionService:
                     fingerprint,
                     challenge["environment"],
                 )
+                if phase is not None:
+                    phase.mark("key_fetch_end")
+            if phase is not None:
+                phase.mark("key_pool_release_end")
             if stored is None or not stored["public_key_spki_b64"]:
                 raise ApiError(
                     "PROOF_INVALID",
@@ -604,11 +648,17 @@ class InstallationSessionService:
                     request_id=request_id,
                 )
             try:
+                if phase is not None:
+                    phase.mark("keyload_begin")
                 public_key = pop.load_public_key(stored["public_key_spki_b64"])
+                if phase is not None:
+                    phase.mark("keyload_end")
             except pop.PopError as exc:
                 raise ApiError("PROOF_INVALID", request_id=request_id) from exc
 
         try:
+            if phase is not None:
+                phase.mark("proof_verify_begin")
             payload = pop.verify_proof(
                 public_key,
                 signed_payload_b64=proof["signed_payload_b64"],
@@ -621,6 +671,8 @@ class InstallationSessionService:
                 known_top_level=pop.KNOWN_TOP_LEVEL,
                 server_known_fields=pop.KNOWN_TOP_LEVEL,
             )
+            if phase is not None:
+                phase.mark("proof_verify_end")
         except pop.PopError as exc:
             # The contract raises PopError("PROOF_INVALID") as a message (class code BAD_MESSAGE);
             # map known bounded codes explicitly, everything else stays BAD_MESSAGE.
@@ -639,6 +691,8 @@ class InstallationSessionService:
             raise ApiError("PROOF_INVALID", details={"reason": "installation_mismatch"}, request_id=request_id)
         if abs(parse_utc(payload.get("ts")) - now_utc().timestamp()) > self._settings.proof_skew_seconds:
             raise ApiError("PROOF_INVALID", details={"reason": "ts_outside_window"}, request_id=request_id)
+        if phase is not None:
+            phase.mark("verified_payload_end")
         return challenge, payload
 
     def _decode_payload(self, proof: dict[str, Any], request_id: str) -> tuple[bytes, dict[str, Any]]:
@@ -1100,6 +1154,10 @@ async def _handle_challenge(request: web.Request) -> web.Response:
         logger.exception("challenge failed")
         return _error_response(fallback_id, ApiError("SERVICE_UNAVAILABLE"))
 
+    finally:
+        if phase is not None:
+            phase.finish()
+
 
 async def _handle_enrollment(request: web.Request) -> web.Response:
     fallback_id = random_hex(16)
@@ -1117,18 +1175,38 @@ async def _handle_enrollment(request: web.Request) -> web.Response:
 
 
 async def _handle_session(request: web.Request) -> web.Response:
+    phase = new_auth_api_phase("session")
+    if phase is not None:
+        phase.mark("handler_entry")
     fallback_id = random_hex(16)
     try:
         body = await _json_body(request)
+        if phase is not None:
+            phase.mark("json_end")
         result = await _service(request).create_session(
-            body, idempotency_header=request.headers.get("Idempotency-Key")
+            body, idempotency_header=request.headers.get("Idempotency-Key"),
+            **({"phase": phase} if phase is not None else {}),
         )
-        return web.json_response(result)
+        response = web.json_response(result)
+        if phase is not None:
+            phase.mark("response_ready")
+        return response
+    except asyncio.CancelledError:
+        if phase is not None:
+            phase.mark("handler_error", "cancelled")
+        raise
     except ApiError as error:
+        if phase is not None:
+            phase.mark("handler_error", "rejected")
         return _error_response(fallback_id, error)
     except (asyncpg.PostgresError, OSError):
+        if phase is not None:
+            phase.mark("handler_error", "unavailable")
         logger.exception("session failed")
         return _error_response(fallback_id, ApiError("SERVICE_UNAVAILABLE"))
+    finally:
+        if phase is not None:
+            phase.finish()
 
 
 def register_mobile_auth_routes(app: web.Application) -> None:

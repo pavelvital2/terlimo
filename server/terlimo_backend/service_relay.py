@@ -38,7 +38,7 @@ from .evidence_transport import (
 )
 
 logger = logging.getLogger(__name__)
-_relay_phase_context: ContextVar[tuple[int, float] | None] = ContextVar(
+_relay_phase_context: ContextVar[AuthApiPhase | None] = ContextVar(
     "relay_phase_context", default=None
 )
 
@@ -367,7 +367,7 @@ def _service_handler(settings: Settings, database: Database):
                 request_id = parsed["request_id"]
                 if phase is not None:
                     phase.mark("parse_end")
-                    if parsed["path"] == "/api/mobile/v1/auth/challenge":
+                    if parsed["path"] in {"/api/mobile/v1/auth/challenge", "/api/mobile/v1/auth/session"}:
                         phase.activate(request_id)
                     else:
                         phase = None
@@ -389,6 +389,10 @@ def _service_handler(settings: Settings, database: Database):
                     phase.mark("replay_end")
                 else:
                     result = await _replay_service_request(settings, parsed)
+            response = web.json_response(result, dumps=lambda value: json.dumps(value, separators=(",", ":")))
+            if phase is not None:
+                phase.mark("response_ready")
+            return response
         except EvidenceTransportError as error:
             if phase is not None:
                 phase.mark("handler_error", "rejected")
@@ -407,10 +411,8 @@ def _service_handler(settings: Settings, database: Database):
             return web.json_response(_service_error_body(request_id, "SERVICE_UNAVAILABLE", True), status=503)
         finally:
             active[0] -= 1
-        response = web.json_response(result, dumps=lambda value: json.dumps(value, separators=(",", ":")))
-        if phase is not None:
-            phase.mark("response_ready")
-        return response
+            if phase is not None:
+                phase.finish()
 
     return handler
 
@@ -462,12 +464,7 @@ class ServiceRelay:
         context = _relay_phase_context.get()
         if context is None:
             return
-        task_id, started = context
-        logger.info(
-            "RELAYPHASE phase=%s task_id=%s utc=%s elapsed_ms=%.3f outcome=%s",
-            phase, task_id, datetime.now(UTC).isoformat(),
-            (time.monotonic() - started) * 1000, outcome,
-        )
+        context.mark(phase, outcome)
 
     def _phase_trace(self) -> TraceConfig:
         trace = TraceConfig()
@@ -591,7 +588,12 @@ class ServiceRelay:
         task = asyncio.current_task()
         phase_token = None
         if self._phase_probe_enabled:
-            phase_token = _relay_phase_context.set((id(task), time.monotonic()))
+            try:
+                phase_token = _relay_phase_context.set(
+                    AuthApiPhase("relay", task_id=id(task), sink=logger)
+                )
+            except Exception:
+                phase_token = None
             self._phase("unix_callback")
         self._tasks.add(task) if task is not None else None
         upstream: asyncio.Task[Any] | None = None
@@ -651,6 +653,9 @@ class ServiceRelay:
                     pass
                 finally:
                     if phase_token is not None:
+                        context = _relay_phase_context.get()
+                        if context is not None:
+                            context.finish()
                         _relay_phase_context.reset(phase_token)
 
 

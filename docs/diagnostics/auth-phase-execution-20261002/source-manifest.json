@@ -1,0 +1,49 @@
+{
+  "baseline_commit": "80db503b1110208037bc59e704ea9e4160cce5f7",
+  "candidate_commit": "282c78fc9bba9f5078b9c4b7030ad5c9dfc44539",
+  "runtime_mutations_performed": false,
+  "source_files": [
+    {
+      "path": "terlimo_backend/auth_api.py",
+      "sha256": "012f13205c75fb45ab0f3e04c4331d9e1f5dde50b824cadc96eced461daacf94",
+      "size_bytes": 50836
+    },
+    {
+      "path": "terlimo_backend/auth_api_phase.py",
+      "sha256": "a74508eb149b7192b583db0d7811bd855128d19086db787affb87d0e63da39f7",
+      "size_bytes": 4673
+    },
+    {
+      "path": "terlimo_backend/service_relay.py",
+      "sha256": "6f6ca3081b0c2dbf1de97b0434516ad6fa109fe29b595a33d4c94f96fd41f83d",
+      "size_bytes": 30120
+    },
+    {
+      "path": "tests/offline_phase/test_execution_phases.py",
+      "sha256": "ef505c9c08e17e0abc8c5a13b68c5d393e160db7f1bb78d59c7a6c8067648363",
+      "size_bytes": 21417
+    },
+    {
+      "path": "tests/offline_phase/measure_overhead.py",
+      "sha256": "62d829955a8982da9e9783404beaf7f9e1aee03fd85f0447d055e82f5d316228",
+      "size_bytes": 2269
+    }
+  ],
+  "live_source_unchanged": {
+    "terlimo_backend/auth_api.py": true,
+    "terlimo_backend/gateway_adapter.py": true,
+    "terlimo_backend/gateway_control.py": true,
+    "terlimo_backend/service_relay.py": true,
+    "terlimo_backend/worker.py": true,
+    "tests/test_catalog_access_sync.py": true,
+    "terlimo_backend/auth_api_phase.py": true,
+    "terlimo_backend/operation_timing.py": true,
+    "README.VERSION.md": true
+  },
+  "full_passport": {
+    "sha256": "179d776ff2388b255c65ef5edeff4edc86a0f4634bdbc15277ac9c5cdca861c3",
+    "unchanged": true,
+    "requirement_rows": 101,
+    "header_excluded": true
+  }
+}

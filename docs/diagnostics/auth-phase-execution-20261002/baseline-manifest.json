@@ -1,0 +1,55 @@
+{
+  "deployed_HEAD": "0cebcfc1c2a41a30ffa3bc822a545526cd8ac9c5",
+  "files": [
+    {
+      "path": "terlimo_backend/auth_api.py",
+      "SHA256": "70372f04035b543623ddb5ec678d660d9001639285131e0ad464fb8c1eadec14"
+    },
+    {
+      "path": "terlimo_backend/gateway_adapter.py",
+      "SHA256": "a776e4fd34f5c82ca2e00c07549c310d46511b149cf09549bc065e919917d542"
+    },
+    {
+      "path": "terlimo_backend/gateway_control.py",
+      "SHA256": "0712db61a86cd47e9b2f1188b10cd4878b287a8a818ee6e8bcf62767666c3ebe"
+    },
+    {
+      "path": "terlimo_backend/service_relay.py",
+      "SHA256": "c22ec6d6f8a814e823c4edcd834ecc75929c4953fe9dbeccb68aa3ac1d8e8884"
+    },
+    {
+      "path": "terlimo_backend/worker.py",
+      "SHA256": "b16d9f60edded1e7f3f3a9e71316821708d6c4857f310b7e6275874ebcd9651b"
+    },
+    {
+      "path": "tests/test_catalog_access_sync.py",
+      "SHA256": "50aa8ce3a1193327d5f2665fb62c66d4bd8f7524ea3d7dc0e1cefa16f95d1ba5"
+    },
+    {
+      "path": "terlimo_backend/auth_api_phase.py",
+      "SHA256": "7aaee68457e33d45773cbd05dd2a75252d9a378071174863a3009eb5698a5e4e"
+    },
+    {
+      "path": "terlimo_backend/operation_timing.py",
+      "SHA256": "b9fa73a876924733cf9d81dfae78755b78e20fda468f7aee0f19c5c7d27e41f5"
+    },
+    {
+      "path": "README.VERSION.md",
+      "SHA256": "179d776ff2388b255c65ef5edeff4edc86a0f4634bdbc15277ac9c5cdca861c3"
+    }
+  ],
+  "accepted_source_identity": {
+    "/home/pavel/terlimo-test-a-live/terlimo_backend/service_relay.py": {
+      "accepted_SHA256": "c22ec6d6f8a814e823c4edcd834ecc75929c4953fe9dbeccb68aa3ac1d8e8884",
+      "current_SHA256": "c22ec6d6f8a814e823c4edcd834ecc75929c4953fe9dbeccb68aa3ac1d8e8884"
+    },
+    "/home/pavel/terlimo-test-a-live/terlimo_backend/auth_api_phase.py": {
+      "accepted_SHA256": "7aaee68457e33d45773cbd05dd2a75252d9a378071174863a3009eb5698a5e4e",
+      "current_SHA256": "7aaee68457e33d45773cbd05dd2a75252d9a378071174863a3009eb5698a5e4e"
+    },
+    "/home/pavel/terlimo-test-a-live/terlimo_backend/api.py": {
+      "accepted_SHA256": "b38aac898ec4892cffa858b26f336d0a0997741b1961f21b4a7b2036d90a3942",
+      "current_SHA256": "b38aac898ec4892cffa858b26f336d0a0997741b1961f21b4a7b2036d90a3942"
+    }
+  }
+}
