@@ -25,6 +25,7 @@ from .mobile_account import BASE_LIMIT
 from .payments import PAYMENT_PROVIDER_KEY, _envelope, _order_view, create_order, payment_amount
 from .s5_checkout_receipts import CheckoutPolicy, issue_checkout_receipt
 from .session_auth import AuthError, authenticate_session
+from .payments import payment_install_lock
 from .payment_products import ADDON_PLAN, quote_product, product_of, public_product, active_paid, slots, order_product
 
 PREFIX = "/api/mobile/v1"
@@ -327,50 +328,53 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                 )
                 if row is None:
                     raise ApiError("NOT_FOUND", http=404)
-                # Durable replay wins over freshness: an exact same-key retry must reach
-                # create_order (which returns its prior order) even after quote expiry. Only a
-                # genuinely new order may fail QUOTE_EXPIRED.
-                durable = await connection.fetchrow(
-                    "SELECT 1 FROM payment_orders WHERE installation_id=$1 AND idempotency_key=$2",
-                    context.installation_id,
-                    key,
-                )
-                product = product_of(row)
-                if product and not _contract2(request):
-                    raise ApiError("BAD_MESSAGE",http=400)
-                if product and durable is None and (not context.binding or context.binding["status"] != "active" or product["owner_account_id"] != str(context.account_id)):
-                    raise ApiError("PAYMENT_NOT_FOUND",http=404)
-                if row["expires_at"] <= datetime.now(UTC) and durable is None:
-                    raise ApiError("QUOTE_EXPIRED", http=409)
-                # Minimal quote->order wiring: create_order applies the C4 invariants (durable
-                # same-key replay, exact installation-bound quote proof, no second provider
-                # create). With the provider disabled create_order fails closed BEFORE any
-                # ledger write or provider call (PAYMENT_PROVIDER_UNAVAILABLE).
-                if row["method"] not in _methods(settings):
-                    raise ApiError("METHOD_UNAVAILABLE", http=403)
-                try:
-                    result = await create_order(
-                        connection,
-                        _quoted_settings(settings, context.account_id, row, durable=durable is not None),
-                        app[PAYMENT_PROVIDER_KEY],
-                        installation_id=context.installation_id,
-                        months=int(row["months"]),
-                        idempotency_key=key,
-                        quote_id=str(quote_id),
-                        method=S5_METHOD_PROVIDER.get(row["method"], row["method"]),
-                        public_method=row["method"],
-                        checkout_owner_account_id=context.account_id,
-                        checkout_owner_binding_id=context.binding["id"] if context.binding else None,
+                # Wait for any prior create before reading durable state or rejecting
+                # expiry. create_order reenters this same connection/session lock.
+                async with payment_install_lock(connection, context.installation_id):
+                    # Durable replay wins over freshness: an exact same-key retry must reach
+                    # create_order (which returns its prior order) even after quote expiry. Only a
+                    # genuinely new order may fail QUOTE_EXPIRED.
+                    durable = await connection.fetchrow(
+                        "SELECT 1 FROM payment_orders WHERE installation_id=$1 AND idempotency_key=$2",
+                        context.installation_id,
+                        key,
                     )
-                except ApiError as error:
-                    if error.code == "PAYMENT_PROVIDER_UNAVAILABLE":
-                        # S5 frozen wire code for an unavailable merchant path.
-                        raise ApiError("SERVICE_UNAVAILABLE", http=503, retryable=True) from error
-                    raise
-                full = await connection.fetchrow(
-                    "SELECT * FROM payment_orders WHERE id=$1",
-                    uuid.UUID(result["payment"]["order_id"]),
-                )
+                    product = product_of(row)
+                    if product and not _contract2(request):
+                        raise ApiError("BAD_MESSAGE",http=400)
+                    if product and durable is None and (not context.binding or context.binding["status"] != "active" or product["owner_account_id"] != str(context.account_id)):
+                        raise ApiError("PAYMENT_NOT_FOUND",http=404)
+                    if row["expires_at"] <= datetime.now(UTC) and durable is None:
+                        raise ApiError("QUOTE_EXPIRED", http=409)
+                    # Minimal quote->order wiring: create_order applies the C4 invariants (durable
+                    # same-key replay, exact installation-bound quote proof, no second provider
+                    # create). With the provider disabled create_order fails closed BEFORE any
+                    # ledger write or provider call (PAYMENT_PROVIDER_UNAVAILABLE).
+                    if durable is None and row["method"] not in _methods(settings):
+                        raise ApiError("METHOD_UNAVAILABLE", http=403)
+                    try:
+                        result = await create_order(
+                            connection,
+                            _quoted_settings(settings, context.account_id, row, durable=durable is not None),
+                            app[PAYMENT_PROVIDER_KEY],
+                            installation_id=context.installation_id,
+                            months=int(row["months"]),
+                            idempotency_key=key,
+                            quote_id=str(quote_id),
+                            method=S5_METHOD_PROVIDER.get(row["method"], row["method"]),
+                            public_method=row["method"],
+                            checkout_owner_account_id=context.account_id,
+                            checkout_owner_binding_id=context.binding["id"] if context.binding else None,
+                        )
+                    except ApiError as error:
+                        if error.code == "PAYMENT_PROVIDER_UNAVAILABLE":
+                            # S5 frozen wire code for an unavailable merchant path.
+                            raise ApiError("SERVICE_UNAVAILABLE", http=503, retryable=True) from error
+                        raise
+                    full = await connection.fetchrow(
+                        "SELECT * FROM payment_orders WHERE id=$1",
+                        uuid.UUID(result["payment"]["order_id"]),
+                    )
             return _envelope(_with_product(_payment_view(
                 result["payment"],
                 credited_revision=full["credited_entitlement_revision"] if full else None,

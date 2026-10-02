@@ -16,6 +16,7 @@ Design boundaries:
 from __future__ import annotations
 
 import calendar
+from contextlib import asynccontextmanager
 import hmac
 import json
 import logging
@@ -394,6 +395,22 @@ def _envelope(payload: dict[str, Any], status: int = 200) -> web.Response:
     return web.json_response(body, status=status)
 
 
+@asynccontextmanager
+async def payment_install_lock(connection: asyncpg.Connection, installation_id: Any):
+    """Share the existing session lock with S5 freshness/owner checks.
+
+    PostgreSQL session advisory locks are reentrant on the same connection. S5 holds
+    one level across its checks and create_order holds its own level; each releases
+    exactly its acquisition even on an error. Other connections wait for both.
+    """
+    lock_key = f"payment-install:{installation_id}"
+    await connection.execute("SELECT pg_advisory_lock(hashtextextended($1, 0))", lock_key)
+    try:
+        yield
+    finally:
+        await connection.execute("SELECT pg_advisory_unlock(hashtextextended($1, 0))", lock_key)
+
+
 async def create_order(
     connection: asyncpg.Connection,
     settings: Settings,
@@ -431,17 +448,6 @@ async def create_order(
         public_method.strip().lower() if isinstance(public_method, str) and public_method.strip()
         else requested_method
     )
-    if requested_method is not None:
-        # Alias-aware configured set, identical to the plans/quote path: a bare "card" env also
-        # enables its provider method "international".
-        configured = {m.strip().lower() for m in settings.platega_methods.split(",") if m.strip()}
-        if "card" in configured:
-            configured.add("international")
-        if requested_method not in configured:
-            # Fail before any ledger write or provider call: an unmapped method cannot invoice.
-            raise ProviderMethodUnavailable()
-    if provider is None:
-        raise ApiError("PAYMENT_PROVIDER_UNAVAILABLE", http=503, retryable=True)
     # A client-supplied nonempty idempotency key is mandatory: a server-generated random key
     # makes a client retry non-idempotent.
     key = (idempotency_key or "").strip()
@@ -459,14 +465,8 @@ async def create_order(
             source_quote_id = uuid.UUID(str(quote_id))
         except (ValueError, AttributeError):
             raise ApiError("BAD_MESSAGE", http=400, details={"reason": "bad_quote_id"}) from None
-    # ONE per-installation serialization boundary, held through the provider create and the
-    # durable result: concurrent different keys cannot both create provider invoices.
-    lock_key = f"payment-install:{installation_id}"
-    # Serialize the whole provider-create across processes: a session-level advisory lock is held
-    # until this request finishes (released on unlock or connection close), so a concurrent
-    # same-key call can never create a second provider invoice.
-    await connection.execute("SELECT pg_advisory_lock(hashtextextended($1, 0))", lock_key)
-    try:
+    # Durable replay and all new-create decisions share the installation lock.
+    async with payment_install_lock(connection, installation_id):
         existing = await connection.fetchrow(
             "SELECT * FROM payment_orders WHERE idempotency_key = $1", key
         )
@@ -543,6 +543,18 @@ async def create_order(
                     _, review = await validate_credit_target(connection,{"quote":quote,"checkout_owner_binding_id":checkout_owner_binding_id},binding,datetime.now(UTC))
                     if review:
                         raise ApiError("PAYMENT_STATE_INVALID",http=409)
+        if requested_method is not None:
+            # Alias-aware configured set, identical to the plans/quote path: a bare "card" env also
+            # enables its provider method "international".
+            configured = {m.strip().lower() for m in settings.platega_methods.split(",") if m.strip()}
+            if "card" in configured:
+                configured.add("international")
+            if requested_method not in configured:
+                # Fail before any ledger write or provider call: an unmapped method cannot invoice.
+                raise ProviderMethodUnavailable()
+        if provider is None:
+            raise ApiError("PAYMENT_PROVIDER_UNAVAILABLE", http=503, retryable=True)
+        if existing is None:
             try:
                 order_id = await connection.fetchval(
                     """
@@ -607,8 +619,7 @@ async def create_order(
             payment.variant,
         )
         return {"payment": _order_view(order)}
-    finally:
-        await connection.execute("SELECT pg_advisory_unlock(hashtextextended($1, 0))", lock_key)
+
 
 
 async def get_order(
