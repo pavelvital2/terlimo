@@ -118,6 +118,9 @@ async def sweep_once(
     expired_hours = await expire_hour_units(connection, limit=batch)
     failed_onboarding = await fail_exhausted_intents(connection, limit=batch)
     dead_revokes = await revoke_backlog_stats(connection, limit=batch)
+    from .payment_products import refresh_expired_limits, cap_existing_extra_grants
+    await refresh_expired_limits(connection,limit=batch)
+    await cap_existing_extra_grants(connection,max_lease_seconds=settings.gateway_max_lease_seconds,limit=batch)
     # Bounded S4 payment reconciliation via the provider's own status call (no-op when the
     # provider is not configured). A provider/session failure must never break the sweep.
     from .payments import build_provider, reconcile_payments

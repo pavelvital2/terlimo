@@ -11,6 +11,8 @@ import hashlib
 import json
 import re
 import uuid
+from dataclasses import replace
+from decimal import Decimal
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -23,6 +25,7 @@ from .mobile_account import BASE_LIMIT
 from .payments import PAYMENT_PROVIDER_KEY, _envelope, _order_view, create_order, payment_amount
 from .s5_checkout_receipts import CheckoutPolicy, issue_checkout_receipt
 from .session_auth import AuthError, authenticate_session
+from .payment_products import ADDON_PLAN, quote_product, product_of, public_product, active_paid, slots, order_product
 
 PREFIX = "/api/mobile/v1"
 # Explicitly injected policy value; absent means production default disabled (CHECKOUT_POLICY_DENIED).
@@ -76,6 +79,38 @@ def _plans(settings: Settings) -> list[dict[str, Any]]:
     return plans
 
 
+CONTROL_TARIFF_SUFFIX = ":s5-control-v1"
+
+
+def _buyer_settings(settings: Settings, account_id: Any) -> Settings:
+    # Authentication supplies account_id; no client amount/identity field is accepted.
+    if not account_id or not settings.s5_control_account_id:
+        return settings
+    try:
+        allowed = uuid.UUID(settings.s5_control_account_id) == uuid.UUID(str(account_id))
+    except (ValueError, AttributeError):
+        raise ApiError("SERVICE_UNAVAILABLE", http=503) from None
+    if not allowed:
+        return settings
+    return replace(settings,
+        payment_price_rub_1=settings.s5_control_price_rub_1 or settings.payment_price_rub_1,
+        payment_price_rub_3=settings.s5_control_price_rub_3 or settings.payment_price_rub_3,
+        payment_tariff_key=settings.payment_tariff_key + CONTROL_TARIFF_SUFFIX)
+
+
+def _quoted_settings(settings: Settings, account_id: Any, row: Any, *, durable: bool = False) -> Settings:
+    # Existing server quotes/orders keep their amount across offer activation/removal.
+    # Low-value quotes cannot fund a new invoice after rebinding to another account.
+    if row["tariff_key"].endswith(CONTROL_TARIFF_SUFFIX) and not durable:
+        if _buyer_settings(settings, account_id).payment_tariff_key != row["tariff_key"]:
+            raise ApiError("QUOTE_EXPIRED", http=409)
+    months = int(row["months"])
+    if not months:
+        return replace(settings,payment_tariff_key=row["tariff_key"])
+    return replace(settings, payment_tariff_key=row["tariff_key"],
+                   **{f"payment_price_rub_{months}": Decimal(int(row["amount_minor"])) / 100})
+
+
 def _plans_revision(plans: list[dict[str, Any]]) -> str:
     encoded = json.dumps(plans, sort_keys=True, separators=(",", ":")).encode()
     return str(int.from_bytes(hashlib.sha256(encoded).digest()[:8], "big") % (10**18) + 1)
@@ -102,13 +137,33 @@ def _uuid(value: str, *, code: str) -> uuid.UUID:
         raise ApiError(code, http=404) from None
 
 
-def _quote_view(row: Any) -> dict[str, Any]:
-    return {
+def _quote_view(row: Any, *, contract2: bool = False) -> dict[str, Any]:
+    product = product_of(row)
+    result = {
         "quote_id": str(row["id"]),
         "amount": {"amount_minor": int(row["amount_minor"]), "currency": row["currency"]},
-        "duration_code": row["duration_code"], "device_limit": BASE_LIMIT,
+        "duration_code": row["duration_code"], "device_limit": product["device_limit"] if product else BASE_LIMIT,
         "method": row["method"], "expires_at": rfc3339(row["expires_at"]),
     }
+    if contract2:
+        result["product"] = public_product(product) if product else None
+    return result
+
+
+def _contract2(request):
+    return request.query.get("payment_contract") == "2"
+
+
+def _with_product(payload, order, contract2):
+    if contract2:
+        product = order_product(order)
+        value = public_product(product) if product else None
+        payload["product"] = value
+        payload["credit_state"] = "needs_review" if order["credit_review_reason"] else "applied" if order["applied_entitlement_id"] else "unapplied"
+        payload["credit_review_reason"] = order["credit_review_reason"]
+        credited = order["credited_product"]
+        payload["credited_product"] = json.loads(credited) if isinstance(credited,str) else credited
+    return payload
 
 
 def _payment_view(payment: dict[str, Any], *, credited_revision: int | None, needs_grant: bool,
@@ -147,8 +202,29 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
     async def plans(request: web.Request) -> web.Response:
         fallback = random_hex(16)
         try:
-            listed = _plans(settings)
+            buyer = settings
+            if request.headers.get("Authorization"):
+                async with database.acquire() as connection:
+                    context = await authenticate_session(connection, settings, _bearer(request))
+                    buyer = _buyer_settings(settings, context.account_id)
+            listed = _plans(buyer)
+            if _contract2(request):
+                for item in listed:
+                    item["product"] = None
+            if _contract2(request) and request.headers.get("Authorization"):
+                async with database.acquire() as connection:
+                    target = await active_paid(connection,context.account_id)
+                    if target:
+                        extra_amount, extra_limit, product = await quote_product(connection,buyer,context.account_id,addon=True,selected=[],months=0,base_amount_minor=0)
+                        if extra_amount > 0:
+                            listed.append({"plan_id":ADDON_PLAN,"title":"Дополнительное устройство","duration_code":"until:"+product["valid_until"],"base_device_limit":BASE_LIMIT,"amount":{"amount_minor":extra_amount,"currency":"RUB"},"methods":_methods(buyer),"product":public_product(product)})
+                    for item in listed:
+                        if item["plan_id"] != ADDON_PLAN:
+                            _, _, product = await quote_product(connection,buyer,context.account_id,addon=False,selected=[],months=PLAN_MONTHS[item["plan_id"]][0],base_amount_minor=item["amount"]["amount_minor"])
+                            item["product"] = public_product(product)
             return _envelope({"plans": listed, "plans_revision": _plans_revision(listed)})
+        except AuthError as error:
+            return _error_response(fallback, ApiError(error.code, http=error.http, retryable=error.retryable))
         except ApiError as error:
             return _error_response(fallback, error)
 
@@ -158,9 +234,10 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
             token = _bearer(request)
             key = _idempotency_key(request)
             body = await _json_body(request)
-            if set(body) != {"plan_id", "duration_code", "method"} or not all(
-                isinstance(body[item], str) for item in body
-            ):
+            expected = {"plan_id", "duration_code", "method"}
+            if _contract2(request) and "renew_extra_slot_ids" in body:
+                expected.add("renew_extra_slot_ids")
+            if set(body) != expected or not all(isinstance(body[item], str) for item in ("plan_id","duration_code","method")) or ("renew_extra_slot_ids" in body and (not isinstance(body["renew_extra_slot_ids"],list) or not all(isinstance(x,str) for x in body["renew_extra_slot_ids"]))):
                 raise ApiError("BAD_MESSAGE", http=400)
             digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
             async with database.acquire() as connection:
@@ -172,25 +249,53 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                 if existing is not None:
                     if existing["request_digest"] != digest:
                         raise ApiError("IDEMPOTENCY_CONFLICT", http=409)
-                    return _envelope(_quote_view(existing))
-                plan = next((item for item in _plans(settings) if item["plan_id"] == body["plan_id"]), None)
-                if plan is None or plan["duration_code"] != body["duration_code"]:
-                    raise ApiError("BAD_MESSAGE", http=400)
-                if body["method"] not in plan["methods"]:
-                    raise ApiError("METHOD_UNAVAILABLE", http=403)
-                listed = _plans(settings)
+                    if product_of(existing) and not _contract2(request):
+                        raise ApiError("BAD_MESSAGE",http=400)
+                    return _envelope(_quote_view(existing,contract2=_contract2(request)))
+                buyer = _buyer_settings(settings, context.account_id)
+                addon = body["plan_id"] == ADDON_PLAN
+                product = None
+                if addon and not _contract2(request):
+                    raise ApiError("BAD_MESSAGE",http=400)
+                if addon:
+                    if body["method"] not in _methods(buyer):
+                        raise ApiError("METHOD_UNAVAILABLE",http=403)
+                    amount, device_limit, product = await quote_product(connection,buyer,context.account_id,addon=True,selected=body.get("renew_extra_slot_ids",[]),months=0,base_amount_minor=0)
+                    if body["duration_code"] != "until:"+product["valid_until"]:
+                        raise ApiError("BAD_MESSAGE",http=400)
+                    if amount <= 0:
+                        raise ApiError("PAYMENT_STATE_INVALID",http=409)
+                    months = 0
+                    plan = {"amount":{"amount_minor":amount,"currency":"RUB"},"methods":_methods(buyer)}
+                else:
+                    plan = next((item for item in _plans(buyer) if item["plan_id"] == body["plan_id"]), None)
+                    if plan is None or plan["duration_code"] != body["duration_code"]:
+                        raise ApiError("BAD_MESSAGE", http=400)
+                    if body["method"] not in plan["methods"]:
+                        raise ApiError("METHOD_UNAVAILABLE", http=403)
+                    months = PLAN_MONTHS[body["plan_id"]][0]
+                    if _contract2(request):
+                        if context.account_id is None:
+                            raise ApiError("ACCESS_DENIED",http=403)
+                        amount, device_limit, product = await quote_product(connection,buyer,context.account_id,addon=False,selected=body.get("renew_extra_slot_ids",[]),months=months,base_amount_minor=plan["amount"]["amount_minor"])
+                        plan["amount"]["amount_minor"] = amount
+                listed = _plans(buyer)
+                expires = datetime.now(UTC) + QUOTE_LIFETIME
+                if addon:
+                    target = await active_paid(connection,context.account_id)
+                    expires = min(expires,target["ends_at"])
                 row = await connection.fetchrow(
                     """
                     INSERT INTO s5_payment_quotes
                         (installation_id,idempotency_key,request_digest,plan_id,months,duration_code,
-                         method,amount_minor,currency,tariff_key,plans_revision,expires_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                         method,amount_minor,currency,tariff_key,plans_revision,expires_at,product)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
                     ON CONFLICT (installation_id,idempotency_key) DO NOTHING RETURNING *
                     """,
                     context.installation_id, key, digest, body["plan_id"],
-                    PLAN_MONTHS[body["plan_id"]][0], body["duration_code"], body["method"],
+                    months, body["duration_code"], body["method"],
                     plan["amount"]["amount_minor"], plan["amount"]["currency"],
-                    settings.payment_tariff_key, _plans_revision(listed), datetime.now(UTC) + QUOTE_LIFETIME,
+                    buyer.payment_tariff_key, _plans_revision(listed), expires, json.dumps(product) if product else None,
                 )
                 if row is None:
                     row = await connection.fetchrow(
@@ -199,7 +304,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     )
                     if row["request_digest"] != digest:
                         raise ApiError("IDEMPOTENCY_CONFLICT", http=409)
-            return _envelope(_quote_view(row))
+            return _envelope(_quote_view(row,contract2=_contract2(request)))
         except AuthError as error:
             return _error_response(fallback, ApiError(error.code, http=error.http, retryable=error.retryable))
         except ApiError as error:
@@ -230,6 +335,11 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     context.installation_id,
                     key,
                 )
+                product = product_of(row)
+                if product and not _contract2(request):
+                    raise ApiError("BAD_MESSAGE",http=400)
+                if product and durable is None and (not context.binding or context.binding["status"] != "active" or product["owner_account_id"] != str(context.account_id)):
+                    raise ApiError("PAYMENT_NOT_FOUND",http=404)
                 if row["expires_at"] <= datetime.now(UTC) and durable is None:
                     raise ApiError("QUOTE_EXPIRED", http=409)
                 # Minimal quote->order wiring: create_order applies the C4 invariants (durable
@@ -241,7 +351,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                 try:
                     result = await create_order(
                         connection,
-                        settings,
+                        _quoted_settings(settings, context.account_id, row, durable=durable is not None),
                         app[PAYMENT_PROVIDER_KEY],
                         installation_id=context.installation_id,
                         months=int(row["months"]),
@@ -258,15 +368,15 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                         raise ApiError("SERVICE_UNAVAILABLE", http=503, retryable=True) from error
                     raise
                 full = await connection.fetchrow(
-                    "SELECT credited_entitlement_revision, needs_grant FROM payment_orders WHERE id=$1",
+                    "SELECT * FROM payment_orders WHERE id=$1",
                     uuid.UUID(result["payment"]["order_id"]),
                 )
-            return _envelope(_payment_view(
+            return _envelope(_with_product(_payment_view(
                 result["payment"],
                 credited_revision=full["credited_entitlement_revision"] if full else None,
                 needs_grant=bool(full["needs_grant"]) if full else False,
                 require_checkout=True,
-            ))
+            ),full,_contract2(request)))
         except AuthError as error:
             return _error_response(fallback, ApiError(error.code, http=error.http, retryable=error.retryable))
         except ApiError as error:
@@ -332,10 +442,10 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                 )
             if order is None:
                 raise ApiError("PAYMENT_NOT_FOUND", http=404)
-            return _envelope(_payment_view(
+            return _envelope(_with_product(_payment_view(
                 _order_view(order), credited_revision=order["credited_entitlement_revision"],
                 needs_grant=order["needs_grant"],
-            ))
+            ),order,_contract2(request)))
         except AuthError as error:
             return _error_response(fallback, ApiError(error.code, http=error.http, retryable=error.retryable))
         except ApiError as error:

@@ -22,6 +22,7 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -126,6 +127,12 @@ def _plan_from_quote(
 ) -> dict[str, Any]:
     """Plan snapshot sourced ONLY from a durable, installation-bound, unexpired quote that
     exactly matches the order parameters. Raises ORDER_CONFLICT on any mismatch."""
+    from .payment_products import product_of
+    product = product_of(quote) if quote is not None else None
+    if product and product["kind"] == "device_addon":
+        if months != 0 or quote["plan_id"] != "terlimo-extra-device" or quote["method"] != method or quote["expires_at"] <= datetime.now(UTC):
+            raise ApiError("ORDER_CONFLICT", http=409)
+        return {"plan_id":quote["plan_id"], "title":"Дополнительное устройство", "duration_code":quote["duration_code"], "tariff_key":quote["tariff_key"], "origin":"paid"}
     base = PLAN_SNAPSHOTS[months]
     if (
         quote is None
@@ -175,7 +182,7 @@ class PaymentProvider(Protocol):
     def capabilities(self) -> dict[str, bool]: ...
 
     async def create_payment(
-        self, *, amount: int, currency: str, months: int, order_ref: str, description: str,
+        self, *, amount: int | Decimal, currency: str, months: int, order_ref: str, description: str,
         method: str | None = None,
     ) -> ProviderPayment: ...
 
@@ -212,7 +219,7 @@ class PlategaHttpProvider:
         }
 
     async def create_payment(
-        self, *, amount: int, currency: str, months: int, order_ref: str, description: str,
+        self, *, amount: int | Decimal, currency: str, months: int, order_ref: str, description: str,
         method: str | None = None,
     ) -> ProviderPayment:
         methods = [m.strip().lower() for m in self._settings.platega_methods.split(",") if m.strip()]
@@ -313,7 +320,7 @@ def _quote_view(settings: Settings, months: int) -> dict[str, Any]:
     return {
         "months": months,
         "duration": _duration_spec(months),
-        "amount": amount,
+        "amount": _rub_json(amount) if amount is not None else None,
         "currency": settings.payment_currency,
         "tariff_key": settings.payment_tariff_key,
         "methods": methods,
@@ -362,7 +369,7 @@ def _order_view(order: asyncpg.Record) -> dict[str, Any]:
     return {
         "order_id": str(order["id"]),
         "status": order["status"],
-        "amount": int(order["amount"]),
+        "amount": _rub_json(order["amount"]),
         "currency": order["currency"],
         "months": int(order["months"]),
         "duration": _order_duration(order),
@@ -401,9 +408,19 @@ async def create_order(
     checkout_owner_account_id: Any = None,
     checkout_owner_binding_id: Any = None,
 ) -> dict[str, Any]:
-    if months not in SUPPORTED_MONTHS:
+    from .payment_products import product_of
+    commercial_quote = None
+    if quote_id is not None:
+        try:
+            commercial_quote = await connection.fetchrow("SELECT * FROM s5_payment_quotes WHERE id=$1 AND installation_id=$2",uuid.UUID(str(quote_id)),installation_id)
+        except (ValueError, AttributeError):
+            raise ApiError("BAD_MESSAGE", http=400) from None
+    product = product_of(commercial_quote) if commercial_quote else None
+    if product and product["owner_account_id"] != (str(checkout_owner_account_id) if checkout_owner_account_id else None):
+        raise ApiError("ORDER_CONFLICT",http=409)
+    if months not in SUPPORTED_MONTHS and not (months == 0 and product and product["kind"] == "device_addon"):
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "unsupported_period"})
-    amount = payment_amount(settings, months)
+    amount = Decimal(int(commercial_quote["amount_minor"])) / 100 if product else payment_amount(settings, months)
     if amount is None:
         raise ApiError("PAYMENT_PRICE_UNAVAILABLE", http=503, retryable=False)
     requested_method = method.strip().lower() if isinstance(method, str) and method.strip() else None
@@ -430,7 +447,9 @@ async def create_order(
     key = (idempotency_key or "").strip()
     if not key or len(key) > 128:
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "idempotency_key_required"})
-    quote = _quote_view(settings, months)
+    quote = _quote_view(settings, months) if months else {"months":0,"amount":_rub_json(amount),"currency":settings.payment_currency,"tariff_key":settings.payment_tariff_key,"duration":{"unit":"until","value":product["valid_until"]}}
+    if product:
+        quote["product"] = product
     if requested_public is not None:
         # Server-side method snapshot for this order; never a client-supplied dict.
         quote["method"] = requested_public
@@ -459,7 +478,7 @@ async def create_order(
                 raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "installation_mismatch"})
             if (
                 int(existing["months"]) != months
-                or int(existing["amount"]) != amount
+                or _exact_amount(existing["amount"]) != _exact_amount(amount)
                 or existing["currency"] != settings.payment_currency
                 or existing["tariff_key"] != settings.payment_tariff_key
             ):
@@ -518,6 +537,12 @@ async def create_order(
                     installation_id,
                 )
                 quote["plan"] = _plan_from_quote(proof, settings, months, requested_public)
+                if product:
+                    from .payment_products import validate_credit_target
+                    binding = await connection.fetchrow("SELECT id,account_id FROM account_bindings WHERE installation_id=$1 AND status='active'",installation_id)
+                    _, review = await validate_credit_target(connection,{"quote":quote,"checkout_owner_binding_id":checkout_owner_binding_id},binding,datetime.now(UTC))
+                    if review:
+                        raise ApiError("PAYMENT_STATE_INVALID",http=409)
             try:
                 order_id = await connection.fetchval(
                     """
@@ -532,7 +557,7 @@ async def create_order(
                     PAYMENT_PROVIDER_NAME,
                     key,
                     json.dumps(quote),
-                    amount,
+                    Decimal(str(amount)),
                     settings.payment_currency,
                     months,
                     settings.payment_tariff_key,
@@ -554,7 +579,7 @@ async def create_order(
                 currency=settings.payment_currency,
                 months=months,
                 order_ref=str(order_id),
-                description=f"TERLIMO {months}m",
+                description="TERLIMO +1 device" if months == 0 else f"TERLIMO {months}m",
                 method=requested_method,
             )
         except Exception:
@@ -614,11 +639,17 @@ async def apply_paid_entitlement(
             return None
         if order["applied_entitlement_id"] is not None:
             return order["applied_entitlement_id"]
+        if order["credit_review_reason"] is not None:
+            return None
         binding = await connection.fetchrow(
             "SELECT id, account_id FROM account_bindings WHERE installation_id = $1 AND status = 'active'",
             order["installation_id"],
         )
+        from .payment_products import order_product, validate_credit_target, paid_limit, renew_slots
+        product = order_product(order)
         if binding is None:
+            if product:
+                await connection.execute("UPDATE payment_orders SET credit_review_reason='owner_unbound' WHERE id=$1",order_id)
             return None
         account_id = binding["account_id"]
         from .mobile_account import BASE_LIMIT
@@ -631,7 +662,20 @@ async def apply_paid_entitlement(
             f"paid-account:{account_id}",
         )
 
-        existing = await connection.fetchrow(
+        now = datetime.now(UTC)
+        target, review = await validate_credit_target(connection, order, binding, now)
+        if review:
+            await connection.execute("UPDATE payment_orders SET credit_review_reason=$2 WHERE id=$1",order_id,review)
+            return None
+        if product and product["kind"] == "device_addon":
+            await connection.execute("INSERT INTO paid_extra_slots(entitlement_id,source_order_id,expires_at) VALUES ($1,$2,$3)",target["id"],order_id,target["ends_at"])
+            credited = await connection.fetchrow("UPDATE entitlements SET device_limit=$2,revision=revision+1 WHERE id=$1 RETURNING id,revision",target["id"],await paid_limit(connection,target,now))
+            receipt = {"valid_from":rfc3339(now),"valid_until":rfc3339(target["ends_at"]),"device_limit":await paid_limit(connection,target,now),"current_device_limit":await paid_limit(connection,target,now)}
+            await connection.execute("UPDATE payment_orders SET applied_entitlement_id=$2,account_id=$3,binding_id=$4,credited_entitlement_revision=$5,credited_product=$6::jsonb WHERE id=$1",order_id,credited["id"],account_id,binding["id"],credited["revision"],json.dumps(receipt))
+            enqueued = await _enqueue_paid_grant(connection,settings,order_id=order_id)
+            await connection.execute("UPDATE payment_orders SET needs_grant=$2 WHERE id=$1",order_id,not enqueued)
+            return credited["id"]
+        existing = target or await connection.fetchrow(
             """
             SELECT * FROM entitlements
             WHERE account_id = $1 AND kind = 'paid' AND status = 'active'
@@ -642,6 +686,8 @@ async def apply_paid_entitlement(
         )
         now = datetime.now(UTC)
         duration = _order_duration(order)
+        credit_start = now
+        credit_end = None
         if existing is not None:
             if existing["ends_at"] is None:
                 credited = await connection.fetchrow(
@@ -649,7 +695,11 @@ async def apply_paid_entitlement(
                     existing["id"],
                 )
             else:
-                new_end = paid_end(max(existing["ends_at"], now), duration)
+                credit_start = max(existing["ends_at"], now)
+                new_end = paid_end(credit_start, duration)
+                credit_end = new_end
+                await renew_slots(connection,order,existing["id"],new_end)
+                new_limit = await paid_limit(connection,existing,now)
                 plan = _order_plan(order)
                 # A NEW credited order replaces the active plan snapshot in the same revision; a
                 # replay of the same payment never reaches here (applied guard above), and an
@@ -658,13 +708,14 @@ async def apply_paid_entitlement(
                     """
                     UPDATE entitlements
                     SET ends_at = $2, revision = revision + 1,
-                        source_plan = $3::jsonb
+                        source_plan = $3::jsonb, device_limit = $4
                     WHERE id = $1
                     RETURNING id, revision
                     """,
                     existing["id"],
                     new_end,
                     plan,
+                    new_limit,
                 )
         else:
             plan = _order_plan(order)
@@ -684,11 +735,15 @@ async def apply_paid_entitlement(
                 plan,
             )
         entitlement_id = credited["id"]
+        if existing is None:
+            credit_end = paid_end(now,duration)
+        final_entitlement = await connection.fetchrow("SELECT * FROM entitlements WHERE id=$1",entitlement_id)
+        receipt = {"valid_from":rfc3339(credit_start),"valid_until":rfc3339(credit_end) if credit_end else None,"device_limit":2+len(product["renew_extra_slot_ids"]) if product else 2,"current_device_limit":await paid_limit(connection,final_entitlement,now)}
         await connection.execute(
             """
             UPDATE payment_orders
             SET applied_entitlement_id = $2, account_id = $3, binding_id = $4,
-                credited_entitlement_revision = $5, updated_at = now()
+                credited_entitlement_revision = $5, credited_product = $6::jsonb, updated_at = now()
             WHERE id = $1
             """,
             order_id,
@@ -696,6 +751,7 @@ async def apply_paid_entitlement(
             account_id,
             binding["id"],
             int(credited["revision"]),
+            json.dumps(receipt),
         )
         # Automatic paid access: enqueue the normal grant/outbox path for the bound account so a
         # paid webhook does not depend on a later client access.sync. Gateway unavailability is
@@ -733,13 +789,22 @@ async def apply_parked_payments(
 
 
 def _exact_amount(value: Any) -> int | None:
-    if type(value) is bool:
+    """Exact RUB minor units; reject bool, nonfinite and fractions of a kopeck."""
+    if type(value) is bool or not isinstance(value,(int,float,Decimal)):
         return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        return int(value)
-    return None
+    try:
+        amount = Decimal(str(value))
+        minor = amount*100
+        if not minor.is_finite() or minor <= 0 or minor != minor.to_integral_value():
+            return None
+        return int(minor)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _rub_json(value):
+    amount = Decimal(str(value))
+    return int(amount) if amount == amount.to_integral_value() else float(amount)
 
 
 def _event_status(raw: str | None) -> str:
@@ -790,7 +855,7 @@ async def record_webhook(
         PAYMENT_PROVIDER_NAME,
         str(event_id),
         kind,
-        int(amount) if isinstance(amount, (int, float)) else None,
+        Decimal(_exact_amount(amount))/100 if _exact_amount(amount) is not None else None,
         str(currency) if currency is not None else None,
         str(raw_status),
     )
@@ -803,14 +868,15 @@ async def record_webhook(
         )
         return {"result": "canceled"}
     # success: amount and currency are REQUIRED and must match the immutable snapshot exactly
-    # before any paid right. Fractional/non-finite amounts are never accepted.
+    # before any paid right. Fractions of a kopeck and non-finite amounts are never accepted.
     if type(amount) is bool or not isinstance(amount, (int, float)):
         return {"result": "amount_missing"}
-    if isinstance(amount, float) and (not math.isfinite(amount) or not amount.is_integer()):
+    paid_minor = _exact_amount(amount)
+    if paid_minor is None:
         return {"result": "amount_mismatch"}
     if not isinstance(currency, str) or not currency:
         return {"result": "currency_missing"}
-    if int(amount) != int(order["amount"]):
+    if paid_minor != _exact_amount(order["amount"]):
         return {"result": "amount_mismatch"}
     if currency.upper() != order["currency"].upper():
         return {"result": "currency_mismatch"}
@@ -850,8 +916,8 @@ async def reconcile_payments(
     rows = await connection.fetch(
         """
         SELECT * FROM payment_orders
-        WHERE (status = 'pending' AND provider_payment_id IS NOT NULL)
-           OR (status = 'succeeded' AND (applied_entitlement_id IS NULL OR needs_grant))
+        WHERE credit_review_reason IS NULL AND ((status = 'pending' AND provider_payment_id IS NOT NULL)
+           OR (status = 'succeeded' AND (applied_entitlement_id IS NULL OR needs_grant)))
         ORDER BY updated_at, id
         LIMIT $1
         """,
@@ -874,7 +940,7 @@ async def reconcile_payments(
                 if str(info.get("id") or "") != str(order["provider_payment_id"]):
                     continue
                 status_amount = _exact_amount(info.get("amount"))
-                if status_amount is None or status_amount != int(order["amount"]):
+                if status_amount is None or status_amount != _exact_amount(order["amount"]):
                     continue
                 if not isinstance(info.get("currency"), str) or info["currency"].upper() != order["currency"].upper():
                     continue
@@ -947,7 +1013,7 @@ async def _enqueue_paid_grant(
         # Savepoint: a failing grant/enqueue (including a SQL error) must not poison the
         # enclosing paid-apply transaction; the order stays durably needs_grant.
         async with connection.transaction():
-            await ensure_grant(
+            outcome = await ensure_grant(
                 connection,
                 binding_id=binding["id"],
                 gateway_id=gateway["id"],
@@ -956,7 +1022,7 @@ async def _enqueue_paid_grant(
             )
     except Exception:  # noqa: BLE001
         return False
-    return True
+    return outcome in ("enqueued", "unchanged", "pending")
 
 
 def register_payment_routes(
@@ -1034,6 +1100,10 @@ def register_payment_routes(
             return _error_response(fallback, error)
 
     async def _webhook(request: web.Request) -> web.Response:
+        if settings.platega_owner_routing_enabled:
+            from .payment_owner_routing import route_callback
+
+            return await route_callback(request, settings, database, record_webhook)
         try:
             body = await _json_body(request)
             if not isinstance(body, dict):

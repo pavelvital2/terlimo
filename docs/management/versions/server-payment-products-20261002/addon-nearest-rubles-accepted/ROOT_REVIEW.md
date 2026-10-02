@@ -1,0 +1,1 @@
+Accepted nearest RUB half-up source: integer formula exact; floor days/period cap/unchanged ends; zero-offer guard and frozen replay retained. 13 targeted checks read, no rerun. Canonical12pre/post SHA match; combined routing delta isolated to config/payments/new router. Combined13file hash manifest saved. No runtime apply yet.

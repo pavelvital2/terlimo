@@ -60,6 +60,7 @@ class SessionContext:
             not self.management_only
             and self.active_entitlement is not None
             and self.binding_status == "active"
+            and not self.metadata.get("device_capacity_exceeded",False)
         )
 
 
@@ -181,7 +182,12 @@ async def authenticate_session(
         )
         if effective:
             # Most recently created effective right wins; history stays untouched.
-            active_entitlement = effective[0]
+            active_entitlement = dict(effective[0])
+            from .payment_products import paid_limit
+            active_entitlement["device_limit"] = await paid_limit(connection,active_entitlement,now)
+            from .payment_products import binding_paid_capacity
+            capacity, _deadline = await binding_paid_capacity(connection,active_entitlement,binding["id"],now)
+            active_entitlement["device_capacity_exceeded"] = not capacity
             entitlement = active_entitlement
         elif commercial:
             entitlement = commercial[0]
@@ -226,4 +232,5 @@ async def authenticate_session(
         onboarding_hour=onboarding_hour,
         slots_used=int(slots_used),
         evaluated_at=now,
+        metadata={"device_capacity_exceeded":bool(active_entitlement and active_entitlement.get("device_capacity_exceeded",False))},
     )

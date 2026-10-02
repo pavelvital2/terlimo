@@ -104,7 +104,7 @@ async def ensure_grant(
                installation.public_key_fingerprint, installation.public_key_spki_b64,
                installation.state AS installation_state, installation.environment,
                entitlement.id AS entitlement_id, entitlement.status AS entitlement_status,
-               entitlement.starts_at, entitlement.ends_at, entitlement.kind,
+               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit,
                gateway.id AS gateway_id, gateway.gateway_key, gateway.registry_state,
                gateway.environment AS gateway_environment,
                gateway.endpoints AS gateway_endpoints,
@@ -162,7 +162,11 @@ async def ensure_grant(
     if row["ends_at"] is not None and row["ends_at"] <= now:
         return "no_entitlement"
 
-    not_after = _technical_not_after(row["ends_at"], now, max_lease_seconds)
+    from .payment_products import binding_paid_capacity
+    capacity, deadline = await binding_paid_capacity(connection,{"id":row["entitlement_id"],"account_id":row["account_id"],"kind":row["kind"],"ends_at":row["ends_at"],"device_limit":row["device_limit"]},binding_id,now)
+    if not capacity:
+        return "device_limit_reached"
+    not_after = _technical_not_after(deadline, now, max_lease_seconds)
     existing = await connection.fetchrow(
         "SELECT * FROM grants WHERE binding_id = $1 AND gateway_id = $2 FOR UPDATE",
         binding_id,
@@ -354,7 +358,7 @@ async def ensure_hour_grant(
                installation.public_key_fingerprint, installation.public_key_spki_b64,
                installation.state AS installation_state, installation.environment,
                entitlement.id AS entitlement_id, entitlement.status AS entitlement_status,
-               entitlement.starts_at, entitlement.ends_at, entitlement.kind,
+               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit,
                gateway.id AS gateway_id, gateway.gateway_key, gateway.registry_state,
                gateway.environment AS gateway_environment,
                gateway.endpoints AS gateway_endpoints,
@@ -790,6 +794,17 @@ class GatewayControlHandlers:
             return ("failed", "superseded_by_newer_generation")
         if not _hour_fence_ok(grant, payload):
             return ("failed", "superseded_by_newer_generation")
+
+        # A durable apply queued before an extra deadline must not extend it afterwards.
+        # Do not mutate operation bytes on retry: a changed deadline requires normal ensure_grant
+        # to enqueue a new generation, preserving the existing RPC idempotency boundary.
+        if grant["binding_id"] is not None:
+            from .payment_products import current_binding_paid_capacity
+            capacity, deadline = await current_binding_paid_capacity(connection,grant["binding_id"])
+            if not capacity:
+                return ("failed", "DEVICE_LIMIT_REACHED")
+            if deadline is not None and grant["not_after"] > deadline:
+                return ("failed", "commercial_deadline_changed")
 
         endpoints = grant["endpoints"]
         if isinstance(endpoints, str):

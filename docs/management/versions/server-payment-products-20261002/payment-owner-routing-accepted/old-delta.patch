@@ -1,0 +1,81 @@
+diff --git a/backend/bot/app/web/web_server.py b/backend/bot/app/web/web_server.py
+index 38cdcc1..774fe35 100644
+--- a/backend/bot/app/web/web_server.py
++++ b/backend/bot/app/web/web_server.py
+@@ -211,6 +211,11 @@ async def build_and_start_web_app(
+             continue
+         registered_webhook_paths.add(path)
+         app.router.add_post(path, webhook_route)
++        if spec.service_key == "platega_service":
++            from bot.payment_providers.platega.service import platega_ownership_route
++
++            app.router.add_get("/internal/platega/ownership", platega_ownership_route)
++
+         logger.info("%s webhook route configured at: [POST] %s", spec.label, path)
+ 
+     panel_path = settings.panel_webhook_path
+diff --git a/backend/bot/payment_providers/platega/config.py b/backend/bot/payment_providers/platega/config.py
+index daa24fa..d297ca8 100644
+--- a/backend/bot/payment_providers/platega/config.py
++++ b/backend/bot/payment_providers/platega/config.py
+@@ -19,6 +19,7 @@ class PlategaConfig(ProviderEnvConfig):
+         extra="ignore",
+     )
+ 
++    OWNERSHIP_LOOKUP_ENABLED: bool = Field(default=False)
+     ENABLED: bool = Field(default=False)
+     CREATE_ENABLED: bool = Field(default=True)
+     BASE_URL: str = Field(default="https://app.platega.io")
+diff --git a/backend/bot/payment_providers/platega/service.py b/backend/bot/payment_providers/platega/service.py
+index 9dbe9d4..5e497d9 100644
+--- a/backend/bot/payment_providers/platega/service.py
++++ b/backend/bot/payment_providers/platega/service.py
+@@ -1,3 +1,4 @@
++import asyncio
+ import json
+ import logging
+ from typing import TYPE_CHECKING, Any
+@@ -306,6 +307,31 @@ class PlategaService(HttpClientMixin, PlategaSubscriptionMixin):
+             return None
+         return payment_url
+ 
++    async def ownership_route(self, request: web.Request) -> web.Response:
++        """Internal read-only lookup; merchant authentication, no payment side effects."""
++        if not self.config.OWNERSHIP_LOOKUP_ENABLED:
++            return web.json_response({"ok": False}, status=404)
++        if not self.configured:
++            return web.json_response({"ok": False}, status=503)
++        if not (
++            constant_time_compare(request.headers.get("X-MerchantId"), self.merchant_id)
++            and constant_time_compare(request.headers.get("X-Secret"), self.secret)
++        ):
++            return web.json_response({"ok": False}, status=403)
++        transaction_id = request.query.get("transaction_id", "")
++        if not isinstance(transaction_id, str) or not transaction_id.strip() or len(transaction_id) > 1024:
++            return web.json_response({"ok": False}, status=400)
++        try:
++            async with asyncio.timeout(3), self.async_session_factory() as session:
++                payment = await payment_dal.get_payment_by_provider_payment_id(
++                    session, "platega", transaction_id
++                )
++                found = payment is not None
++        except Exception:
++            # Never expose DB exceptions, identifiers or merchant headers.
++            return web.json_response({"ok": False}, status=503)
++        return web.json_response({"ok": True, "found": found})
++
+     async def webhook_route(self, request: web.Request) -> web.Response:
+         if not self.configured:
+             return web.Response(status=503, text="platega_disabled")
+@@ -463,6 +489,11 @@ async def platega_webhook_route(request: web.Request) -> web.Response:
+     return await service.webhook_route(request)
+ 
+ 
++async def platega_ownership_route(request: web.Request) -> web.Response:
++    service: PlategaService = app_required(request, "platega_service", PlategaService)
++    return await service.ownership_route(request)
++
++
+ router = Router(name="user_subscription_payments_platega_router")
+ 
+ 

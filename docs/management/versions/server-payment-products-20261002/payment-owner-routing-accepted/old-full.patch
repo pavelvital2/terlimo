@@ -1,0 +1,444 @@
+diff --git a/backend/bot/app/web/web_server.py b/backend/bot/app/web/web_server.py
+index 38cdcc1..774fe35 100644
+--- a/backend/bot/app/web/web_server.py
++++ b/backend/bot/app/web/web_server.py
+@@ -211,6 +211,11 @@ async def build_and_start_web_app(
+             continue
+         registered_webhook_paths.add(path)
+         app.router.add_post(path, webhook_route)
++        if spec.service_key == "platega_service":
++            from bot.payment_providers.platega.service import platega_ownership_route
++
++            app.router.add_get("/internal/platega/ownership", platega_ownership_route)
++
+         logger.info("%s webhook route configured at: [POST] %s", spec.label, path)
+ 
+     panel_path = settings.panel_webhook_path
+diff --git a/backend/bot/app/web/webapp/billing_payments.py b/backend/bot/app/web/webapp/billing_payments.py
+index cd77452..c8eda40 100644
+--- a/backend/bot/app/web/webapp/billing_payments.py
++++ b/backend/bot/app/web/webapp/billing_payments.py
+@@ -912,6 +912,21 @@ async def _create_subscription_payment(
+             )
+             if reusable_response is not None:
+                 return reusable_response
++        if provider_spec.service_key == "platega":
++            from bot.payment_providers.platega.service import PlategaService
++            from bot.payment_providers.shared.app_context import app_optional
++
++            service = app_optional(request, "platega_service", PlategaService)
++            if service is not None and not service.create_enabled:
++                if provider_spec.reuse_webapp_payment and not (
++                    requested_promo_code or promo_code_id is not None or use_partner_balance
++                ):
++                    reusable_response = await reuse_checkout_if_available(
++                        payment_context, provider_spec
++                    )
++                    if reusable_response is not None:
++                        return reusable_response
++                return _json_error(400, "payment_unavailable", "Payment method unavailable")
+         if promo_result is None and requested_promo_code:
+             promo_result, promo_error = await _resolve_checkout_promo(
+                 session=session,
+diff --git a/backend/bot/payment_providers/platega/config.py b/backend/bot/payment_providers/platega/config.py
+index 83262ba..d297ca8 100644
+--- a/backend/bot/payment_providers/platega/config.py
++++ b/backend/bot/payment_providers/platega/config.py
+@@ -19,7 +19,9 @@ class PlategaConfig(ProviderEnvConfig):
+         extra="ignore",
+     )
+ 
++    OWNERSHIP_LOOKUP_ENABLED: bool = Field(default=False)
+     ENABLED: bool = Field(default=False)
++    CREATE_ENABLED: bool = Field(default=True)
+     BASE_URL: str = Field(default="https://app.platega.io")
+     MERCHANT_ID: str | None = None
+     SECRET: str | None = None
+diff --git a/backend/bot/payment_providers/platega/service.py b/backend/bot/payment_providers/platega/service.py
+index 5ad0a6e..5e497d9 100644
+--- a/backend/bot/payment_providers/platega/service.py
++++ b/backend/bot/payment_providers/platega/service.py
+@@ -1,3 +1,4 @@
++import asyncio
+ import json
+ import logging
+ from typing import TYPE_CHECKING, Any
+@@ -124,6 +125,10 @@ class PlategaService(HttpClientMixin, PlategaSubscriptionMixin):
+             and self.secret
+         )
+ 
++    @property
++    def create_enabled(self) -> bool:
++        return self.config.CREATE_ENABLED
++
+     @property
+     def base_url(self) -> str:
+         return (self.config.BASE_URL or "https://app.platega.io").rstrip("/")
+@@ -179,6 +184,8 @@ class PlategaService(HttpClientMixin, PlategaSubscriptionMixin):
+         interval: int | None = None,
+         allow_method_selection: bool = False,
+     ) -> tuple[bool, dict[str, Any]]:
++        if not self.create_enabled:
++            return False, {"message": "creation_disabled"}
+         if not self.configured:
+             logger.error("PlategaService is not configured. Cannot create transaction.")
+             return False, {"message": "service_not_configured"}
+@@ -300,6 +307,31 @@ class PlategaService(HttpClientMixin, PlategaSubscriptionMixin):
+             return None
+         return payment_url
+ 
++    async def ownership_route(self, request: web.Request) -> web.Response:
++        """Internal read-only lookup; merchant authentication, no payment side effects."""
++        if not self.config.OWNERSHIP_LOOKUP_ENABLED:
++            return web.json_response({"ok": False}, status=404)
++        if not self.configured:
++            return web.json_response({"ok": False}, status=503)
++        if not (
++            constant_time_compare(request.headers.get("X-MerchantId"), self.merchant_id)
++            and constant_time_compare(request.headers.get("X-Secret"), self.secret)
++        ):
++            return web.json_response({"ok": False}, status=403)
++        transaction_id = request.query.get("transaction_id", "")
++        if not isinstance(transaction_id, str) or not transaction_id.strip() or len(transaction_id) > 1024:
++            return web.json_response({"ok": False}, status=400)
++        try:
++            async with asyncio.timeout(3), self.async_session_factory() as session:
++                payment = await payment_dal.get_payment_by_provider_payment_id(
++                    session, "platega", transaction_id
++                )
++                found = payment is not None
++        except Exception:
++            # Never expose DB exceptions, identifiers or merchant headers.
++            return web.json_response({"ok": False}, status=503)
++        return web.json_response({"ok": True, "found": found})
++
+     async def webhook_route(self, request: web.Request) -> web.Response:
+         if not self.configured:
+             return web.Response(status=503, text="platega_disabled")
+@@ -457,6 +489,11 @@ async def platega_webhook_route(request: web.Request) -> web.Response:
+     return await service.webhook_route(request)
+ 
+ 
++async def platega_ownership_route(request: web.Request) -> web.Response:
++    service: PlategaService = app_required(request, "platega_service", PlategaService)
++    return await service.ownership_route(request)
++
++
+ router = Router(name="user_subscription_payments_platega_router")
+ 
+ 
+@@ -913,6 +950,7 @@ def _one_off_descriptor(
+         service_app_key="platega_service",
+         service_type=PlategaService,
+         create=_create_payment,
++        create_allowed=lambda service: service.create_enabled,
+         reuse=lambda service, payment: service.try_reuse_pending_transaction(
+             payment,
+             user_id=getattr(payment, "user_id", 0),
+@@ -942,6 +980,7 @@ _SUBSCRIPTION_DESCRIPTOR: LinkPaymentDescriptor[PlategaService] = LinkPaymentDes
+     service_app_key="platega_service",
+     service_type=PlategaService,
+     create=_create_payment,
++    create_allowed=lambda service: service.create_enabled,
+     reuse=lambda service, payment: service.try_reuse_pending_subscription(payment),
+     reuse_with_context=_reuse_payment_with_context,
+     extract_url=_extract_payment_url,
+diff --git a/backend/bot/payment_providers/platega/subscriptions.py b/backend/bot/payment_providers/platega/subscriptions.py
+index 5a5f5b0..37fd164 100644
+--- a/backend/bot/payment_providers/platega/subscriptions.py
++++ b/backend/bot/payment_providers/platega/subscriptions.py
+@@ -228,6 +228,8 @@ class PlategaSubscriptionMixin(PlategaSubscriptionRuntime):
+         months: Any,
+         payload: str | None = None,
+     ) -> tuple[bool, dict[str, Any]]:
++        if not getattr(self.config, "CREATE_ENABLED", True):
++            return False, {"message": "creation_disabled"}
+         interval = subscription_interval_for_months(months)
+         if interval is None:
+             logger.error("Platega subscription: no interval for %s months", months)
+diff --git a/backend/bot/payment_providers/shared/link_flow.py b/backend/bot/payment_providers/shared/link_flow.py
+index 62b27d3..d380972 100644
+--- a/backend/bot/payment_providers/shared/link_flow.py
++++ b/backend/bot/payment_providers/shared/link_flow.py
+@@ -120,6 +120,7 @@ class LinkPaymentDescriptor[ServiceT: LinkFlowService]:
+     reuse: Callable[[ServiceT, Any], Awaitable[str | None]]
+     extract_url: Callable[[dict], str | None]
+     extract_provider_id: Callable[[dict], str | None]
++    create_allowed: Callable[[ServiceT], bool] | None = None
+     callback_currency: Callable[[ServiceT, Settings], str] | None = None
+     callback_payment_allowed: Callable[[ServiceT, Settings, int, Any, str], bool] | None = None
+     callback_lead_text: (
+@@ -324,6 +325,10 @@ async def run_callback_payment[ServiceT: LinkFlowService](
+             )
+             return
+ 
++    if descriptor.create_allowed is not None and not descriptor.create_allowed(service):
++        await notify_service_unavailable(callback, translator)
++        return
++
+     try:
+         payment_record = await payment_dal.create_payment_record(session, record_payload)
+         await session.commit()
+@@ -393,6 +398,9 @@ async def run_webapp_payment[ServiceT: LinkFlowService](
+     if not service or not _webapp_service_available(descriptor, service):
+         return payment_unavailable()
+ 
++    if descriptor.create_allowed is not None and not descriptor.create_allowed(service):
++        return payment_unavailable()
++
+     currency = _resolve_webapp_currency(descriptor, ctx, settings, service)
+     provider_context = (
+         descriptor.webapp_context(ctx) if descriptor.webapp_context is not None else None
+diff --git a/production-base-hashes.json b/production-base-hashes.json
+new file mode 100644
+index 0000000..a47f61b
+--- /dev/null
++++ b/production-base-hashes.json
+@@ -0,0 +1,8 @@
++{
++  "backend/bot/payment_providers/platega/config.py": "fe3ca65b70f7e2628a4e79bf3e179c648d32d582f527577df77e591cc0caddb7",
++  "backend/bot/payment_providers/platega/manifest.py": "3938afffbab67572437f279aa18dedb03fd756f3e48e088157ba069a50682c3a",
++  "backend/bot/payment_providers/platega/service.py": "9c9897107c353ac3e7b3ffe6298de0f7a91fbc856eddd0b5b38e7a220eb2766f",
++  "backend/bot/payment_providers/platega/subscriptions.py": "c58ed4ccace8c86aa1c52915f10c74d36e46bd700eca29fbb2ff5f5d32517536",
++  "backend/bot/payment_providers/shared/link_flow.py": "ba36499f14bdcd2f6439368ef9e7cf3350876bc839ba4534812906b85a07eaef",
++  "backend/bot/app/web/webapp/billing_payments.py": "7e87e4c292e38f2e5bdca41a6285fae246a8e054c033254588fac9eae40f89c6"
++}
+diff --git a/review/ROLLBACK.md b/review/ROLLBACK.md
+new file mode 100644
+index 0000000..0f358a0
+--- /dev/null
++++ b/review/ROLLBACK.md
+@@ -0,0 +1,7 @@
++# Source-only apply / rollback package
++Base exact production image downloads-56fc79f / local commit56fc79fb554e97dc89ae88688a1ca79369136d7a. Each changed file preimage is in manifest. No deploy performed.
++Before future apply, verify exact preimage hashes, protect old image/env backup and current order aggregate. Apply only reviewed 5-file source patch in a build checkout; no migrations, Caddy, dispatcher, WDTT or adapter changes. Build/release remains root responsibility.
++PLATEGA_CREATE_ENABLED defaults true; set false in actual backend environment for cutover, preserve PLATEGA_ENABLED=true and merchant/auth config. Existing process config needs controlled backend rollout; no production action authorized by this package. Hide-only per-button flags are optional separate UI delta; turning them off also makes cached handler reuse inaccessible, so they are deliberately NOT part of required env delta. Gate false already prevents new records/POST on cached Telegram/WebApp requests.
++After runtime acceptance, creation is closed while existing status/callback/reconciliation/reuse continue. No old payment row deletion or status rewrite.
++Rollback of the feature: restore PLATEGA_CREATE_ENABLED=true/default and reviewed old image/source/env only when root explicitly chooses to reopen old purchases; preserve all existing/new owner order routing and transaction IDs. Do not restore callback topology blindly. A broken creation release can stay false while source is corrected; callback/VPN must stay operational. Unknown expired-trial→paid defect in old wdtt_direct.py remains unchanged, not transplanted into new TEST.
++Checks: python3 review/test_create_gate_offline.py executes real AST-extracted source functions, fake DB/provider IO. 12 unittest cases + 5 outer WebApp subcases; no sockets. Syntax/diff and unchanged AST proof. Full dependency-import pytest/mypy/frontend gates not run: local aiogram/sqlalchemy dependency environment missing; offline uv cache insufficient. No package downloads/provider/network calls made. The scoped test is not a full production/framework integration claim.
+diff --git a/review/env-delta.env b/review/env-delta.env
+new file mode 100644
+index 0000000..1b8d743
+--- /dev/null
++++ b/review/env-delta.env
+@@ -0,0 +1,3 @@
++# Creation only. Leave PLATEGA_ENABLED and merchant auth unchanged.
++PLATEGA_CREATE_ENABLED=false
++# Optional UI-only hide is omitted to preserve discoverability of old reuse.
+diff --git a/review/manifest.json b/review/manifest.json
+new file mode 100644
+index 0000000..db792e8
+--- /dev/null
++++ b/review/manifest.json
+@@ -0,0 +1,43 @@
++{
++  "base_commit": "56fc79fb554e97dc89ae88688a1ca79369136d7a",
++  "base_image": "localhost/terlimo-minishop-backend:downloads-56fc79f",
++  "runtime_preimages": {
++    "backend/bot/payment_providers/platega/config.py": "fe3ca65b70f7e2628a4e79bf3e179c648d32d582f527577df77e591cc0caddb7",
++    "backend/bot/payment_providers/platega/manifest.py": "3938afffbab67572437f279aa18dedb03fd756f3e48e088157ba069a50682c3a",
++    "backend/bot/payment_providers/platega/service.py": "9c9897107c353ac3e7b3ffe6298de0f7a91fbc856eddd0b5b38e7a220eb2766f",
++    "backend/bot/payment_providers/platega/subscriptions.py": "c58ed4ccace8c86aa1c52915f10c74d36e46bd700eca29fbb2ff5f5d32517536",
++    "backend/bot/payment_providers/shared/link_flow.py": "ba36499f14bdcd2f6439368ef9e7cf3350876bc839ba4534812906b85a07eaef",
++    "backend/bot/app/web/webapp/billing_payments.py": "7e87e4c292e38f2e5bdca41a6285fae246a8e054c033254588fac9eae40f89c6"
++  },
++  "changed_files": {
++    "backend/bot/app/web/webapp/billing_payments.py": {
++      "before_sha256": "7e87e4c292e38f2e5bdca41a6285fae246a8e054c033254588fac9eae40f89c6",
++      "after_sha256": "96062b99de4c88618a4bc47943cd9be8c76ba2aa7920d08a9ad9aa1badb14be3"
++    },
++    "backend/bot/payment_providers/platega/config.py": {
++      "before_sha256": "fe3ca65b70f7e2628a4e79bf3e179c648d32d582f527577df77e591cc0caddb7",
++      "after_sha256": "692ccf8df79b9f05069fc07f182c18fa9a59db277f8ccac8ae7bb98968da47e5"
++    },
++    "backend/bot/payment_providers/platega/service.py": {
++      "before_sha256": "9c9897107c353ac3e7b3ffe6298de0f7a91fbc856eddd0b5b38e7a220eb2766f",
++      "after_sha256": "d22e6643d6c46e1154397b58c9dbec34ef170f44d8980b664912baacf56ee1a7"
++    },
++    "backend/bot/payment_providers/platega/subscriptions.py": {
++      "before_sha256": "c58ed4ccace8c86aa1c52915f10c74d36e46bd700eca29fbb2ff5f5d32517536",
++      "after_sha256": "9a5d9ee8e06b4fc370c76e229bb0601e686933ada5c3a5f9f0249564b422c921"
++    },
++    "backend/bot/payment_providers/shared/link_flow.py": {
++      "before_sha256": "ba36499f14bdcd2f6439368ef9e7cf3350876bc839ba4534812906b85a07eaef",
++      "after_sha256": "215f017bfd673773356115a2502c1918a471afc35cb8606d649119d0c474742f"
++    }
++  },
++  "tests": "12 PASS / real source AST execution with fake IO / 5 outer WebApp subcases",
++  "unmodified_methods": [
++    "configured",
++    "get_transaction",
++    "webhook_route",
++    "try_reuse_pending_transaction"
++  ],
++  "deployment": "NOT_RUN",
++  "known_old_expired_trial_paid_bug": "UNCHANGED"
++}
+diff --git a/review/test_create_gate_offline.py b/review/test_create_gate_offline.py
+new file mode 100644
+index 0000000..fd62767
+--- /dev/null
++++ b/review/test_create_gate_offline.py
+@@ -0,0 +1,162 @@
++"""Execute actual source functions with fake IO, without third-party imports."""
++import ast
++import asyncio
++import copy
++import logging
++import unittest
++from pathlib import Path
++from types import SimpleNamespace as NS
++from unittest.mock import AsyncMock
++
++ROOT = Path(__file__).resolve().parents[1] / 'backend/bot/payment_providers'
++
++
++def load(path, name, env, owner=None):
++    tree = ast.parse((ROOT / path).read_text())
++    nodes = tree.body
++    if owner:
++        nodes = next(n.body for n in nodes if isinstance(n, ast.ClassDef) and n.name == owner)
++    n = copy.deepcopy(next(n for n in nodes if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name))
++    n.decorator_list = []
++    module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0), n], type_ignores=[])
++    exec(compile(ast.fix_missing_locations(module), str(ROOT/path), 'exec'), env)
++    return env[name]
++
++
++def call(fn, *a, **kw):
++    return asyncio.run(fn(*a, **kw))
++
++
++class GateTests(unittest.TestCase):
++    def transport(self, enabled):
++        post = AsyncMock(return_value=(True, {'transactionId': 'fake'}))
++        env = {'logger': logging.getLogger('offline'), 'normalize_payment_currency_code': lambda x: x, 'parse_supported_currency_codes': lambda x: (), 'post_json_request': post}
++        fn = load('platega/service.py', 'create_transaction', env, 'PlategaService')
++        svc = NS(create_enabled=enabled, configured=True, settings=NS(DEFAULT_CURRENCY_SYMBOL='RUB'), config=NS(SUPPORTED_CURRENCIES='RUB'), _get_session=AsyncMock(return_value=object()), base_url='offline', return_url='offline/return', failed_url='offline/failed', payment_method=2, _auth_headers={})
++        return fn, svc, post
++
++    def test_direct_false_zero_post_and_session(self):
++        fn, svc, post = self.transport(False)
++        for method in [2, 11, 13, None]:
++            self.assertEqual(call(fn, svc, amount=10, currency='RUB', description='offline', payment_method=method, allow_method_selection=method is None), (False, {'message': 'creation_disabled'}))
++        post.assert_not_awaited()
++        svc._get_session.assert_not_awaited()
++
++    def test_true_compatible_post(self):
++        fn, svc, post = self.transport(True)
++        self.assertTrue(call(fn, svc, amount=10, currency='RUB', description='offline')[0])
++        self.assertEqual(post.await_args.kwargs['body']['paymentMethod'], 2)
++        post.assert_awaited_once()
++
++    def test_recurring_false_zero_create(self):
++        svc = NS(config=NS(CREATE_ENABLED=False), create_transaction=AsyncMock())
++        fn = load('platega/subscriptions.py', 'create_subscription', {'subscription_interval_for_months': lambda x: 1, 'logger': logging.getLogger('offline')}, 'PlategaSubscriptionMixin')
++        self.assertEqual(call(fn, svc, amount=10, currency='RUB', description='offline', months=1), (False, {'message': 'creation_disabled'}))
++        svc.create_transaction.assert_not_awaited()
++
++    def engine(self, reuse=False, enabled=False):
++        dal = NS(find_recent_pending_provider_payment=AsyncMock(return_value=NS(payment_id=7) if reuse else None), create_payment_record=AsyncMock(return_value=NS(payment_id=8)))
++        parts = NS(price=10, months=1, sale_mode='subscription', entitlement_context_snapshot='snapshot')
++        svc = NS(configured=True, create_enabled=enabled, subscription_service=object())
++        desc = NS(spec=NS(is_available_to_user=lambda *a, **k: True, callback_prefix='pay'), display_name='Platega', provider_key='platega', pending_status='pending_platega', callback_payment_allowed=None, callback_context=None, callback_reuse_enabled=True, callback_reuse_since_minutes=None, callback_reuse_answer=False, create_allowed=lambda s: s.create_enabled, create=AsyncMock(return_value=(True, {})), callback_before_create=None, checkout_ttl_seconds=None, callback_lead_text=None, extract_url=lambda r: None, extract_provider_id=lambda r: None, log_prefix='offline', service_app_key='platega_service', service_type=object, webapp_context=None)
++        env = {'logger': logging.getLogger('offline'), 'make_translator': lambda *a: lambda *a, **k: '', 'parse_payment_callback': lambda x: parts, 'quote_hwid_callback_parts': AsyncMock(return_value=(parts, None)), 'default_currency_key_for_settings': lambda s: 'RUB', '_resolve_callback_currency': lambda *a: 'RUB', 'describe_payment': lambda *a: 'offline', 'build_payment_record_payload': lambda **k: {}, 'payment_record_amounts': lambda **k: NS(months=1, purchased_gb=None, purchased_hwid_devices=None, tariff_key=None), 'payment_dal': dal, 'detached_payment_snapshot': lambda p: p, '_reuse_payment': AsyncMock(return_value='https://offline/existing' if reuse else None), 'notify_service_unavailable': AsyncMock(), 'render_payment_link': AsyncMock(), 'CreatePaymentRequest': lambda **k: NS(**k), 'resolve_checkout_expiration': lambda *a, **k: None, 'render_link_or_fail': AsyncMock(), 'app_required': lambda req, key, typ: svc if key == 'platega_service' else NS(), 'Settings': object, '_webapp_service_available': lambda *a: True, 'payment_unavailable': lambda: 'unavailable', 'create_webapp_payment_record': AsyncMock()}
++        cb = NS(from_user=NS(id=1), message=object(), data='cached')
++        args = (desc, cb, NS(DEFAULT_LANGUAGE='en'), {'i18n_instance': object()}, svc, NS(commit=AsyncMock(), rollback=AsyncMock()))
++        return env, desc, args
++
++    def test_cached_callback_false_zero_newrows(self):
++        env, desc, args = self.engine()
++        call(load('shared/link_flow.py', 'run_callback_payment', env), *args)
++        env['payment_dal'].create_payment_record.assert_not_awaited()
++        desc.create.assert_not_awaited()
++        env['notify_service_unavailable'].assert_awaited_once()
++
++    def test_existing_callback_reuse_survives_false(self):
++        env, desc, args = self.engine(reuse=True)
++        call(load('shared/link_flow.py', 'run_callback_payment', env), *args)
++        env['render_payment_link'].assert_awaited_once()
++        env['payment_dal'].create_payment_record.assert_not_awaited()
++        desc.create.assert_not_awaited()
++
++    def test_callback_true_still_creates(self):
++        env, desc, args = self.engine(enabled=True)
++        call(load('shared/link_flow.py', 'run_callback_payment', env), *args)
++        env['payment_dal'].create_payment_record.assert_awaited_once()
++        desc.create.assert_awaited_once()
++
++    def test_webapp_false_zero_newrows(self):
++        env, desc, _ = self.engine()
++        result = call(load('shared/link_flow.py', 'run_webapp_payment', env), desc, NS(request=object()))
++        self.assertEqual(result, 'unavailable')
++        env['create_webapp_payment_record'].assert_not_awaited()
++        desc.create.assert_not_awaited()
++
++    def test_existing_webapp_reuse_survives_false(self):
++        env, desc, _ = self.engine(reuse=True)
++        env['app_optional'] = lambda *a: NS(configured=True, create_enabled=False)
++        result = call(load('shared/link_flow.py', 'run_reuse_webapp_payment', env), desc, NS(request=object()), NS(payment_id=7))
++        self.assertEqual(result, 'https://offline/existing')
++        env['create_webapp_payment_record'].assert_not_awaited()
++
++    def test_existing_status_survives_false(self):
++        class Response:
++            status = 200
++            async def __aenter__(self): return self
++            async def __aexit__(self, *a): pass
++            async def json(self, **kw): return {'status': 'PENDING'}
++        seen = []
++        session = NS(get=lambda *a, **kw: (seen.append(a[0]) or Response()))
++        svc = NS(configured=True, create_enabled=False, _get_session=AsyncMock(return_value=session), base_url='offline', _auth_headers={})
++        result = call(load('platega/service.py', 'get_transaction', {'logger': logging.getLogger('offline')}, 'PlategaService'), svc, 'existing')
++        self.assertEqual(result, (True, {'status': 'PENDING'}))
++        self.assertEqual(seen, ['offline/transaction/existing'])
++
++    def test_existing_duplicate_callback_survives_false(self):
++        class Session:
++            async def __aenter__(self): return self
++            async def __aexit__(self, *a): pass
++        env = {'web': NS(Response=lambda **kw: NS(**kw)), 'logger': logging.getLogger('offline'), 'constant_time_compare': lambda a,b: a == b, 'callback_value': lambda d,k: d.get(k), 'SUBSCRIPTION_STATUSES': (), 'payment_dal': NS(get_payment_by_provider_payment_id=AsyncMock(return_value=NS(status='succeeded')))}
++        svc = NS(configured=True, create_enabled=False, merchant_id='fake', secret='fake', async_session_factory=Session)
++        req = NS(read=AsyncMock(return_value=b'offline'), json=AsyncMock(return_value={'id':'existing','status':'CONFIRMED'}), headers={'X-MerchantId':'fake','X-Secret':'fake'})
++        result = call(load('platega/service.py', 'webhook_route', env, 'PlategaService'), svc, req)
++        self.assertEqual(result.text, 'ok')
++        env['payment_dal'].get_payment_by_provider_payment_id.assert_awaited_once()
++
++    def test_outer_webapp_blocks_partner_and_promo_before_ledger(self):
++        import sys
++        from unittest.mock import patch
++        spec = NS(service_key='platega', create_webapp_payment=AsyncMock(), reuse_webapp_payment=True, is_visible_for_user=lambda *a, **k: True, is_usable_for_payment_currency=lambda *a: True, is_usable_for_payment_context=lambda *a: True)
++        modules = {
++            'bot.payment_providers': NS(get_provider_spec=lambda method: spec),
++            'bot.payment_providers.platega.service': NS(PlategaService=object),
++            'bot.payment_providers.shared.app_context': NS(app_optional=lambda *a: NS(create_enabled=False)),
++        }
++        for partner, promo, reused in [(False, None, None), (True, None, None), (False, 'promo', None), (False, None, 'old-url'), (True, 'promo', 'old-url')]:
++            with self.subTest(partner=partner, promo=promo, reused=reused):
++                env = {'get_settings': lambda req: NS(MIGRATION_REMNASHOP_PROMO_CODE_COMPAT_ENABLED=False), 'default_payment_currency_code_for_settings': lambda s: 'RUB', '_sale_mode_base': lambda x: 'traffic', '_localized_payment_description': lambda **k: 'offline', 'get_i18n': lambda r: object(), 'WebAppPaymentContext': lambda **k: NS(**k), 'reuse_checkout_if_available': AsyncMock(return_value=reused), '_json_error': lambda *a: a, '_resolve_checkout_promo': AsyncMock(), 'allocate_partner_checkout_balance': AsyncMock(), 'create_fully_partner_funded_payment': AsyncMock()}
++                fn = load('../app/web/webapp/billing_payments.py', '_create_subscription_payment', env)
++                with patch.dict(sys.modules, modules):
++                    result = call(fn, request=NS(app={}), session=object(), user_id=1, method='platega_sbp', months=1, price=10, stars_price=None, lang='en', sale_mode='traffic', entitlement_context_snapshot='snapshot', use_partner_balance=partner, promo_code=promo)
++                self.assertEqual(result, reused if reused else (400, 'payment_unavailable', 'Payment method unavailable'))
++                env['_resolve_checkout_promo'].assert_not_awaited()
++                env['allocate_partner_checkout_balance'].assert_not_awaited()
++                env['create_fully_partner_funded_payment'].assert_not_awaited()
++                spec.create_webapp_payment.assert_not_awaited()
++
++    def test_registration_all_variants_and_default_true(self):
++        tree = ast.parse((ROOT/'platega/service.py').read_text())
++        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'LinkPaymentDescriptor']
++        self.assertEqual(len(calls), 2)
++        for n in calls:
++            guards = [k.value for k in n.keywords if k.arg == 'create_allowed']
++            self.assertEqual(len(guards), 1)
++            fn = eval(compile(ast.Expression(guards[0]), 'guard', 'eval'))
++            self.assertFalse(fn(NS(create_enabled=False)))
++            self.assertTrue(fn(NS(create_enabled=True)))
++        config = ast.parse((ROOT/'platega/config.py').read_text())
++        field = next(n for n in ast.walk(config) if isinstance(n, ast.AnnAssign) and getattr(n.target,'id','') == 'CREATE_ENABLED')
++        self.assertTrue(next(k.value.value for k in field.value.keywords if k.arg == 'default'))
++
++
++if __name__ == '__main__':
++    unittest.main(verbosity=2)

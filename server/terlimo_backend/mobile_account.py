@@ -55,7 +55,7 @@ async def effective_device_limit(connection, account_id, *, now: datetime | None
     now = now or datetime.now(UTC)
     rows = await connection.fetch(
         """
-        SELECT device_limit, starts_at, ends_at, status FROM entitlements
+        SELECT * FROM entitlements
         WHERE account_id = $1 AND kind IN ('trial','paid','imported')
         ORDER BY created_at DESC
         """,
@@ -65,7 +65,8 @@ async def effective_device_limit(connection, account_id, *, now: datetime | None
         started = item["starts_at"] is None or item["starts_at"] <= now
         not_ended = item["ends_at"] is None or item["ends_at"] > now
         if item["status"] == "active" and started and not_ended:
-            return int(item["device_limit"]) if item["device_limit"] is not None else BASE_LIMIT
+            from .payment_products import paid_limit
+            return await paid_limit(connection,item,now)
     return BASE_LIMIT
 
 def rfc3339(moment: datetime | None) -> str | None:
@@ -940,6 +941,9 @@ async def _sync_parent_progress(
     The target snapshot is durable even when the sync created zero new gateway children
     (all targets already applied); progress is never credited from an empty aggregate.
     """
+    if context.metadata.get("device_capacity_exceeded",False):
+        raise ApiError("DEVICE_LIMIT_REACHED", http=409, request_id=request_id,
+                       details={"slots_used":context.slots_used,"device_limit":context.active_entitlement["device_limit"]})
     payload = _operation_payload(parent)
     targets = [item for item in (payload.get("targets") or []) if isinstance(item, str)]
     children = await connection.fetch(

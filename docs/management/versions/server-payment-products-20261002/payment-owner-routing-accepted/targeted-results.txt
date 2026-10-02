@@ -1,0 +1,10 @@
+test_exact_ids_in_both_owner_branches (__main__.Tests.test_exact_ids_in_both_owner_branches) ... ok
+test_invalid_or_conflicting_ids (__main__.Tests.test_invalid_or_conflicting_ids) ... ok
+test_old_actual_method_exact_id_and_validation (__main__.Tests.test_old_actual_method_exact_id_and_validation) ... ok
+test_oversize_no_finalizer (__main__.Tests.test_oversize_no_finalizer) ... ok
+test_two_chunks_valid_until_eof (__main__.Tests.test_two_chunks_valid_until_eof) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.025s
+
+OK

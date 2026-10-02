@@ -1214,6 +1214,9 @@ class CatalogService:
             raise ApiError("ACCESS_DENIED", http=403, request_id=request_id)
         kind, _ident = subject
         if kind == SUBJECT_BINDING:
+            if context.metadata.get("device_capacity_exceeded",False):
+                raise ApiError("DEVICE_LIMIT_REACHED", http=409, request_id=request_id,
+                               details={"slots_used":context.slots_used,"device_limit":context.active_entitlement["device_limit"]})
             if context.account_state not in ELIGIBLE_ACCOUNT_STATES:
                 code = (
                     "SUBSCRIPTION_MISSING"
@@ -1307,6 +1310,8 @@ class CatalogService:
                     now=evaluated_at,
                     correlation_id=correlation,
                 )
+            if outcome == "device_limit_reached":
+                raise ApiError("DEVICE_LIMIT_REACHED", http=409, details={"slots_used":context.slots_used,"device_limit":context.active_entitlement["device_limit"]})
             if outcome == "revoked":
                 raise ApiError("DEVICE_REVOKED", http=403)
             if outcome in ("missing", "installation_revoked", "ownership_mismatch", "environment_mismatch"):

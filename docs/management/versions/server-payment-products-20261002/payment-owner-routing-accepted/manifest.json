@@ -1,0 +1,29 @@
+{
+  "old": {
+    "head": "e342f0b3586f7e4e3eddae660cc4f2e07ae8ae09",
+    "delta_base": "2125341fa2b1a4d6b40eb23bfa5f022fc5fdf769",
+    "full_base": "56fc79fb554e97dc89ae88688a1ca79369136d7a",
+    "review_fix_base": "4d498387fd4e6d6649f1fa4257f2205ee5d2ebbd",
+    "changed_file_sha256": {
+      "backend/bot/payment_providers/platega/service.py": "9069bda14d4b98d23500a8674b09416b90b81dd40be7222d5e3d3748d1d24d98"
+    },
+    "status": ""
+  },
+  "new": {
+    "head": "2d4b10afb01f58020ac60f98930d304f1ca483f1",
+    "delta_base": "a656d3cad523865c05c45911051b25b41ddeaa93",
+    "full_base": "69e4dd355674c4061d9e8a04eacbe6fdd7704fd4",
+    "review_fix_base": "62fc21ec0302a2ae3b57a1c6871864742d341b33",
+    "changed_file_sha256": {
+      "server/terlimo_backend/payment_owner_routing.py": "31b5bead451d502219b5fc1b3ab272675626ba5605d021b05af33115bd673cff"
+    },
+    "status": ""
+  },
+  "checks": {
+    "targeted": "5 PASS in 0.025s; fake IO only",
+    "syntax": "PASS",
+    "diff_check": "PASS",
+    "previous_core_suites": "NOT REPEATED"
+  },
+  "contract_correction": "Both endpoints accept exact nonblank string IDs <=1024 characters, no UUID/case/whitespace normalization. Conflicting id/transactionId rejected. GET params encoded by aiohttp. Ownership response read until EOF, aggregate <=65536 bytes, within existing timeout."
+}
