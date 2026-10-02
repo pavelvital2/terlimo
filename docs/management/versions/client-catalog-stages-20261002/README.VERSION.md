@@ -1,3 +1,9 @@
+# Дополнение: owner catalog_cycle и отдельная отмена
+
+start/refresh_manual несут catalog_cycle UUID; immutable контекст одного прохода сохраняет его в stage и finalcatalog. Новый ручной refresh не переименовывает старый результат. Background не наследует cycle, progress после первой публикации прекращается. cancel_catalog завершает только соответствующий operation, parentVPN остаётся жив; whole native65с относится проходу, не всему процессу. Последовательный Runner отдаёт приоритет queued manual перед одновременно готовым фоновым таймером; replacement wake не теряется за coalescing fence. Повтор одинакового browse отправляется для нового явного cycle, background dedup сохранён.
+
+После изменения: accountaccess -race PASS4.353s; root affected main -race PASS8.245s; focused Catalog-race PASS1.071s. Существующий wiring fixture использовал bytes.Buffer одновременно из reader/writer; переведён на существующий syncBuffer, production writer не изменён ради теста. Android/API интеграция и phone приёмка ещё ожидаются.
+
 # Native catalog stages — source candidate
 
 Base7344a04a41ee02df365a3facd8649f1004beecd7 / clientdd9e253f5e7da1d58e78a593b996fcab8c28dfc1. Canonical pavelvital2/terlimo, clients/android subtree. Go часть; Android companion выполняет Laptop. Без него не устанавливать как готовую версию.

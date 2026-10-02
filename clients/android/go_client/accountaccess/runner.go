@@ -38,11 +38,15 @@ type RunnerConfig struct {
 	// the manual-refresh fence is cleared (manual cycle finished). Nil is a no-op and it
 	// never re-enters the coordinator.
 	OnManualCycleFinished func()
-	Attempts              int
-	Jitter                func(time.Duration) time.Duration
-	Sleep                 func(ctx context.Context, delay time.Duration) error
-	RefreshFloor          time.Duration
-	Now                   func() time.Time
+	// BeginAttempt binds one complete retry group to its host operation. finish
+	// runs after the manual fence is cleared, so a replacement operation can wake
+	// this same runner without being lost behind the canceled request.
+	BeginAttempt func(context.Context, bool) (context.Context, func())
+	Attempts     int
+	Jitter       func(time.Duration) time.Duration
+	Sleep        func(ctx context.Context, delay time.Duration) error
+	RefreshFloor time.Duration
+	Now          func() time.Time
 }
 
 // Fixed cycle-stage vocabulary of one mobile attempt. The host mirror accepts exactly
@@ -180,13 +184,27 @@ func (r *Runner) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		// An already queued explicit refresh wins over a simultaneously ready
+		// periodic/retry timer; do not spend its host budget on a background cycle.
+		if !manual {
+			select {
+			case <-r.manualWake:
+				manual = true
+			default:
+			}
+		}
 		if manual {
 			r.mu.Lock()
 			r.manualRuns++
 			r.mu.Unlock()
 			fmt.Fprintln(os.Stderr, "refreshstage:manual_cycle_begin")
 		}
-		catalog, browse, wait, err := r.attempt(ctx)
+		attemptCtx := ctx
+		finish := func() {}
+		if r.config.BeginAttempt != nil {
+			attemptCtx, finish = r.config.BeginAttempt(ctx, manual)
+		}
+		catalog, browse, wait, err := r.attempt(attemptCtx)
 		if manual {
 			manual = false
 			r.finishManualRun()
@@ -195,6 +213,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				r.config.OnManualCycleFinished()
 			}
 		}
+		finish()
 		if err != nil {
 			if r.config.OnError != nil {
 				r.config.OnError(safeErrorCode(err))
@@ -293,6 +312,9 @@ func (r *Runner) cycle(ctx context.Context) (*CatalogResponse, *BrowseCatalogRes
 	r.stage(cycleStageGWRefreshBegin)
 	catalogResult, err := r.config.Coordinator.RefreshCatalog(ctx)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if catalogResult.Browse != nil {

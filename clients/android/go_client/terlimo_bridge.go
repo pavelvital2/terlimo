@@ -24,6 +24,7 @@ type managedStart struct {
 	V               int                     `json:"v"`
 	Type            string                  `json:"type"`
 	AttemptID       string                  `json:"attempt_id"`
+	CatalogCycle    string                  `json:"catalog_cycle"`
 	Link            string                  `json:"link"`
 	PublicKey       string                  `json:"public_key_spki"`
 	InstallationID  string                  `json:"installation_id"`
@@ -127,34 +128,38 @@ type managedLifecycle struct {
 }
 
 type managedBridge struct {
-	lifecycle        managedLifecycle
-	runtimeEpoch     uint64
-	attempt          string
-	out              io.Writer
-	writeSlot        chan struct{}
-	runEnd           atomic.Int32
-	mu               sync.Mutex
-	waiters          map[string]chan bridgeMessage
-	selection        chan string
-	explicitSel      bool
-	selKey           string
-	explicit         chan string
-	switchNode       chan managedSwitch
-	preference       chan string
-	probe            chan managedProbeRequest
-	probeStop        chan struct{}
-	wake             chan string
-	registration     chan string
-	payments         chan bridgeMessage
-	usage            chan struct{}
-	announcements    chan struct{}
-	announcementRead chan managedAnnouncementRead
-	devices          chan string
-	deviceDelete     chan managedDeviceDelete
-	refreshManual    chan struct{}
-	manualRefresh    func()
-	manualReceipts   int
-	cancel           context.CancelFunc
+	lifecycle            managedLifecycle
+	runtimeEpoch         uint64
+	attempt              string
+	out                  io.Writer
+	writeSlot            chan struct{}
+	runEnd               atomic.Int32
+	mu                   sync.Mutex
+	waiters              map[string]chan bridgeMessage
+	selection            chan string
+	explicitSel          bool
+	selKey               string
+	explicit             chan string
+	switchNode           chan managedSwitch
+	preference           chan string
+	probe                chan managedProbeRequest
+	probeStop            chan struct{}
+	wake                 chan string
+	registration         chan string
+	payments             chan bridgeMessage
+	usage                chan struct{}
+	announcements        chan struct{}
+	announcementRead     chan managedAnnouncementRead
+	devices              chan string
+	deviceDelete         chan managedDeviceDelete
+	refreshManual        chan struct{}
+	manualRefresh        func()
+	manualReceipts       int
+	catalogRefresh       func(string)
+	catalogCancel        func(string)
+	pendingCatalog       string
+	pendingCatalogCancel string
+	cancel               context.CancelFunc
 }
 
 // managedAnnouncementRead is one bounded §11 read-marker command carried on the bridge:
@@ -204,6 +209,22 @@ func (b *managedBridge) setManualRefresh(hook func()) {
 	b.mu.Lock()
 	b.manualRefresh = hook
 	b.mu.Unlock()
+}
+
+func (b *managedBridge) setCatalogRefreshHooks(refresh, cancel func(string)) {
+	b.mu.Lock()
+	b.catalogRefresh, b.catalogCancel = refresh, cancel
+	pending := b.pendingCatalog
+	pendingCancel := b.pendingCatalogCancel
+	b.pendingCatalog = ""
+	b.pendingCatalogCancel = ""
+	b.mu.Unlock()
+	if pending != "" {
+		refresh(pending)
+	}
+	if pendingCancel != "" {
+		cancel(pendingCancel)
+	}
 }
 
 func (b *managedBridge) manualReceiptCount() int {
@@ -271,6 +292,14 @@ type bridgeDeadlineWriter interface {
 }
 
 func (b *managedBridge) sendContext(ctx context.Context, m bridgeMessage) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.string("type") == "catalog" || m.string("type") == "catalog_stage" {
+		if cycle := catalogCycleFromContext(ctx); cycle != "" {
+			m["catalog_cycle"] = cycle
+		}
+	}
 	m["v"] = 1
 	m["attempt_id"] = b.attempt
 	raw, err := json.Marshal(m)
@@ -295,6 +324,9 @@ func (b *managedBridge) sendContext(ctx context.Context, m bridgeMessage) error 
 	n, err := b.out.Write(framed)
 	if err == nil && n != len(framed) {
 		return io.ErrShortWrite
+	}
+	if err == nil && m.string("type") == "catalog" {
+		markCatalogPublished(ctx)
 	}
 	return err
 }
@@ -511,7 +543,40 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 						"code": "BUSY", "client_request_id": del.RequestID})
 				}
 			}
+		case "cancel_catalog":
+			cycle := m.string("catalog_cycle")
+			if !validCatalogCycle(cycle) {
+				continue
+			}
+			b.mu.Lock()
+			hook := b.catalogCancel
+			if hook == nil {
+				b.pendingCatalogCancel = cycle
+			}
+			if b.pendingCatalog == cycle {
+				b.pendingCatalog = ""
+			}
+			b.mu.Unlock()
+			if hook != nil {
+				hook(cycle)
+			}
 		case "refresh_manual":
+			if _, tagged := m["catalog_cycle"]; tagged {
+				cycle := m.string("catalog_cycle")
+				if !validCatalogCycle(cycle) {
+					continue
+				}
+				b.mu.Lock()
+				hook := b.catalogRefresh
+				if hook == nil {
+					b.pendingCatalog = cycle
+				}
+				b.mu.Unlock()
+				if hook != nil {
+					hook(cycle)
+				}
+				continue
+			}
 			// Bounded manual refresh of an already active attempt. It only wakes the
 			// existing mobile runner for one cycle over the same authenticated /me,
 			// gateways, access/sync and catalog operations; no new endpoint, timer or

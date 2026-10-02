@@ -51,6 +51,7 @@ type managedMobile struct {
 	session         *accountaccess.MobileSession
 	client          *accountaccess.Client
 	transportCloser io.Closer
+	catalogOps      catalogOperations
 
 	mu            sync.Mutex
 	me            *accountaccess.MeResponse
@@ -82,6 +83,9 @@ func (m *managedMobile) notifyManualCycleFinished() {
 }
 
 func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.Signer, bridge *managedBridge, controller *managedController) (*managedMobile, error) {
+	if start.CatalogCycle != "" && !validCatalogCycle(start.CatalogCycle) {
+		return nil, fmt.Errorf("catalog cycle invalid")
+	}
 	if controller == nil {
 		return nil, fmt.Errorf("mobile controller required")
 	}
@@ -173,6 +177,7 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 		verifiedSig:     make(chan struct{}, 1),
 		browseSig:       make(chan struct{}, 1),
 	}
+	m.catalogOps.initialize(start.CatalogCycle)
 	identity := onboarding.Identity{
 		Environment:    string(environment),
 		InstallationID: session.Fingerprint(),
@@ -229,6 +234,7 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 			emitCycleStage(token, elapsedMS, utcMS)
 		},
 		OnManualCycleFinished: m.notifyManualCycleFinished,
+		BeginAttempt:          m.beginCatalogAttempt,
 	})
 	if err != nil {
 		return nil, err
@@ -537,6 +543,11 @@ func (m *managedMobile) run(ctx context.Context, bridge *managedBridge) {
 		// §11/§29: coalesce manual refresh at bridge receipt (before any blocking
 		// dispatcher handler); the Runner fence keeps single-flight semantics.
 		bridge.setManualRefresh(func() { m.runner.TriggerManual() })
+		bridge.setCatalogRefreshHooks(func(cycle string) {
+			if m.catalogOps.request(cycle) {
+				m.runner.TriggerManual()
+			}
+		}, m.catalogOps.cancel)
 	}
 	if m.transportCloser != nil {
 		defer m.transportCloser.Close()
@@ -837,6 +848,13 @@ func (m *managedMobile) synchronize(ctx context.Context, refresh bool) error {
 // removed selected gateway is stopped and cleared explicitly; a projection dependency
 // error never admits and never falls back to the legacy path.
 func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accountaccess.CatalogResponse) {
+	publishCtx := m.catalogPublicationContext()
+	if err := publishCtx.Err(); err != nil {
+		m.mu.Lock()
+		m.verifiedErr = err
+		m.mu.Unlock()
+		return
+	}
 	m.mu.Lock()
 	m.me = &me
 	m.catalog = &catalog
@@ -856,12 +874,6 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 	if err == nil {
 		// Publish every verified snapshot, including an unchanged selection. The
 		// attempt context fences cancellation; this does not change the VPN phase.
-		m.mu.Lock()
-		publishCtx := m.runCtx
-		m.mu.Unlock()
-		if publishCtx == nil {
-			publishCtx = context.Background()
-		}
 		err = m.controller.publishCatalogSnapshotContext(publishCtx)
 		if err == nil {
 			err = publishCtx.Err()
@@ -888,6 +900,10 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 // pairing are never touched, no revision exists and no selection is announced. A
 // repeated identical list is emitted once; a renewed validity re-emits the list.
 func (m *managedMobile) onBrowse(browse accountaccess.BrowseCatalogResponse) {
+	publishCtx := m.catalogPublicationContext()
+	if publishCtx.Err() != nil {
+		return
+	}
 	message := browseCatalogMessage(browse)
 	raw, err := json.Marshal(message["nodes"])
 	if err != nil {
@@ -911,11 +927,11 @@ func (m *managedMobile) onBrowse(browse accountaccess.BrowseCatalogResponse) {
 		default:
 		}
 	}
-	if dedup {
+	if dedup && catalogCycleFromContext(publishCtx) == "" {
 		return
 	}
 	if bridge != nil {
-		_ = bridge.sendContext(context.Background(), message)
+		_ = bridge.sendContext(publishCtx, message)
 	}
 }
 

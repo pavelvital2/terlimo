@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -150,7 +149,7 @@ func TestManagedMobileEmitsAccountAccessThroughRealBridge(t *testing.T) {
 	server := httptest.NewServer(fixture.handler())
 	defer server.Close()
 
-	var output bytes.Buffer
+	var output syncBuffer
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bridge := newManagedBridge(&output, "attempt", cancel)

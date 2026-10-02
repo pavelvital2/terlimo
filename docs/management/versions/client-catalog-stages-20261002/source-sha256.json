@@ -2,7 +2,13 @@
   "clients/android/go_client/servicechannel/channel.go": "59c90b892e6afca22a86058b963b5691b1b57abcb1ae1819186e570408b6b53f",
   "clients/android/go_client/servicechannel/catalog_policy.go": "2851d44227b1b3a8f79f67aacae54a5808947bcde22592c0b58218344e1b1171",
   "clients/android/go_client/servicechannel/catalog_policy_test.go": "4222b0553fc664225c4526da6d9dd0d26c693f0f01f0b99bacb0988404c7704a",
-  "clients/android/go_client/terlimo_catalog_stages.go": "06c185c4ce40836532f9cf4008aab20a5a89f538d7ff60c25f204db95bf27525",
-  "clients/android/go_client/terlimo_catalog_stages_test.go": "cc069e1e63049022b18024180d506a1644f157addc99a8c503776f047568da8d",
-  "clients/android/go_client/terlimo_mobile.go": "202a86c21806806eccfccff3ed6315b6a844364dfd79695c9933076da4249d8f"
+  "clients/android/go_client/terlimo_catalog_stages.go": "a391f522c3666ecea566b54d5f5af4c24bb1ce1c694c8b881d974debd201d352",
+  "clients/android/go_client/terlimo_catalog_stages_test.go": "cfd037597a752e8c358723e4f01c4e00be0736c4e672aa1d19670166dce69e51",
+  "clients/android/go_client/terlimo_mobile.go": "83036db956b1fe6240a3dc74ed85e0e967ff0ea9b579ad1dbdf3ef9e0718fedb",
+  "clients/android/go_client/terlimo_catalog_operations.go": "fc6d49fe5db35887ca846bb43d08bb59ac1149968570bcbc7dbb084612dac4fa",
+  "clients/android/go_client/terlimo_catalog_operations_test.go": "9485a9c5f9a088e722d04888e8a6c1a2216698ea1731908b3b319d65039258e0",
+  "clients/android/go_client/terlimo_bridge.go": "63600298c47cdd45d647b3d507a016340545c26fc2ff2b2c1bbf2524a277db42",
+  "clients/android/go_client/accountaccess/runner.go": "6184e9507304c8b47fc200de76e7d278e4938ca1846d933b54666439796d3e7e",
+  "clients/android/go_client/accountaccess/runner_operation_test.go": "e87cb88de27d4edc86eeb2d31a42a9b7aa66066f80aacafb78875340cff8413b",
+  "clients/android/go_client/mobile_wiring_test.go": "82eb91b2f7f82f77f70df10233a150d19355131bee82bc00f03e117c9258e266"
 }

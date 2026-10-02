@@ -23,6 +23,11 @@ func configureCatalogStages(transport accountaccess.Doer, bridge *managedBridge)
 		StatusTimeout:  10 * time.Second,
 		CatalogTimeout: 10 * time.Second,
 		Emit: func(ctx context.Context, stage string) error {
+			// Background refreshes have no host operation and must not report
+			// progress for the last completed manual refresh.
+			if catalogCycleFromContext(ctx) == "" || catalogProgressComplete(ctx) {
+				return nil
+			}
 			return bridge.sendContext(ctx, bridgeMessage{"type": "catalog_stage", "stage": stage})
 		},
 	}
