@@ -60,9 +60,13 @@ type Channel struct {
 	// Establishment is the isolated handshake seam (see handshake.go). A nil seam
 	// fails closed instead of falling back to any other transport.
 	Establishment Establishment
-	// Timeout bounds one exchange; zero means exchangeLimit. A shorter caller
-	// deadline always wins.
+	// Timeout can shorten the default combined exchangeLimit. Catalog requests
+	// with an explicit policy use its separate budgets instead. A shorter caller
+	// deadline always wins in both modes.
 	Timeout time.Duration
+	// Catalog is enabled only by the mobile catalog owner. Its connection and
+	// request budgets are separate; other service operations retain Timeout.
+	Catalog *CatalogPolicy
 	// Observe receives only fixed, secret-free stage names; it never affects I/O.
 	Observe func(string)
 	// Trace, when set, receives secret-free per-session correlation events. It never
@@ -216,8 +220,13 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 		limit = c.Timeout
 	}
 	class := RequestClass(ctx)
+	requestStage, requestLimit := c.Catalog.request(class)
+	separate := requestStage != ""
+	if separate {
+		limit = c.Catalog.ConnectTimeout
+	}
 	runCtx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
+	defer func() { cancel() }()
 	establishment := c.Establishment
 	if establishment == nil {
 		return nil, ErrTransportFailed
@@ -259,8 +268,13 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 	}
 	reused = c.conn != nil
 	if c.conn == nil {
+		if separate {
+			if err := c.Catalog.emit(runCtx, "connecting_server"); err != nil {
+				return nil, err
+			}
+		}
 		// The established DTLS transport owns a session lifetime, not this HTTP
-		// request's 15-second context. Preserve caller values (physical network)
+		// request context. Preserve caller values (physical network)
 		// while bounding establishment by runCtx and closing at Channel.Close.
 		c.stage("ESTABLISH_BEGIN")
 		sessionCtx, cancelSession := context.WithCancel(context.WithoutCancel(ctx))
@@ -350,6 +364,18 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 		c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "ESTABLISH_OK",
 			ElapsedMS: time.Since(start).Milliseconds(), Port: localUDPPort(c.conn)})
 		port = localUDPPort(c.conn)
+	}
+	if separate {
+		// Establish is finished and its cancellation bridge has been detached.
+		// Ending that budget must not close the reusable transport. The caller's
+		// deadline/cancellation still bounds the fresh request budget.
+		cancel()
+		limit = requestLimit
+		runCtx, cancel = context.WithTimeout(ctx, limit)
+		if err := c.Catalog.emit(runCtx, requestStage); err != nil {
+			c.closeLocked()
+			return nil, err
+		}
 	}
 	// Cancellation closes the active connection immediately even while Read blocks.
 	// A later request never reuses that connection.

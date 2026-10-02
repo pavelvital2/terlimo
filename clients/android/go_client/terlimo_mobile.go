@@ -99,6 +99,7 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 	if err != nil {
 		return nil, err
 	}
+	configureCatalogStages(transport, bridge)
 	var transportCloser io.Closer
 	if closer, ok := transport.(io.Closer); ok {
 		transportCloser = closer
