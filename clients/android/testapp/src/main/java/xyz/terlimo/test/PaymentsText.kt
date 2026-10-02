@@ -221,8 +221,17 @@ internal object PaymentsText {
             "legacy_unknown" -> return "Сохранена прежняя попытка оплаты без данных аккаунта. Не создавайте повторный заказ: состояние требует проверки поддержки."
             "unreadable" -> return "Не удалось прочитать сохранённую оплату. Новый заказ заблокирован, чтобы не создать повторный. Обратитесь в поддержку."
             "unknown_create" -> return if (state.sending) PURCHASE_SENDING_TEXT else
-                "Результат отправленного запроса оплаты ещё не подтверждён. Нажмите «Восстановить оплату»: будет проверен прежний запрос, без нового заказа." +
-                    (if (state.error != null) " Сейчас восстановить не удалось; исходный запрос сохранён." else "")
+                // Both the first Pay and explicit recovery can fail here. An error is
+                // not proof of no order; ordinary errorText may suggest a new purchase.
+                (when (state.error) {
+                    null -> ""
+                    "SERVICE_UNAVAILABLE" -> "Сервис оплаты временно недоступен. "
+                    "TRANSPORT" -> "Нет связи с сервисом оплаты. "
+                    "QUOTE_EXPIRED" -> "Срок предложения истёк. "
+                    else -> "Не удалось получить подтверждённый результат запроса оплаты. "
+                }) + "Результат отправленного запроса оплаты ещё не подтверждён. Исходный запрос сохранён. " +
+                    "Нажмите «Восстановить оплату», чтобы проверить прежний запрос. " +
+                    "Новая покупка недоступна до выяснения результата."
         }
         val offered = state != null && PurchaseFlow.offered(registration)
         if (state == null || state.phase == PurchaseFlow.IDLE) {
