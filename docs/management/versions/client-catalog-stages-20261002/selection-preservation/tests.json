@@ -1,0 +1,20 @@
+{
+  "suites": [
+    {
+      "class": "xyz.terlimo.test.GatewaySelectionPreservationTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "xyz.terlimo.test.PreAdmissionConnectTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "total": 10,
+  "historical_original31": "not rerun; prior receipt preserved"
+}

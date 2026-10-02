@@ -15,8 +15,8 @@
     "full101 and long-term stability not asserted",
     "browser HTTPS and new VPN consent not exercised",
     "hot resume retained old status until manualRefresh",
-    "source-only followup investigates reset of selected stable gateway across browse/verified projection",
-    "VPN run server correlation pending; initial catalogue server correlation accepted"
+    "source-only followup investigates reset of selected stable gateway across browse/verified projection"
   ],
-  "phone_runs_added_by_review": 0
+  "phone_runs_added_by_review": 0,
+  "server_correlation": "Accepted: three source evidence SHA match, 11 available endpoint matches, HTTP200 and managed admission supporting existing client proof"
 }

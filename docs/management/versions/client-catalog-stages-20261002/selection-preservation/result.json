@@ -1,0 +1,57 @@
+{
+  "commit": "dfe99b86fe4aebd92afa316d2ad1f1a4c3f709a5",
+  "parent": "a79d7f9472942f6ed7076a902cc70a0700a71614",
+  "base": "b47069c0962868a5aa3230787d1b2ed32db99d68",
+  "reproduce_before": {
+    "tests": 3,
+    "failures": 2
+  },
+  "target_after": {
+    "suites": [
+      {
+        "class": "xyz.terlimo.test.GatewaySelectionPreservationTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "xyz.terlimo.test.PreAdmissionConnectTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "total": 10,
+    "historical_original31": "not rerun; prior receipt preserved"
+  },
+  "original31": "prior valid receipt preserved, not rerun",
+  "cumulative_patch": "selection-preservation-from-b470.patch, 2 commit mailbox",
+  "worktree_clean": true,
+  "phone_build_apk_install_push": "NOT_PERFORMED",
+  "source_sameID": "repeat snapshot and no stale resurrection verified",
+  "prior_phone_ID_equality": "UNKNOWN; raw IDs absent",
+  "files": {
+    "selection-preservation-from-b470.patch": {
+      "sha256": "87e9a0482e26d78bff717c2b571e889ec0da63b6c74f40f65e761c4ec32a9fda",
+      "bytes": 14487
+    },
+    "reproduce.xml": {
+      "sha256": "62f12dd902b79142309c3db6a454689438193576075912258095a639fbe72128",
+      "bytes": 9142
+    },
+    "reproduce.log": {
+      "sha256": "d8b5a06fe332928c2f7f96a8a8956559f51c355a1dea9098f15b49453520ffe8",
+      "bytes": 3140
+    },
+    "target-tests.log": {
+      "sha256": "5548533e109a93bf632defc777d0e3e7e6dcf975cc4722ed652486c532055b75",
+      "bytes": 2346
+    },
+    "tests.json": {
+      "sha256": "73e9b69e21c4f00d359d5fbb8e76b78242746aa105f11cb94a63c0254ae1f15f",
+      "bytes": 407
+    }
+  }
+}
