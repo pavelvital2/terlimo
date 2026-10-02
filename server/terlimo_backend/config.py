@@ -179,6 +179,7 @@ class Settings:
     platega_old_webhook_url: str = ""
     platega_owner_routing_timeout_seconds: int = 10
     platega_enabled: bool = False
+    platega_create_enabled: bool = True
     platega_base_url: str = "https://app.platega.io"
     platega_merchant_id: str = ""
     platega_secret: str = ""
@@ -281,6 +282,7 @@ def load_settings(require_database: bool = True) -> Settings:
         platega_old_webhook_url=_env_str("PLATEGA_OLD_WEBHOOK_URL", "") or "",
         platega_owner_routing_timeout_seconds=_env_int("PLATEGA_OWNER_ROUTING_TIMEOUT_SECONDS", 10, 1),
         platega_enabled=(_env_str("PLATEGA_ENABLED", "") or "").lower() in ("1", "true", "yes", "on"),
+        platega_create_enabled=(_env_str("PLATEGA_CREATE_ENABLED", "true") or "").lower() in ("1", "true", "yes", "on"),
         platega_base_url=_env_str("PLATEGA_BASE_URL", "https://app.platega.io") or "https://app.platega.io",
         platega_merchant_id=_env_str("PLATEGA_MERCHANT_ID", "") or "",
         platega_secret=_env_str("PLATEGA_SECRET", "") or "",

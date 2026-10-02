@@ -552,7 +552,9 @@ async def create_order(
             if requested_method not in configured:
                 # Fail before any ledger write or provider call: an unmapped method cannot invoice.
                 raise ProviderMethodUnavailable()
-        if provider is None:
+        # Pause only creation: durable replay/unknown decisions above remain authoritative,
+        # while callback/status and API maintenance keep using the configured provider.
+        if not settings.platega_create_enabled or provider is None:
             raise ApiError("PAYMENT_PROVIDER_UNAVAILABLE", http=503, retryable=True)
         if existing is None:
             try:
