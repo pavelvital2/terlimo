@@ -1,3 +1,7 @@
+# Visible-stage follow-up (not installed)
+
+Android f62e334 source diff accepted: Orbit subtitle and ServerCatalogView loading now render actual catalogStage.label; working VPN title/selection retained. Executor Kotlin compile PASS. Integrated real-service-channel regression on17d12e7 PASS/race2.037s confirms connecting→checking_device→reconnecting preserves cycle across SERVICE_UNAVAILABLE. Phone bridge stage acceptance remains unlogged; the test does not retroactively prove that phone delivery. Stage accounting correction and server AUTH nested-budget review still pending. No new phone run.
+
 # First device acceptance and native follow-up
 
 Installed candidate17d12e7/APK63a4ae1a failed first ordinary launch: establish2.951s, AUTH frame completed18.173s with SERVICE_UNAVAILABLE, retry then CATALOG_CONNECTING_TIMEOUT at20s. No visible catalog/Connect/HTTPS acceptance; final idle06:19:28.137111Z. READ_OK does not establish AUTH success. Missing stage in filtered stderr does not establish lost product events; revisiting CONNECTING restores its original wall deadline. Android visible-stage/reconnect corrections pending; server wait cause under correlation.

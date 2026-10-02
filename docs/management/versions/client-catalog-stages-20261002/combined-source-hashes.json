@@ -19,11 +19,13 @@
   "clients/android/testapp/src/main/java/xyz/terlimo/test/CatalogErrorActions.kt": "bd7ed34fca0abdecef396bf1fc2f498af884500b5220b86b8e13a9cce9588c67",
   "clients/android/testapp/src/main/java/xyz/terlimo/test/CatalogStages.kt": "3b783b67cb29c6f6669af76fc53f18dc2edc0c0a23e9cedba3702870ea9a1bba",
   "clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt": "6b3c10dd09cdcd20ea69bcd52dc14f7b966e22563b02201be82dd32bdfc927d8",
-  "clients/android/testapp/src/main/java/xyz/terlimo/test/OrbitHomeHeader.kt": "e1a735c68caeda8571871d0e6528d8113ad6638a1a69dc67af1dc168124ab8a6",
+  "clients/android/testapp/src/main/java/xyz/terlimo/test/OrbitHomeHeader.kt": "5d8cd4e0219f8ca09979cb3e4761e4c41c28922510575460b97cc7180febbe19",
   "clients/android/testapp/src/main/java/xyz/terlimo/test/PreAdmissionConnect.kt": "889ebd125f41ca800bbb515e6fe97315b9b4744d7e1d9d247601fc73e2819af7",
   "clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt": "801d2f386a6f87f5c9fc7c61548575acd6b5c8242c9b0c2f8af5281769728084",
   "clients/android/testapp/src/main/java/xyz/terlimo/test/UserStatusText.kt": "650791f5933bbcae9e2d98f2db2aa59eeeb3d72296981a5e74e21f61d8777709",
   "clients/android/testapp/src/test/java/xyz/terlimo/test/BrowseOwnerContractTest.kt": "c5c8eb25b8a84ac3adbe606476d06804faed23ad52f6c173261741efcdad7d41",
   "clients/android/testapp/src/test/java/xyz/terlimo/test/CatalogStagesTest.kt": "4f5b26dd55a4ab0435fc980d2d0f7a2a1662ff97c02d7035ecd605485177fbb8",
-  "clients/android/testapp/src/test/java/xyz/terlimo/test/PreAdmissionConnectTest.kt": "bf3dae55982cb5455a7458999214565d4c25d0a5d067769383eb88e4b5db5047"
+  "clients/android/testapp/src/test/java/xyz/terlimo/test/PreAdmissionConnectTest.kt": "bf3dae55982cb5455a7458999214565d4c25d0a5d067769383eb88e4b5db5047",
+  "clients/android/go_client/catalog_auth_failure_progress_test.go": "f794de9941062ab0aeeb014ba00950dafcacdf712553176d3bb28070a620c932",
+  "clients/android/testapp/src/main/java/xyz/terlimo/test/ServerCatalogView.kt": "db9dff1e7944fd7dcf5dd3cec04315e0c897783d5e4e094c0dd9664b30ec37d6"
 }

@@ -69,10 +69,10 @@ internal class ServerCatalogView(
             state.phase == "Idle" -> addIdle()
             state.phase == "Error" ->
                 addError(state.error, retry = CatalogErrorActions.credentialRetry(state.phase, state.error))
-            !catalogUsable && state.nodes.isEmpty() -> addLoading()
+            !catalogUsable && state.nodes.isEmpty() -> addLoading(state.catalogStage)
             !catalogUsable -> {
                 addSelected(state)
-                addLoading()
+                addLoading(state.catalogStage)
             }
             state.nodes.isEmpty() -> addEmpty()
             else -> addContent(state)
@@ -219,9 +219,9 @@ internal class ServerCatalogView(
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
     }
 
-    private fun addLoading() {
+    private fun addLoading(stage: CatalogStage?) {
         addView(card().apply {
-            addView(text("Обновляем каталог…", 18f, bold = true))
+            addView(text(stage?.label ?: "Обновляем каталог…", 18f, bold = true))
             repeat(3) { addView(TextView(context).apply { minHeight = dp(48); background = shape(TerlimoCatalogBrandTokens.PLACEHOLDER.toInt(), dp(12)) }, sectionParams(8)) }
         }, sectionParams())
     }

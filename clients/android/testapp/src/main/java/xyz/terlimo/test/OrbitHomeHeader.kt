@@ -96,6 +96,7 @@ internal class OrbitHomeHeader(
             else -> "VPN выключен"
         }
         subtitle.text = when {
+            state.catalogStage != null -> state.catalogStage.label
             connected -> state.nodes.singleOrNull { it.id == state.selectedNodeId }?.name ?: "Выбранный сервер"
             blocked -> "Трафик заблокирован. Выберите другой сервер или отключите VPN."
             pendingBrowseChoice -> when {
