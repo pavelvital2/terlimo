@@ -1,0 +1,35 @@
+Calculating task graph as no cached configuration is available for tasks: :testapp:testDebugUnitTest --tests xyz.terlimo.test.CatalogStagesTest --tests xyz.terlimo.test.CatalogLoadTimeoutTest --tests xyz.terlimo.test.CatalogTimingInstrumentationTest --tests xyz.terlimo.test.BrowseOwnerContractTest --tests xyz.terlimo.test.OrbitHomeSourceTest.actualCatalogStageIsVisibleOnOrbitAndCatalogLoadingSurface
+> Task :testapp:verifyNativeInput
+> Task :testapp:preBuild
+> Task :testapp:preDebugBuild
+> Task :testapp:preDebugUnitTestBuild
+> Task :testapp:generateDebugResources UP-TO-DATE
+> Task :testapp:processDebugNavigationResources UP-TO-DATE
+> Task :testapp:packageDebugResources UP-TO-DATE
+> Task :testapp:parseDebugLocalResources UP-TO-DATE
+> Task :testapp:javaPreCompileDebug UP-TO-DATE
+> Task :testapp:generateDebugRFile UP-TO-DATE
+> Task :testapp:checkDebugAarMetadata UP-TO-DATE
+> Task :testapp:compileDebugNavigationResources UP-TO-DATE
+> Task :testapp:mapDebugSourceSetPaths UP-TO-DATE
+> Task :testapp:mergeDebugResources UP-TO-DATE
+> Task :testapp:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :testapp:extractDeepLinksDebug UP-TO-DATE
+> Task :testapp:processDebugMainManifest UP-TO-DATE
+> Task :testapp:processDebugManifest UP-TO-DATE
+> Task :testapp:processDebugManifestForPackage UP-TO-DATE
+> Task :testapp:processDebugResources UP-TO-DATE
+> Task :testapp:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :testapp:compileDebugKotlin
+> Task :testapp:processDebugJavaRes UP-TO-DATE
+> Task :testapp:compileDebugJavaWithJavac UP-TO-DATE
+> Task :testapp:bundleDebugClassesToRuntimeJar
+> Task :testapp:bundleDebugClassesToCompileJar
+> Task :testapp:compileDebugUnitTestKotlin
+> Task :testapp:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :testapp:processDebugUnitTestJavaRes UP-TO-DATE
+> Task :testapp:testDebugUnitTest
+
+BUILD SUCCESSFUL in 14s
+26 actionable tasks: 6 executed, 20 up-to-date
+Configuration cache entry stored.

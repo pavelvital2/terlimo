@@ -15,26 +15,31 @@ internal class CatalogStages {
     var cycle: String? = null; private set
     var stage: CatalogStage? = null; private set
     private var totalEnd = 0L
-    private var furthest = CatalogStage.CONNECTING
-    private val stageEnds = mutableMapOf<CatalogStage, Long>()
+    private var enteredAt = 0L
+    private val spent = mutableMapOf<CatalogStage, Long>()
     fun begin(attempt: String, cycle: String, now: Long) {
         this.attempt = attempt; this.cycle = cycle; stage = CatalogStage.CONNECTING
         totalEnd = now + TOTAL_MS
-        furthest = CatalogStage.CONNECTING
-        stageEnds.clear(); stageEnds[CatalogStage.CONNECTING] = now + CatalogStage.CONNECTING.budgetMs
+        enteredAt = now
+        spent.clear()
     }
     fun advance(attempt: String, cycle: String, next: CatalogStage, now: Long): Boolean {
         val current = stage ?: return false
         if (this.attempt != attempt || this.cycle != cycle || next == current || now >= end()) return false
-        stageEnds.putIfAbsent(next, now + next.budgetMs)
+        spent[current] = (spent[current] ?: 0L) + (now - enteredAt).coerceAtLeast(0)
+        enteredAt = now
         stage = next
-        if (next.ordinal > furthest.ordinal) furthest = next
         return true
     }
     fun remaining(now: Long) = (end() - now).coerceAtLeast(0)
     fun canAccept(attempt: String, cycle: String, now: Long): Boolean =
         stage != null && this.attempt == attempt && this.cycle == cycle && now < end()
-    private fun end() = minOf(totalEnd, stageEnds[stage] ?: totalEnd, stageEnds[furthest] ?: totalEnd)
-    fun clear() { attempt = null; cycle = null; stage = null; stageEnds.clear() }
+    // A real reconnect resumes only the unused active budget; elapsed time in AUTH
+    // cannot consume connection time. The whole-operation wall cap never pauses.
+    private fun end(): Long {
+        val current = stage ?: return totalEnd
+        return minOf(totalEnd, enteredAt + current.budgetMs - (spent[current] ?: 0L))
+    }
+    fun clear() { attempt = null; cycle = null; stage = null; spent.clear() }
     companion object { const val TOTAL_MS = 65_000L }
 }

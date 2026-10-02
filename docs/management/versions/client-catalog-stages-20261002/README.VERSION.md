@@ -1,3 +1,7 @@
+# Active-time stage semantics accepted (source, not device)
+
+Android fb464048 integrated after root technical review: cumulative active time per real stage, budgets20/25/10/10 unchanged, absolute whole65 never paused. Reconnect resumes unused connection budget; duplicate/foreign/expired events do not reset progress. Observed CONNECTING0→DEVICE3→CONNECTING19 now leaves17s connection, DEVICE21 leaves9s device. 43 focused JVM and compile PASS per executor. Earlier first-visit wall semantics below are superseded. Server AUTH nested-budget correction remains separate; this source is for native-first build/install, no blind repeat of the failed server path.
+
 # Visible-stage follow-up (not installed)
 
 Android f62e334 source diff accepted: Orbit subtitle and ServerCatalogView loading now render actual catalogStage.label; working VPN title/selection retained. Executor Kotlin compile PASS. Integrated real-service-channel regression on17d12e7 PASS/race2.037s confirms connecting→checking_device→reconnecting preserves cycle across SERVICE_UNAVAILABLE. Phone bridge stage acceptance remains unlogged; the test does not retroactively prove that phone delivery. Stage accounting correction and server AUTH nested-budget review still pending. No new phone run.

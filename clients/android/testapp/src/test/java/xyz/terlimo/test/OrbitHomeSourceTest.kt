@@ -18,6 +18,21 @@ class OrbitHomeSourceTest {
         assertTrue(orbit.contains("power.isEnabled = preAdmissionConnect ||"))
     }
 
+    @Test fun actualCatalogStageIsVisibleOnOrbitAndCatalogLoadingSurface() {
+        val activity = source("src/main/java/xyz/terlimo/test/MainActivity.kt")
+        val orbit = source("src/main/java/xyz/terlimo/test/OrbitHomeHeader.kt")
+        val catalog = source("src/main/java/xyz/terlimo/test/ServerCatalogView.kt")
+        assertTrue(activity.contains("orbitHeader.render(state, pending != null)"))
+        assertTrue(activity.contains("catalogView.render(state, state.pings)"))
+        val subtitle = orbit.substringAfter("subtitle.text = when {").substringBefore("power.contentDescription")
+        assertTrue(subtitle.contains("state.catalogStage != null -> state.catalogStage.label"))
+        assertTrue(subtitle.indexOf("state.catalogStage") < subtitle.indexOf("connected ->"))
+        assertTrue(catalog.contains("addLoading(state.catalogStage)"))
+        val loading = catalog.substringAfter("private fun addLoading(stage: CatalogStage?)").substringBefore("private fun addIdle()")
+        assertTrue(loading.contains("addView(text(stage?.label ?:"))
+        assertFalse(loading.contains("postDelayed"))
+    }
+
     private fun source(path: String): String = listOf(File(path), File("testapp/$path"))
         .first { it.isFile }.readText()
 

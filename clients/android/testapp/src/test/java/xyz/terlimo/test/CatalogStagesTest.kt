@@ -11,17 +11,30 @@ class CatalogStagesTest {
         assertEquals(25_000L, stages.remaining(19_000))
         assertEquals(1L, stages.remaining(43_999))
     }
-    @Test fun realReconnectDisplaysConnectionWithoutRearmingAuthentication() {
+    @Test fun realReconnectResumesOnlyUnusedActiveBudgets() {
         val stages = CatalogStages(); stages.begin("a", "one", 0)
         assertFalse(stages.advance("a", "one", CatalogStage.CONNECTING, 1_000))
         assertTrue(stages.advance("a", "one", CatalogStage.DEVICE, 5_000))
         assertTrue(stages.advance("a", "one", CatalogStage.CONNECTING, 10_000))
         assertEquals(CatalogStage.CONNECTING, stages.stage)
-        assertEquals(10_000L, stages.remaining(10_000))
+        assertEquals(15_000L, stages.remaining(10_000))
         assertTrue(stages.advance("a", "one", CatalogStage.DEVICE, 12_000))
-        assertEquals(18_000L, stages.remaining(12_000))
+        assertEquals(20_000L, stages.remaining(12_000))
         assertFalse(stages.advance("a", "one", CatalogStage.DEVICE, 15_000))
-        assertEquals(0L, stages.remaining(30_000))
+        assertEquals(0L, stages.remaining(32_000))
+    }
+    @Test fun observedAuthFailureDoesNotSpendConnectionBudgetWhileWaitingForDevice() {
+        val stages = CatalogStages(); stages.begin("a", "one", 0)
+        assertTrue(stages.advance("a", "one", CatalogStage.DEVICE, 3_000))
+        assertTrue(stages.advance("a", "one", CatalogStage.CONNECTING, 19_000))
+        assertEquals(17_000L, stages.remaining(19_000))
+        assertTrue(stages.canAccept("a", "one", 20_000))
+        assertFalse(stages.advance("a", "one", CatalogStage.CONNECTING, 20_000))
+        assertEquals(16_000L, stages.remaining(20_000))
+        assertTrue(stages.advance("a", "one", CatalogStage.DEVICE, 21_000))
+        assertEquals(9_000L, stages.remaining(21_000))
+        assertFalse(stages.advance("a", "one", CatalogStage.SUBSCRIPTION, 30_000))
+        assertFalse(stages.canAccept("a", "one", 30_000))
     }
     @Test fun matchingCatalogAfterDeadlineIsRejectedBeforeDelayedCallback() {
         var clock = 0L; var called = false
