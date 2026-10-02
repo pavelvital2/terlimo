@@ -1,0 +1,19 @@
+{
+  "same_original_TEST_account_installation_binding": true,
+  "unique_run_session": true,
+  "run_session_issued_at_UTC": "2026-10-02T08:31:36.494715+00:00",
+  "entitlement_end_UTC": "2026-10-03T07:41:20.364350+00:00",
+  "entitlement_revision": 2,
+  "renewal_not_repeated": true,
+  "kind_start_device_limit_preserved": true,
+  "gateway": {
+    "state": "applied",
+    "desired_generation": "122",
+    "applied_generation": "122",
+    "lease_seq": "119",
+    "not_after": "2026-10-02 08:46:40.130556+00:00",
+    "applied_not_after": "2026-10-02 08:46:40+00:00",
+    "applied_at": "2026-10-02 08:31:47.934506+00:00",
+    "last_error_present": false
+  }
+}

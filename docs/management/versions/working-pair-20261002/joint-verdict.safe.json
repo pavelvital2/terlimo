@@ -1,0 +1,12 @@
+{
+  "incoming_event": "laptop-20261002-selection-build-acceptance-result-engineer-v1",
+  "flow": "Visible selectedrow after freshRefresh736ms PASS; explicitConnect/VPNboundHTTPS3007ms PASS; oneConnectedRefresh1798ms selectionandnetworkcontinuity PASS; DisconnectOFF PASS exit0",
+  "unmet_checkpoint": "Separate subsequent ordinary credential update BEFORE Connect NOT_OBSERVED",
+  "runtime_ID_equality": "UNKNOWN",
+  "complete_all_checkpoints_acceptance": "NOT_CLAIMED",
+  "full101_or_longstability": "NOT_CLAIMED",
+  "source_build_install": "PASS per verified Laptop original receipt, no repeated gates",
+  "server_runtime_changes": false,
+  "access_renewal_repeated": false,
+  "root_report_event": "terlimo-20261002-selection-acceptance-server-correlated-result-v1"
+}

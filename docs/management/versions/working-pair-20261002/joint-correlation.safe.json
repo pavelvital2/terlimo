@@ -1,0 +1,906 @@
+{
+  "incoming_result_event": "laptop-20261002-selection-build-acceptance-result-engineer-v1",
+  "collection_UTC": "2026-10-02T08:37:34.986201+00:00",
+  "client": {
+    "source": "5a31c7aa1120c6045f76c35b6c02c7e70c61fbec",
+    "apk_sha256": "ef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3",
+    "native_sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+    "native_provenance": "exact reused previously packaged b470 native, original Go vcs remains b470; Go subtree unchanged; no Go build",
+    "planned_t0": "2026-10-02T08:31:00.543530+00:00",
+    "actual_launcher_utc": "2026-10-02T08:31:00.544973+00:00",
+    "attempt": "9e2f48e0-e083-4291-a0d7-cbf8948079ef",
+    "host_pid": 29366,
+    "child_exit_generation": 1,
+    "child_exit_code": 0,
+    "child_exit_boundary": "HOST_STOP/user_cancel",
+    "launcher_count": 1,
+    "gateway_selection_taps": 1,
+    "manual_refresh_count": 2,
+    "catalog_durations_ms": {
+      "autoload": 35564,
+      "pre_connect_refresh": 736,
+      "connected_refresh": 1798
+    },
+    "observed_first_dtls_timeout_ms": 8097,
+    "observations": {
+      "build_install_identity": "PASS",
+      "pre_connect_refresh_selection_display": "PASS, selected before and after, no reselect",
+      "subsequent_ordinary_credential_update_before_connect": "NOT_OBSERVED: after Refresh UI remained browse, no additional safe trace cycle during pre-Connect interval",
+      "runtime_stable_gateway_id_equality": "UNKNOWN; raw bridge IDs not exported by existing safe trace/UI, equality not inferred from names",
+      "vpn_explicit_connect": "PASS",
+      "useful_https": "PASS: existing VPN-bound probe DNS/HTTPS200/expectedExit/READY=true",
+      "connected_refresh_selection_display": "PASS, selected immediate post-refresh, no reselect",
+      "vpn_continuity": "PASS, current network122/creation527391707149 unchanged",
+      "disconnect_off": "PASS",
+      "new_hour_trial_payment": "NOT_TRIGGERED",
+      "all101_or_long_stability": "NOT_CLAIMED"
+    },
+    "readiness": {
+      "statsOk": [
+        "true"
+      ],
+      "handshakePresent": [
+        "true"
+      ],
+      "handshakeFresh": [
+        "true"
+      ],
+      "vpnPresent": [
+        "true"
+      ],
+      "dnsOk": [
+        "true"
+      ],
+      "httpsOk": [
+        "true"
+      ],
+      "httpStatusOk": [
+        "true"
+      ],
+      "expectedExitOk": [
+        "true"
+      ],
+      "ready": [
+        "true"
+      ],
+      "deadline": [
+        "false"
+      ],
+      "stage": [
+        "READY"
+      ],
+      "exceptionClass": [
+        "NONE"
+      ],
+      "failureCode": [
+        "READY"
+      ],
+      "readiness_elapsed_ms": [
+        "3007"
+      ],
+      "config_worker_start_count": [
+        "1"
+      ],
+      "config_worker_ready_count": [
+        "1"
+      ],
+      "data_worker_start_count": [
+        "36"
+      ],
+      "data_worker_ready_count": [
+        "35"
+      ],
+      "local_udp_write_errors": [
+        "0"
+      ]
+    },
+    "vpn_before": {
+      "utc": "2026-10-02T08:35:17.710682+00:00",
+      "vpn_agents": [
+        {
+          "network_id": [
+            "122"
+          ],
+          "creation": [
+            "527391707149"
+          ],
+          "vpn": true
+        }
+      ]
+    },
+    "vpn_after": {
+      "utc": "2026-10-02T08:35:22.725368+00:00",
+      "vpn_agents": [
+        {
+          "network_id": [
+            "122"
+          ],
+          "creation": [
+            "527391707149"
+          ],
+          "vpn": true
+        }
+      ]
+    },
+    "status": "SEQUENCE_COMPLETE_WITH_NOT_OBSERVED_CHECKPOINT_NO_FULL_ACCEPTANCE_CLAIM"
+  },
+  "endpoint_join": {
+    "method": "Exact canonical endpointSHA match, native call/candidate is not server generation or HTTP wire requestID",
+    "available_markers": 11,
+    "all_available_matched": true,
+    "calls": [
+      {
+        "native_call": 1,
+        "candidate": 1,
+        "endpoint_SHA256": "ab8734659d5d31ddcd0fa4ecb4ad9d690757ffa3f1d003e91741de5716c441ac",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "70",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:31:42.463355528Z",
+            "endpoint_hash": "ab8734659d5d31ddcd0fa4ecb4ad9d690757ffa3f1d003e91741de5716c441ac"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "70",
+            "utc": "2026-10-02T08:31:42.463382709Z",
+            "endpoint_hash": "ab8734659d5d31ddcd0fa4ecb4ad9d690757ffa3f1d003e91741de5716c441ac"
+          }
+        ]
+      },
+      {
+        "native_call": 2,
+        "candidate": 1,
+        "endpoint_SHA256": "d9a6113be894212b9199531f68770847b89813e9c8323c634f1a89f68bbf67d3",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "71",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:31:21.91869111Z",
+            "endpoint_hash": "d9a6113be894212b9199531f68770847b89813e9c8323c634f1a89f68bbf67d3"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "71",
+            "utc": "2026-10-02T08:31:40.698161314Z",
+            "endpoint_hash": "d9a6113be894212b9199531f68770847b89813e9c8323c634f1a89f68bbf67d3"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "72",
+            "utc": "2026-10-02T08:31:41.227346779Z",
+            "endpoint_hash": "d9a6113be894212b9199531f68770847b89813e9c8323c634f1a89f68bbf67d3"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "72",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:32:11.228453908Z",
+            "endpoint_hash": "d9a6113be894212b9199531f68770847b89813e9c8323c634f1a89f68bbf67d3"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "72",
+            "utc": "2026-10-02T08:32:11.228497822Z",
+            "endpoint_hash": "d9a6113be894212b9199531f68770847b89813e9c8323c634f1a89f68bbf67d3"
+          }
+        ]
+      },
+      {
+        "native_call": 3,
+        "candidate": 1,
+        "endpoint_SHA256": "32c19df7439d932cd5e51ab88427302af75114fd4b656600d00b164d74dc1b4d",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "73",
+            "utc": "2026-10-02T08:31:42.55780882Z",
+            "endpoint_hash": "32c19df7439d932cd5e51ab88427302af75114fd4b656600d00b164d74dc1b4d"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "73",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:31:42.784967129Z",
+            "endpoint_hash": "32c19df7439d932cd5e51ab88427302af75114fd4b656600d00b164d74dc1b4d"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "73",
+            "utc": "2026-10-02T08:31:47.466882252Z",
+            "endpoint_hash": "32c19df7439d932cd5e51ab88427302af75114fd4b656600d00b164d74dc1b4d"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "74",
+            "utc": "2026-10-02T08:31:47.577765315Z",
+            "endpoint_hash": "32c19df7439d932cd5e51ab88427302af75114fd4b656600d00b164d74dc1b4d"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "74",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:32:17.579031276Z",
+            "endpoint_hash": "32c19df7439d932cd5e51ab88427302af75114fd4b656600d00b164d74dc1b4d"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "74",
+            "utc": "2026-10-02T08:32:17.579089325Z",
+            "endpoint_hash": "32c19df7439d932cd5e51ab88427302af75114fd4b656600d00b164d74dc1b4d"
+          }
+        ]
+      },
+      {
+        "native_call": 4,
+        "candidate": 1,
+        "endpoint_SHA256": "9254a6cab80efd2f47eb3a2add025c3fcf1f1cdea098e8debbd9ca2fc69449df",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "75",
+            "utc": "2026-10-02T08:31:47.737245786Z",
+            "endpoint_hash": "9254a6cab80efd2f47eb3a2add025c3fcf1f1cdea098e8debbd9ca2fc69449df"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "75",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:31:47.990361179Z",
+            "endpoint_hash": "9254a6cab80efd2f47eb3a2add025c3fcf1f1cdea098e8debbd9ca2fc69449df"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "75",
+            "utc": "2026-10-02T08:31:58.346176274Z",
+            "endpoint_hash": "9254a6cab80efd2f47eb3a2add025c3fcf1f1cdea098e8debbd9ca2fc69449df"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "76",
+            "utc": "2026-10-02T08:31:58.508108118Z",
+            "endpoint_hash": "9254a6cab80efd2f47eb3a2add025c3fcf1f1cdea098e8debbd9ca2fc69449df"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "76",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:32:28.508632799Z",
+            "endpoint_hash": "9254a6cab80efd2f47eb3a2add025c3fcf1f1cdea098e8debbd9ca2fc69449df"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "76",
+            "utc": "2026-10-02T08:32:28.508680229Z",
+            "endpoint_hash": "9254a6cab80efd2f47eb3a2add025c3fcf1f1cdea098e8debbd9ca2fc69449df"
+          }
+        ]
+      },
+      {
+        "native_call": 5,
+        "candidate": 1,
+        "endpoint_SHA256": "1a14a447afb5dc05df9fd2d6ab14a442a69e69934e6dbfda1f81efbd019ccd3f",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "77",
+            "utc": "2026-10-02T08:32:32.754524375Z",
+            "endpoint_hash": "1a14a447afb5dc05df9fd2d6ab14a442a69e69934e6dbfda1f81efbd019ccd3f"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "77",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:32:32.955630621Z",
+            "endpoint_hash": "1a14a447afb5dc05df9fd2d6ab14a442a69e69934e6dbfda1f81efbd019ccd3f"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "77",
+            "utc": "2026-10-02T08:32:44.996555973Z",
+            "endpoint_hash": "1a14a447afb5dc05df9fd2d6ab14a442a69e69934e6dbfda1f81efbd019ccd3f"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "78",
+            "utc": "2026-10-02T08:32:45.206373153Z",
+            "endpoint_hash": "1a14a447afb5dc05df9fd2d6ab14a442a69e69934e6dbfda1f81efbd019ccd3f"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "78",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:33:15.207533759Z",
+            "endpoint_hash": "1a14a447afb5dc05df9fd2d6ab14a442a69e69934e6dbfda1f81efbd019ccd3f"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "78",
+            "utc": "2026-10-02T08:33:15.207621003Z",
+            "endpoint_hash": "1a14a447afb5dc05df9fd2d6ab14a442a69e69934e6dbfda1f81efbd019ccd3f"
+          }
+        ]
+      },
+      {
+        "native_call": 6,
+        "candidate": 1,
+        "endpoint_SHA256": "c64dfe7b6cd62ec8068ae66b66fba31e30f474ed2875c3ceee07106854cce303",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "79",
+            "utc": "2026-10-02T08:34:10.634896874Z",
+            "endpoint_hash": "c64dfe7b6cd62ec8068ae66b66fba31e30f474ed2875c3ceee07106854cce303"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "79",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:34:11.804550867Z",
+            "endpoint_hash": "c64dfe7b6cd62ec8068ae66b66fba31e30f474ed2875c3ceee07106854cce303"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "79",
+            "utc": "2026-10-02T08:34:23.231134464Z",
+            "endpoint_hash": "c64dfe7b6cd62ec8068ae66b66fba31e30f474ed2875c3ceee07106854cce303"
+          }
+        ]
+      },
+      {
+        "native_call": 7,
+        "candidate": 1,
+        "endpoint_SHA256": "a59b6f3454c270e6ba7d7db4abe6ab53ea187b0ed67ba7b0c24b8a4410392ab2",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "97",
+            "utc": "2026-10-02T08:34:22.92583176Z",
+            "endpoint_hash": "a59b6f3454c270e6ba7d7db4abe6ab53ea187b0ed67ba7b0c24b8a4410392ab2"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "97",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:34:23.136215861Z",
+            "endpoint_hash": "a59b6f3454c270e6ba7d7db4abe6ab53ea187b0ed67ba7b0c24b8a4410392ab2"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "97",
+            "utc": "2026-10-02T08:34:34.715510524Z",
+            "endpoint_hash": "a59b6f3454c270e6ba7d7db4abe6ab53ea187b0ed67ba7b0c24b8a4410392ab2"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "117",
+            "utc": "2026-10-02T08:34:34.868763589Z",
+            "endpoint_hash": "a59b6f3454c270e6ba7d7db4abe6ab53ea187b0ed67ba7b0c24b8a4410392ab2"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "117",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:35:04.869008871Z",
+            "endpoint_hash": "a59b6f3454c270e6ba7d7db4abe6ab53ea187b0ed67ba7b0c24b8a4410392ab2"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "117",
+            "utc": "2026-10-02T08:35:04.869048366Z",
+            "endpoint_hash": "a59b6f3454c270e6ba7d7db4abe6ab53ea187b0ed67ba7b0c24b8a4410392ab2"
+          }
+        ]
+      },
+      {
+        "native_call": 8,
+        "candidate": 1,
+        "endpoint_SHA256": "560c568ea8f5f067895ae58196f25e136c62bfbe4329c91e866d918f33008bf5",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "118",
+            "utc": "2026-10-02T08:34:40.095515397Z",
+            "endpoint_hash": "560c568ea8f5f067895ae58196f25e136c62bfbe4329c91e866d918f33008bf5"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "118",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:34:40.296060067Z",
+            "endpoint_hash": "560c568ea8f5f067895ae58196f25e136c62bfbe4329c91e866d918f33008bf5"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "118",
+            "utc": "2026-10-02T08:34:51.836921692Z",
+            "endpoint_hash": "560c568ea8f5f067895ae58196f25e136c62bfbe4329c91e866d918f33008bf5"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "119",
+            "utc": "2026-10-02T08:34:51.948916059Z",
+            "endpoint_hash": "560c568ea8f5f067895ae58196f25e136c62bfbe4329c91e866d918f33008bf5"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "119",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:35:21.949451013Z",
+            "endpoint_hash": "560c568ea8f5f067895ae58196f25e136c62bfbe4329c91e866d918f33008bf5"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "119",
+            "utc": "2026-10-02T08:35:21.949485249Z",
+            "endpoint_hash": "560c568ea8f5f067895ae58196f25e136c62bfbe4329c91e866d918f33008bf5"
+          }
+        ]
+      },
+      {
+        "native_call": 9,
+        "candidate": 1,
+        "endpoint_SHA256": "aefb40d3bab7ebc8b928eed6a53d252ff9fe58d25ce738c97facd9b0d45e111b",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "120",
+            "utc": "2026-10-02T08:34:57.085531628Z",
+            "endpoint_hash": "aefb40d3bab7ebc8b928eed6a53d252ff9fe58d25ce738c97facd9b0d45e111b"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "120",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:34:57.338935537Z",
+            "endpoint_hash": "aefb40d3bab7ebc8b928eed6a53d252ff9fe58d25ce738c97facd9b0d45e111b"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "120",
+            "utc": "2026-10-02T08:35:08.155946974Z",
+            "endpoint_hash": "aefb40d3bab7ebc8b928eed6a53d252ff9fe58d25ce738c97facd9b0d45e111b"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "121",
+            "utc": "2026-10-02T08:35:08.298461335Z",
+            "endpoint_hash": "aefb40d3bab7ebc8b928eed6a53d252ff9fe58d25ce738c97facd9b0d45e111b"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "121",
+            "handshake": "fail",
+            "utc": "2026-10-02T08:35:38.298730962Z",
+            "endpoint_hash": "aefb40d3bab7ebc8b928eed6a53d252ff9fe58d25ce738c97facd9b0d45e111b"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "121",
+            "utc": "2026-10-02T08:35:38.29877241Z",
+            "endpoint_hash": "aefb40d3bab7ebc8b928eed6a53d252ff9fe58d25ce738c97facd9b0d45e111b"
+          }
+        ]
+      },
+      {
+        "native_call": 10,
+        "candidate": 1,
+        "endpoint_SHA256": "a1fb7c9e51536939398b1e639a3f86934903fd50bc71442a5aa83555481a7341",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "122",
+            "utc": "2026-10-02T08:35:13.170994862Z",
+            "endpoint_hash": "a1fb7c9e51536939398b1e639a3f86934903fd50bc71442a5aa83555481a7341"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "122",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:35:13.381318713Z",
+            "endpoint_hash": "a1fb7c9e51536939398b1e639a3f86934903fd50bc71442a5aa83555481a7341"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "122",
+            "utc": "2026-10-02T08:35:29.903914955Z",
+            "endpoint_hash": "a1fb7c9e51536939398b1e639a3f86934903fd50bc71442a5aa83555481a7341"
+          }
+        ]
+      },
+      {
+        "native_call": 11,
+        "candidate": 1,
+        "endpoint_SHA256": "3f06635da6adb922c556b0dcf3c61bea12edbef4c12291400c4190bfce17d546",
+        "server_DTLS_events": [
+          {
+            "marker": "DTLSCONN",
+            "event": "accept",
+            "gen": "123",
+            "utc": "2026-10-02T08:35:30.14005346Z",
+            "endpoint_hash": "3f06635da6adb922c556b0dcf3c61bea12edbef4c12291400c4190bfce17d546"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "handshake",
+            "gen": "123",
+            "handshake": "ok",
+            "service": "true",
+            "utc": "2026-10-02T08:35:30.362204053Z",
+            "endpoint_hash": "3f06635da6adb922c556b0dcf3c61bea12edbef4c12291400c4190bfce17d546"
+          },
+          {
+            "marker": "DTLSCONN",
+            "event": "close",
+            "gen": "123",
+            "utc": "2026-10-02T08:35:39.183129902Z",
+            "endpoint_hash": "3f06635da6adb922c556b0dcf3c61bea12edbef4c12291400c4190bfce17d546"
+          }
+        ]
+      }
+    ]
+  },
+  "server_identity": {
+    "same_original_TEST_account_installation_binding": true,
+    "unique_run_session": true,
+    "run_session_issued_at_UTC": "2026-10-02T08:31:36.494715+00:00",
+    "entitlement_end_UTC": "2026-10-03T07:41:20.364350+00:00",
+    "entitlement_revision": 2,
+    "renewal_not_repeated": true,
+    "kind_start_device_limit_preserved": true,
+    "gateway": {
+      "state": "applied",
+      "desired_generation": "122",
+      "applied_generation": "122",
+      "lease_seq": "119",
+      "not_after": "2026-10-02 08:46:40.130556+00:00",
+      "applied_not_after": "2026-10-02 08:46:40+00:00",
+      "applied_at": "2026-10-02 08:31:47.934506+00:00",
+      "last_error_present": false
+    }
+  },
+  "HTTP_records": [
+    {
+      "server_log_timestamp": "2026-10-02 11:31:32",
+      "method": "POST",
+      "path": "/api/mobile/v1/auth/challenge",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 553
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:36",
+      "method": "POST",
+      "path": "/api/mobile/v1/auth/session",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 709
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:38",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:38",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": true,
+      "HTTP_status": 200,
+      "access_response_bytes": 561
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:39",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:39",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 409,
+      "access_response_bytes": 502
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:40",
+      "method": "POST",
+      "path": "/api/mobile/v1/access/sync",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 722
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:43",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 409,
+      "access_response_bytes": 502
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:44",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:44",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 409,
+      "access_response_bytes": 502
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:45",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 409,
+      "access_response_bytes": 502
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:47",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:47",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 409,
+      "access_response_bytes": 502
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:31:48",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1251
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:32:33",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:32:33",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": true,
+      "HTTP_status": 200,
+      "access_response_bytes": 561
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:12",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:12",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1251
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:23",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:24",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1251
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:24",
+      "method": "POST",
+      "path": "/api/mobile/v1/access/sync",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 721
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:41",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:41",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1251
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:57",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:34:57",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1251
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:35:13",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:35:13",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1251
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:35:19",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:35:20",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": true,
+      "HTTP_status": 200,
+      "access_response_bytes": 561
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:35:30",
+      "method": "GET",
+      "path": "/api/mobile/v1/me",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1846
+    },
+    {
+      "server_log_timestamp": "2026-10-02 11:35:31",
+      "method": "GET",
+      "path": "/api/mobile/v1/gateways",
+      "explicit_browse_query": false,
+      "HTTP_status": 200,
+      "access_response_bytes": 1251
+    }
+  ],
+  "forward_counts": {
+    "AUTH:200": 2,
+    "ME:200": 12,
+    "GATEWAYS:200": 10,
+    "ANNOUNCEMENTS:200": 1,
+    "GATEWAYS:409": 5,
+    "ACCESS:200": 2,
+    "OPERATION:200": 4,
+    "USAGE:200": 5
+  },
+  "managed_stage_counts": {
+    "auth_ok": 36,
+    "first_read_accepted": 36,
+    "config_written": 1,
+    "first_record": 36,
+    "relay_attached": 36,
+    "auth_failed": 1,
+    "read": 36,
+    "forced_deadline": 36,
+    "relay_read_exit": 1
+  },
+  "client_original_hashes": {
+    "result.json": "63217b5347fd96c4627eeb81fb662ecc001179ffd3959eb3f7283e8ac9ba443e",
+    "original-safe-trace.log": "722d964f6e317f8266e4bb46711b16e536daa7b500784d28c9812ffde2f7b119"
+  },
+  "limits": [
+    "Separate subsequent ordinary credential snapshot before Connect NOT_OBSERVED. Existing source proof remains separate.",
+    "Runtime stablegateway ID equality UNKNOWN; no inference from displayed name or endpoint.",
+    "Initial native DTLS timeout8097ms internally recovered; autoload35564ms is observed, not a repeat host launcher.",
+    "AUTH11005/988ms belowold15s; no old auth delay fix or upperdeadline proof.",
+    "Cross-clock offset and exact xid/HTTPrequestID join not proven.",
+    "HTTPS/systemVPN evidence is original client ordinary probe/system readback; server supporting evidence alone is not HTTPS proof.",
+    "Fresh VPN consent NOT_TESTED, existing permission reused; all101/longtermstability NOT_CLAIMED."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "event_id": "whitelist-20261002-working-pair-server-passports-v1",
+  "documentation_only": true,
+  "files": {
+    "server": {
+      "local_passport": "/home/pavel/terlimo-test-a-live/README.VERSION.md",
+      "handoff_file": "/home/pavel/step036-receipts/private/s5-working-pair-passports-20261002/README.SERVER.VERSION.md",
+      "before_SHA256": "179d776ff2388b255c65ef5edeff4edc86a0f4634bdbc15277ac9c5cdca861c3",
+      "after_SHA256": "7544b406f266798db2eb353236f4e8bc54cc98ed2f03853588a0d93534a161cc",
+      "size_bytes": 50371
+    },
+    "gateway": {
+      "local_passport": "/tmp/terlimo-auth-terminal-error-20261001/README.VERSION.md",
+      "handoff_file": "/home/pavel/step036-receipts/private/s5-working-pair-passports-20261002/README.GATEWAY.VERSION.md",
+      "before_SHA256": "5968ff7fb2f189ae98fafed9a7068055ff14d7d3b05a43a9e3aee9ea606e694d",
+      "after_SHA256": "365445e628ad627f88b585b6f265360e6bdaad1a7e704ca8363deb521bf32f4e",
+      "size_bytes": 45595
+    }
+  },
+  "historical_rows_unchanged": {
+    "server": {
+      "count": 101,
+      "byte_exact": true,
+      "SHA256": "aa9f1a5faa26673998fc256846f9024069ba7620b5de577b68f294e90ed86f2c"
+    },
+    "gateway": {
+      "count": 101,
+      "byte_exact": true,
+      "SHA256": "aa9f1a5faa26673998fc256846f9024069ba7620b5de577b68f294e90ed86f2c"
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "collected_UTC": "2026-10-02T08:37:34.824192+00:00",
+  "logs": {
+    "api.log": {
+      "original_start": 3410369,
+      "actual_start": 3410369,
+      "end": 3424447,
+      "bytes": 14078,
+      "sha256": "74c2f64a6561dd158b323f96b9c182e6a37f300764234f2eba3620e1732f8479",
+      "original_inode": 845979,
+      "current_inode": 845979,
+      "original_interval_preserved": true,
+      "gap": "NONE detected"
+    },
+    "service-relay.log": {
+      "original_start": 75683,
+      "actual_start": 75683,
+      "end": 75683,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_inode": 846056,
+      "current_inode": 846056,
+      "original_interval_preserved": true,
+      "gap": "NONE detected"
+    },
+    "gateway-usage.log": {
+      "original_start": 13772449,
+      "actual_start": 13772449,
+      "end": 13868119,
+      "bytes": 95670,
+      "sha256": "d3b61d5f274516137742930f3c99a44ec8e25cdc275fb78f16e9046daa7d289a",
+      "original_inode": 846238,
+      "current_inode": 846238,
+      "original_interval_preserved": true,
+      "gap": "NONE detected"
+    },
+    "worker.log": {
+      "original_start": 215013,
+      "actual_start": 215013,
+      "end": 220065,
+      "bytes": 5052,
+      "sha256": "9a65d109806811dbbf69e10e133e6aba32e171c73df2a3f6b4792e80c894fcc6",
+      "original_inode": 845981,
+      "current_inode": 845981,
+      "original_interval_preserved": true,
+      "gap": "NONE detected"
+    }
+  },
+  "limits": "Server log offsets, not original phone capture completeness. Raw logs private, not exported."
+}
