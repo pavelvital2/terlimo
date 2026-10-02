@@ -94,6 +94,11 @@ func (c *Client) request(ctx context.Context, method, path string, body any, ide
 // the public /plans read: no Authorization header is attached and the TokenSource is
 // never consulted on that path.
 func (c *Client) requestWith(ctx context.Context, method, path string, body any, idempotencyKey string, withBearer bool) ([]byte, int, error) {
+	return c.requestWithQuery(ctx, method, path, body, idempotencyKey, withBearer, "")
+}
+
+// Keep the route passed to observation hooks separate from its wire query.
+func (c *Client) requestWithQuery(ctx context.Context, method, path string, body any, idempotencyKey string, withBearer bool, query string) ([]byte, int, error) {
 	if c.BaseURL == "" || c.HTTP == nil {
 		return nil, 0, fmt.Errorf("accountaccess client not configured")
 	}
@@ -108,6 +113,9 @@ func (c *Client) requestWith(ctx context.Context, method, path string, body any,
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, reader)
 	if err != nil {
 		return nil, 0, err
+	}
+	if query != "" {
+		req.URL.RawQuery = query
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -238,13 +246,27 @@ func (c *Client) ActivateTrial(ctx context.Context) (TrialActivation, *ErrorResp
 // application-failure 503 is never an instruction to clear the last-good catalog, and
 // a transport error is never turned into an empty list.
 func (c *Client) GetGateways(ctx context.Context) (Gateways, *ErrorResponse, error) {
-	raw, status, err := c.request(ctx, http.MethodGet, "/gateways", nil, "")
+	return c.getGateways(ctx, false)
+}
+
+// GetDisplayGateways explicitly requests metadata only, regardless of data rights.
+// A credential response is a contract error, never a fallback for this operation.
+func (c *Client) GetDisplayGateways(ctx context.Context) (Gateways, *ErrorResponse, error) {
+	return c.getGateways(ctx, true)
+}
+
+func (c *Client) getGateways(ctx context.Context, displayOnly bool) (Gateways, *ErrorResponse, error) {
+	query := ""
+	if displayOnly {
+		query = "view=browse"
+	}
+	raw, status, err := c.requestWithQuery(ctx, http.MethodGet, "/gateways", nil, "", true, query)
 	if err != nil {
 		return Gateways{}, nil, err
 	}
 	if status == http.StatusOK {
 		gateways, err := DecodeGatewaysStrict(raw)
-		if err != nil {
+		if err != nil || (displayOnly && gateways.Browse == nil) {
 			return Gateways{}, nil, fmt.Errorf("%w: malformed registered node", ErrMalformedCatalog)
 		}
 		return gateways, nil, nil

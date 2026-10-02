@@ -21,6 +21,12 @@ type RunnerConfig struct {
 	Coordinator *Coordinator
 	Emit        func(ctx context.Context, payload map[string]any) error
 	OnVerified  func(me MeResponse, catalog CatalogResponse)
+	// DisplayOnly chooses the explicit browse read for this operation. It never
+	// starts/replays sync and never publishes a credential pair.
+	DisplayOnly func(context.Context) bool
+	// OnMe receives the accepted current subject snapshot after a successful refresh,
+	// including a duplicate. Canceled/stale operations cannot update this cache.
+	OnMe func(MeResponse)
 	// OnBrowse receives the display-only browse catalog. It never replaces the
 	// verified pair, never feeds the store/admission path and is never emitted
 	// through OnVerified.
@@ -297,6 +303,18 @@ func (r *Runner) cycle(ctx context.Context) (*CatalogResponse, *BrowseCatalogRes
 		}
 		return nil, nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	displayOnly := r.config.DisplayOnly != nil && r.config.DisplayOnly(ctx)
+	if result.State == StateApplied && !result.Dropped && !result.Coalesced {
+		if me, ok := currentMe(r.config.Coordinator); ok && r.config.OnMe != nil {
+			r.config.OnMe(me)
+		}
+	} else if displayOnly {
+		// An unaccepted /me cannot authorize publication for this display cycle.
+		return nil, nil, nil
+	}
 	if result.Projection != nil {
 		r.stage(cycleStageEmitBegin)
 		if err := r.config.Emit(ctx, result.Projection.Payload()); err != nil {
@@ -310,6 +328,9 @@ func (r *Runner) cycle(ctx context.Context) (*CatalogResponse, *BrowseCatalogRes
 		r.stage(cycleStageEmitEndOK)
 	}
 	r.stage(cycleStageGWRefreshBegin)
+	if displayOnly {
+		return r.displayCatalog(ctx)
+	}
 	catalogResult, err := r.config.Coordinator.RefreshCatalog(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -420,6 +441,47 @@ func (r *Runner) cycle(ctx context.Context) (*CatalogResponse, *BrowseCatalogRes
 		}
 	}
 	return catalog, nil, nil
+}
+
+func (r *Runner) displayCatalog(ctx context.Context) (*CatalogResponse, *BrowseCatalogResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	// A list refresh must still enforce fresh revocation for an already selected
+	// VPN. Use only the existing verified catalog, never the metadata response.
+	var retained *CatalogResponse
+	if me, ok := currentMe(r.config.Coordinator); ok && r.config.SelectedNodeID != nil {
+		if selected := r.config.SelectedNodeID(); selected != "" {
+			retained = r.config.Coordinator.LastGood()
+			if retained != nil && r.config.OnAdmission != nil {
+				r.config.OnAdmission(DecideAdmission(me, *retained, selected, r.config.Now()))
+			}
+		}
+	}
+	result, err := r.config.Coordinator.RefreshDisplayCatalog(ctx)
+	if err != nil {
+		return retained, nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return retained, nil, err
+	}
+	if result.Browse != nil && r.config.OnBrowse != nil {
+		r.config.OnBrowse(*result.Browse)
+	}
+	// Retain the selected VPN's refresh/lease schedule instead of replacing it
+	// with the unrelated browse cache TTL.
+	return retained, result.Browse, nil
+}
+
+func currentMe(coordinator *Coordinator) (MeResponse, bool) {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	if coordinator.lastMe == nil || !coordinator.subjectSet ||
+		coordinator.lastMeSubject != coordinator.subject || coordinator.lastMeTick != coordinator.sessionTick ||
+		coordinator.subject != coordinator.opts.Subject() {
+		return MeResponse{}, false
+	}
+	return *coordinator.lastMe, true
 }
 
 // lastMe is a read-only snapshot helper; it never mutates the coordinator.

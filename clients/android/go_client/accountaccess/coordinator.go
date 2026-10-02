@@ -393,6 +393,35 @@ func (c *Coordinator) accepted(me MeResponse, projection Projection) (Result, er
 	return Result{State: StateApplied, Projection: &projection}, nil
 }
 
+// RefreshDisplayCatalog reads the explicit metadata projection under the current
+// subject/session fence. It never changes last-good, admission tokens or receipts,
+// including when the server returns an admission error or a credential catalog.
+func (c *Coordinator) RefreshDisplayCatalog(ctx context.Context) (CatalogResult, error) {
+	if err := ctx.Err(); err != nil {
+		return CatalogResult{State: StateStale, Dropped: true}, err
+	}
+	c.mu.Lock()
+	tick := c.sessionTick
+	c.mu.Unlock()
+	requestSubject := c.opts.Subject()
+	gateways, apiError, err := c.opts.Client.GetDisplayGateways(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if canceled := ctx.Err(); canceled != nil {
+		return CatalogResult{State: StateStale, Dropped: true}, canceled
+	}
+	if tick != c.sessionTick || !c.subjectSet || requestSubject != c.subject || requestSubject != c.opts.Subject() {
+		return CatalogResult{State: StateStale, Dropped: true}, nil
+	}
+	if err != nil {
+		return CatalogResult{State: StateFailed}, err
+	}
+	if apiError != nil {
+		return CatalogResult{State: StateFailed}, apiStatus(apiError)
+	}
+	return CatalogResult{State: StateApplied, Browse: gateways.Browse}, nil
+}
+
 // RefreshCatalog reads GET /gateways. Only an authoritative 200 may replace or clear
 // the last-good catalog; 409 pending and 503 failure keep it.
 func (c *Coordinator) RefreshCatalog(ctx context.Context) (CatalogResult, error) {
