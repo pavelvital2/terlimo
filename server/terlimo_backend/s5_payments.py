@@ -155,6 +155,21 @@ def _contract2(request):
     return request.query.get("payment_contract") == "2"
 
 
+def _quote_selection_proven(row, product) -> bool:
+    """Only a complete frozen product selection may certify quote-only expiry."""
+    if not product or product.get("plan_id") != row["plan_id"] or row["method"] not in S5_METHODS:
+        return False
+    base, extra = product.get("base_amount_minor"), product.get("extra_amount_minor")
+    if type(base) is not int or type(extra) is not int or base + extra != int(row["amount_minor"]):
+        return False
+    if product.get("kind") == "subscription":
+        plan = PLAN_MONTHS.get(row["plan_id"])
+        return plan is not None and (int(row["months"]), row["duration_code"]) == plan[:2]
+    return (product.get("kind") == "device_addon" and row["plan_id"] == ADDON_PLAN
+            and int(row["months"]) == 0 and product.get("valid_until") is not None
+            and row["duration_code"] == "until:" + product["valid_until"])
+
+
 def _with_product(payload, order, contract2):
     if contract2:
         product = order_product(order)
@@ -322,30 +337,50 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
             quote_id = _uuid(body["quote_id"], code="QUOTE_EXPIRED")
             async with database.acquire() as connection:
                 context = await authenticate_session(connection, settings, token)
-                row = await connection.fetchrow(
-                    "SELECT * FROM s5_payment_quotes WHERE id=$1 AND installation_id=$2",
-                    quote_id, context.installation_id,
-                )
-                if row is None:
-                    raise ApiError("NOT_FOUND", http=404)
-                # Wait for any prior create before reading durable state or rejecting
-                # expiry. create_order reenters this same connection/session lock.
-                async with payment_install_lock(connection, context.installation_id):
-                    # Durable replay wins over freshness: an exact same-key retry must reach
-                    # create_order (which returns its prior order) even after quote expiry. Only a
-                    # genuinely new order may fail QUOTE_EXPIRED.
+                installation_id = context.installation_id
+                # Wait for prior create; then refresh authentication, owner and quote.
+                # create_order reenters this same connection/session lock.
+                async with payment_install_lock(connection, installation_id):
+                    context = await authenticate_session(connection, settings, token)
+                    if context.installation_id != installation_id:
+                        raise AuthError("SESSION_INVALID", 401)
+                    # Global key conflicts and all durable states outrank freshness.
                     durable = await connection.fetchrow(
-                        "SELECT 1 FROM payment_orders WHERE installation_id=$1 AND idempotency_key=$2",
-                        context.installation_id,
-                        key,
+                        "SELECT * FROM payment_orders WHERE idempotency_key=$1", key,
                     )
+                    row = await connection.fetchrow(
+                        "SELECT * FROM s5_payment_quotes WHERE id=$1 AND installation_id=$2",
+                        quote_id, installation_id,
+                    )
+                    if row is None:
+                        raise ApiError("NOT_FOUND", http=404)
+                    if durable is None:
+                        if await connection.fetchval(
+                            "SELECT 1 FROM payment_orders WHERE source_quote_id=$1 LIMIT 1", quote_id,
+                        ) is not None:
+                            raise ApiError("ORDER_CONFLICT", http=409,
+                                           details={"reason": "quote_already_used"})
+                        if await connection.fetchval(
+                            "SELECT 1 FROM payment_orders WHERE installation_id=$1 "
+                            "AND provider_create_state IN ('in_flight','unknown') LIMIT 1", installation_id,
+                        ) is not None:
+                            raise ApiError("PAYMENT_PROVIDER_UNKNOWN", http=503, retryable=False,
+                                           details={"reason": "unresolved_unknown_order"})
                     product = product_of(row)
                     if product and not _contract2(request):
                         raise ApiError("BAD_MESSAGE",http=400)
                     if product and durable is None and (not context.binding or context.binding["status"] != "active" or product["owner_account_id"] != str(context.account_id)):
                         raise ApiError("PAYMENT_NOT_FOUND",http=404)
+                    buyer = _quoted_settings(settings, context.account_id, row, durable=durable is not None)
                     if row["expires_at"] <= datetime.now(UTC) and durable is None:
-                        raise ApiError("QUOTE_EXPIRED", http=409)
+                        proven = (context.account_id is not None and context.binding is not None
+                                  and context.binding["status"] == "active"
+                                  and product is not None
+                                  and product["owner_account_id"] == str(context.account_id)
+                                  and row["currency"] == settings.payment_currency
+                                  and _quote_selection_proven(row, product))
+                        raise ApiError("QUOTE_EXPIRED", http=409, retryable=False,
+                                       details={"reason": "expired_quote_no_order"} if proven else None)
                     # Minimal quote->order wiring: create_order applies the C4 invariants (durable
                     # same-key replay, exact installation-bound quote proof, no second provider
                     # create). With the provider disabled create_order fails closed BEFORE any
@@ -355,7 +390,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     try:
                         result = await create_order(
                             connection,
-                            _quoted_settings(settings, context.account_id, row, durable=durable is not None),
+                            buyer,
                             app[PAYMENT_PROVIDER_KEY],
                             installation_id=context.installation_id,
                             months=int(row["months"]),
