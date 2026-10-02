@@ -10,11 +10,11 @@
       "size_bytes": 50371
     },
     "gateway": {
-      "local_passport": "/tmp/terlimo-auth-terminal-error-20261001/README.VERSION.md",
+      "local_passport": "/home/pavel/step036-device-stage/pkg/bin/README.VERSION.md",
       "handoff_file": "/home/pavel/step036-receipts/private/s5-working-pair-passports-20261002/README.GATEWAY.VERSION.md",
-      "before_SHA256": "5968ff7fb2f189ae98fafed9a7068055ff14d7d3b05a43a9e3aee9ea606e694d",
-      "after_SHA256": "365445e628ad627f88b585b6f265360e6bdaad1a7e704ca8363deb521bf32f4e",
-      "size_bytes": 45595
+      "before_SHA256": "428b50cdf3772580599dd286735d6a7cef54356b759a862399bd9f6d2ffddff6",
+      "after_SHA256": "2f4e0be78192e52c3aba2204f4c395a5ec6c4009d5b0eb1e5dacbd4e41547cdf",
+      "size_bytes": 43417
     }
   },
   "historical_rows_unchanged": {
@@ -28,5 +28,6 @@
       "byte_exact": true,
       "SHA256": "aa9f1a5faa26673998fc256846f9024069ba7620b5de577b68f294e90ed86f2c"
     }
-  }
+  },
+  "revision": "v2 installed gateway passport with later accepted build/install history; source checkout documentation restored"
 }
