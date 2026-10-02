@@ -1370,6 +1370,7 @@ class SessionService : Service() {
                             // this accepted fresh /me projection with an active entitlement.
                             // No payment status, redirect or checkout return writes access.
                             val accountRef = updated.projection.account.accountRef
+                            if (purchaseVerifiedAccountRef != accountRef) purchaseFlight.invalidateCreateProof()
                             purchaseVerifiedAccountRef = accountRef
                             val previousPurchase = view.purchase
                             val ownerMatches = accountRef != null && previousPurchase?.ownerAccountRef == accountRef
@@ -2071,6 +2072,7 @@ class SessionService : Service() {
                             }
                         }
                         purchaseFlight.attachKey(flight, record.paymentKey)
+                        purchaseFlight.attachCreate(flight, record, storage.installationId())
                         publishActive(attempt, view.copy(purchase = (view.purchase ?: PurchaseState()).copy(
                             recovery = "unknown_create", ownerAccountRef = record.order?.accountRef)))
                         JSONObject().put("type", PaymentsContract.ACTION_PAYMENT_CREATE)
@@ -2137,6 +2139,22 @@ class SessionService : Service() {
         }
         when (parsed) {
             is PaymentsEvent.Failure -> {
+                if (parsed.expiredNoOrder) {
+                    paymentCreates.clear()
+                    val resolved = runCatching {
+                        check(view.purchase?.payment == null)
+                        purchaseAttempts.resolveExpiredNoOrder(holder, attempt, purchaseVerifiedAccountRef,
+                            storage.installationId(), event.toString())
+                    }.getOrNull()
+                    val result = if (resolved != null)
+                        PurchaseFlow.expiredNoOrderState(view.purchase, resolved.order!!.accountRef)
+                    else PurchaseFlow.failure(purchaseAttempts.recoveryState(purchaseVerifiedAccountRef)
+                        ?: view.purchase, "TRANSPORT")
+                    // UI unblocks only after the encrypted intent/history/result commit returns.
+                    publishActive(attempt, view.copy(purchase = result))
+                    if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                    return
+                }
                 if (parsed.code == "IDEMPOTENCY_CONFLICT") {
                     runCatching { purchaseAttempts.restart() }
                     paymentCreates.clear()

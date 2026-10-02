@@ -74,6 +74,7 @@ internal object PurchaseFlow {
     const val AWAITING_PAYMENT = "awaiting_payment"
     const val AWAITING_CONFIRMATION = "awaiting_confirmation"
     const val CONFIRMED = "confirmed"
+    const val EXPIRED_NO_ORDER = "expired_no_order"
     const val UNAVAILABLE = "unavailable"
     const val ERROR = "error"
 
@@ -202,6 +203,12 @@ internal object PurchaseFlow {
             product.deviceDelta == plan.product?.deviceDelta && quote.deviceLimit == product.deviceLimit &&
             (product.kind != "subscription" || product.deviceLimit == plan.baseDeviceLimit + selected.renewExtraSlotIds.size)
     }
+
+    /** Called only after the definitive no-create proof has been committed durably. */
+    fun expiredNoOrderState(current: PurchaseState?, owner: String): PurchaseState = PurchaseState(
+        phase = EXPIRED_NO_ORDER, ownerAccountRef = owner,
+        plansRevision = current?.plansRevision, plans = current?.plans.orEmpty(),
+    )
 
     fun quoteExpired(current: PurchaseState?, now: Instant): Boolean {
         val quote = current?.quote ?: return false

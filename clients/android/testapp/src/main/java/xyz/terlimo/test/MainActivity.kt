@@ -1717,13 +1717,15 @@ class MainActivity : Activity() {
         displayedPurchaseQuote = quote.takeIf { offered && !sending && !bindingPaid }
         purchasePayButton.isEnabled = displayedPurchaseQuote != null
 
-        if (!offered || state.purchase?.phase == PurchaseFlow.ERROR || state.purchase?.phase == PurchaseFlow.UNAVAILABLE) {
+        if (!offered || state.purchase?.phase in setOf(PurchaseFlow.ERROR, PurchaseFlow.UNAVAILABLE,
+                PurchaseFlow.EXPIRED_NO_ORDER)) {
             checkoutOpenPolicy.clearAwaiting()
         }
         val open = if (offered) checkoutOpenPolicy.autoOpenAfterPay(state.purchase?.createAck) else null
         if (open != null) launchCheckoutBrowser(open)
         purchaseStatus.text = purchaseStatusLine(state, registration)
         if (purchaseMethod != null && !bindingPaid && quote == null &&
+            state.purchase?.phase != PurchaseFlow.EXPIRED_NO_ORDER &&
             (!sending || state.purchase?.quote == null)) {
             purchaseStatus.append("\n" + if (sending) PaymentsText.PRICE_WAIT_TEXT else PaymentsText.PRICE_RETRY_TEXT)
         }

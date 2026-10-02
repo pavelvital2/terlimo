@@ -501,6 +501,17 @@ func (c *Client) CreatePayment(ctx context.Context, quoteID, idempotencyKey stri
 	if decodeErr != nil {
 		return PaymentResponse{}, nil, decodeErr
 	}
+	// An omitted/null retryable is not an explicit final verdict. Generic error
+	// decoding stays compatible; only this create response can carry the proof.
+	var finality struct {
+		Retryable *bool `json:"retryable"`
+	}
+	if json.Unmarshal(raw, &finality) == nil {
+		reason, _ := envelope.Details["reason"].(string)
+		envelope.expiredQuoteNoOrder = status == http.StatusConflict &&
+			envelope.Code == "QUOTE_EXPIRED" && finality.Retryable != nil && !*finality.Retryable &&
+			reason == "expired_quote_no_order"
+	}
 	return PaymentResponse{}, envelope, nil
 }
 
@@ -553,4 +564,9 @@ func (c *Client) CreateCheckoutSession(ctx context.Context, paymentID, idempoten
 		return CheckoutSessionResponse{}, nil, decodeErr
 	}
 	return CheckoutSessionResponse{}, envelope, nil
+}
+
+// ExpiredQuoteNoOrder is a bounded definitive verdict, available only on CreatePayment.
+func (e *ErrorResponse) ExpiredQuoteNoOrder() bool {
+	return e != nil && e.expiredQuoteNoOrder
 }

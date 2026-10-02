@@ -56,10 +56,14 @@ internal sealed class PaymentsEvent {
     data class Quote(val quote: PaymentQuote) : PaymentsEvent()
     /** `type` is the parsed wire type: exactly TYPE_PAYMENT_CREATE_RESULT or TYPE_PAYMENT_GET_RESULT. */
     data class Payment(val type: String, val payment: PaymentStatusView) : PaymentsEvent()
-    data class Failure(val type: String, val code: String) : PaymentsEvent()
+    data class Failure(val type: String, val code: String, val reason: String? = null) : PaymentsEvent() {
+        val expiredNoOrder: Boolean get() = type == PaymentsContract.TYPE_PAYMENT_CREATE_RESULT &&
+            code == "QUOTE_EXPIRED" && reason == PaymentsContract.EXPIRED_NO_ORDER_REASON
+    }
 }
 
 internal object PaymentsContract {
+    const val EXPIRED_NO_ORDER_REASON = "expired_quote_no_order"
     const val TYPE_PLANS_LIST_RESULT = "plans_list_result"
     const val TYPE_QUOTE_CREATE_RESULT = "quote_create_result"
     const val TYPE_PAYMENT_CREATE_RESULT = "payment_create_result"
@@ -148,10 +152,16 @@ internal object PaymentsContract {
             val keys = event.keys().asSequence().toSet()
             return when (state) {
                 "error" -> {
-                    check(keys == ERROR_KEYS) { "PAYMENTS_INVALID" }
+                    check(keys == ERROR_KEYS || keys == ERROR_KEYS + "reason") { "PAYMENTS_INVALID" }
                     val code = event.getString("code")
                     check(code in ERROR_CODES) { "PAYMENTS_INVALID" }
-                    PaymentsEvent.Failure(type, code)
+                    val reason = if (event.has("reason")) {
+                        check(type == TYPE_PAYMENT_CREATE_RESULT && code == "QUOTE_EXPIRED" &&
+                            event.get("reason") == EXPIRED_NO_ORDER_REASON && event.get("v") == 1 &&
+                            event.get("attempt_id") is String && event.getString("attempt_id").length in 1..128) { "PAYMENTS_INVALID" }
+                        EXPIRED_NO_ORDER_REASON
+                    } else null
+                    PaymentsEvent.Failure(type, code, reason)
                 }
                 "ok" -> when (type) {
                     TYPE_PLANS_LIST_RESULT -> parsePlans(event, keys)

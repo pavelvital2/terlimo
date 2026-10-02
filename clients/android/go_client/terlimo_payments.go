@@ -225,7 +225,11 @@ func (m *managedMobile) handlePaymentCreate(ctx context.Context, action bridgeMe
 		return
 	}
 	if apiError != nil {
-		m.sendPaymentError(event, paymentAPIErrorCode(apiError, true))
+		message := bridgeMessage{"type": event, "state": "error", "code": paymentAPIErrorCode(apiError, true)}
+		if apiError.ExpiredQuoteNoOrder() {
+			message["reason"] = "expired_quote_no_order"
+		}
+		m.sendPaymentEvent(message)
 		return
 	}
 	m.sendPaymentEvent(paymentResultMessage(event, payment))

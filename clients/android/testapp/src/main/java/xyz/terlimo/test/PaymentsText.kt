@@ -241,6 +241,7 @@ internal object PaymentsText {
         // One outstanding purchase request: show waiting and let no other line imply progress.
         if (state.sending) return PURCHASE_SENDING_TEXT
         return when (state.phase) {
+            PurchaseFlow.EXPIRED_NO_ORDER -> "Предложение истекло. Заказ не создан. Можно выбрать тариф заново."
             PurchaseFlow.UNAVAILABLE -> PaymentsText.errorText(state.error)
             PurchaseFlow.ERROR -> {
                 val payment = state.payment

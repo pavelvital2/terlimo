@@ -22,6 +22,8 @@ internal data class PurchaseFlight(
     val attempt: String,
     val quoteId: String? = null,
     val idempotencyKey: String? = null,
+    val paymentIntent: PurchaseAttempt? = null,
+    val installationId: String? = null,
 )
 
 /**
@@ -46,8 +48,10 @@ internal class PurchaseSingleFlight {
     private var owner: PurchaseFlight? = null
     /** Trace metadata of the current owner (kept apart so identity is never rebuilt). */
     private var idempotencyKey: String? = null
+    private var paymentIntent: PurchaseAttempt? = null
+    private var installationId: String? = null
 
-    @Synchronized fun holder(): PurchaseFlight? = owner?.copy(idempotencyKey = idempotencyKey)
+    @Synchronized fun holder(): PurchaseFlight? = owner?.copy(idempotencyKey = idempotencyKey, paymentIntent = paymentIntent, installationId = installationId)
 
     /** True while a purchase request is outstanding; the UI shows waiting and disables actions. */
     @Synchronized fun busy(): Boolean = owner != null
@@ -60,6 +64,8 @@ internal class PurchaseSingleFlight {
         if (owner != null) return false
         owner = flight
         idempotencyKey = flight.idempotencyKey
+        paymentIntent = null
+        installationId = null
         return true
     }
 
@@ -67,6 +73,16 @@ internal class PurchaseSingleFlight {
     @Synchronized fun attachKey(flight: PurchaseFlight, key: String?) {
         if (owner === flight) idempotencyKey = key
     }
+
+    @Synchronized fun attachCreate(flight: PurchaseFlight, intent: PurchaseAttempt, installation: String) {
+        if (owner === flight) {
+            paymentIntent = intent
+            installationId = installation
+        }
+    }
+
+    /** A changed verified account permanently fences this outstanding no-create proof. */
+    @Synchronized fun invalidateCreateProof() { paymentIntent = null; installationId = null }
 
     /**
      * Releases the holder only for the matching parsed result/failure type of the operation
@@ -77,6 +93,8 @@ internal class PurchaseSingleFlight {
         if (current.kind.resultType != resultType) return false
         owner = null
         idempotencyKey = null
+        paymentIntent = null
+        installationId = null
         return true
     }
 
@@ -85,6 +103,8 @@ internal class PurchaseSingleFlight {
         if (owner === flight) {
             owner = null
             idempotencyKey = null
+            paymentIntent = null
+            installationId = null
         }
     }
 
@@ -92,5 +112,7 @@ internal class PurchaseSingleFlight {
     @Synchronized fun reset() {
         owner = null
         idempotencyKey = null
+        paymentIntent = null
+        installationId = null
     }
 }

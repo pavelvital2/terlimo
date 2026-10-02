@@ -157,6 +157,12 @@ internal class InstallationStore(context: Context) {
         writeLocked(JSONObject(readLocked().toString()).put("purchase_attempt_state", encoded))
     }
 
+    fun resolvePurchaseNoOrder(expected: String, resolved: String, installation: String) = synchronized(LOCK) {
+        check(installationId() == installation) { "PURCHASE_INSTALLATION_MISMATCH" }
+        val next = PurchaseNoOrderResolution.prepare(readLocked(), expected, resolved, installation)
+        writeLocked(next)
+    }
+
     /** Display-only memory of the last verified catalog. Never an access grant. */
     fun readCatalogCache(): String? = synchronized(LOCK) { readLocked().opt("catalog_cache") as? String }
 
@@ -240,6 +246,8 @@ internal class InstallationStore(context: Context) {
 internal class InstallationPurchaseAttemptStore(private val storage: InstallationStore) : PurchaseAttemptStore {
     override fun read(): String? = storage.readPurchaseAttempt()
     override fun write(encoded: String) = storage.writePurchaseAttempt(encoded)
+    override fun resolveNoOrder(expected: String, resolved: String, installationId: String) =
+        storage.resolvePurchaseNoOrder(expected, resolved, installationId)
 }
 
 internal object SubscriptionStateReplacement {
