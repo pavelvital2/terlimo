@@ -4,6 +4,71 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CatalogStagesTest {
+    @Test fun captchaWaitExcludesOnlyWaitAndResumesUnusedStageAndTotal() {
+        var clock = 0L
+        val callbacks = mutableListOf<() -> Unit>()
+        val delays = mutableListOf<Long>()
+        var failed = false
+        val timer = CatalogDeadlineTimer({ d, cb -> delays += d; callbacks += cb }, { "a" },
+            { failed = true }, elapsed = { clock })
+        val owner = CatalogCaptchaOwner("a", "one", "r1")
+        timer.beginStages("a", "one")
+        clock = 5_000
+        assertTrue(timer.pauseCaptcha(owner))
+        clock = 100_000 // beyond both the old connecting20 and total65 deadlines
+        callbacks.first()()
+        assertFalse(failed)
+        assertFalse(timer.canAccept("a", "one"))
+        assertFalse(timer.advanceStage("a", "one", CatalogStage.DEVICE))
+        assertTrue(timer.pauseCaptcha(owner)) // duplicate does not reset captured budget
+        timer.beginStages("a", "one") // duplicate start must not erase the pause
+        assertFalse(timer.canAccept("a", "one"))
+        assertFalse(timer.resumeCaptcha(owner.copy(request = "old")))
+        assertTrue(timer.resumeCaptcha(owner))
+        assertEquals(15_000L, delays.last())
+        assertFalse(timer.resumeCaptcha(owner))
+        assertFalse(timer.pauseCaptcha(owner)) // a completed request cannot pause again
+        clock = 114_999
+        assertTrue(timer.advanceStage("a", "one", CatalogStage.DEVICE))
+        clock = 139_998
+        assertTrue(timer.advanceStage("a", "one", CatalogStage.SUBSCRIPTION))
+        clock = 149_997
+        assertTrue(timer.advanceStage("a", "one", CatalogStage.LIST))
+        clock = 159_996
+        assertTrue(timer.canAccept("a", "one"))
+        clock = 160_000
+        assertFalse(timer.canAccept("a", "one")) //65 active seconds, not a fresh65
+    }
+
+    @Test fun captchaPauseCannotReviveExpiredStoppedOrSupersededCycle() {
+        var clock = 0L; var active: String? = "a"
+        val callbacks = mutableListOf<() -> Unit>(); var failed = false
+        val timer = CatalogDeadlineTimer({ _, cb -> callbacks += cb }, { active },
+            { failed = true }, elapsed = { clock })
+        val owner = CatalogCaptchaOwner("a", "one", "r1")
+        timer.beginStages("a", "one")
+        clock = 20_000
+        assertFalse(timer.pauseCaptcha(owner))
+        assertFalse(timer.resumeCaptcha(owner))
+        timer.beginStages("a", "fresh")
+        val fresh = owner.copy(cycle = "fresh")
+        assertTrue(timer.pauseCaptcha(fresh))
+        active = null
+        assertFalse(timer.resumeCaptcha(fresh))
+        timer.clear()
+        active = "a"
+        timer.beginStages("a", "two")
+        assertFalse(timer.resumeCaptcha(owner))
+        assertFalse(timer.pauseCaptcha(owner))
+        callbacks.dropLast(1).forEach { it() }
+        assertFalse(failed)
+        assertTrue(timer.pauseCaptcha(owner.copy(cycle = "two", request = "r2")))
+        timer.apply("a", MobileCatalogAction.DISARM, CatalogTimerMarker.ACCEPT)
+        assertFalse(timer.resumeCaptcha(owner.copy(cycle = "two", request = "r2")))
+        callbacks.forEach { it() }
+        assertFalse(failed)
+    }
+
     @Test fun slowConnectionDoesNotSpendDeviceBudget() {
         val stages = CatalogStages()
         stages.begin("a", "cycle", 0)

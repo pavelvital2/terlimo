@@ -1,0 +1,34 @@
+{
+  "REPORT.md": {
+    "sha256": "b3ec7871ee7aaab84b6597d823d04d10aeef659a6dd531b7aceb8f82867a3876",
+    "bytes": 7297
+  },
+  "cumulative.patch": {
+    "sha256": "871251e768bee57be5410ca9f604195ef494c98dab8bc569ea44e557cdbe54fd",
+    "bytes": 42512
+  },
+  "receipt.json": {
+    "sha256": "53752934a01826c7e68c426aa087732910c264b7f844c446bed13c7e3c0ca34e",
+    "bytes": 1656
+  },
+  "README.VERSION.md": {
+    "sha256": "9d87be9556e71d94a5694140e7fa27fcf6473939f0ab45c31b9067bea78735e1",
+    "bytes": 57370
+  },
+  "catalog-before.log": {
+    "sha256": "c302216044ed8a61eba21126438ad071d2b12a572b47537dcb8f1dfc6a00feeb",
+    "bytes": 6016
+  },
+  "targeted-final.log": {
+    "sha256": "3f691e5e6e74122c40c2d72b1defa1aa64bdec239e702246069812aca73746d3",
+    "bytes": 4232
+  },
+  "TEST-xyz.terlimo.test.CatalogStagesTest.xml": {
+    "sha256": "6db65b33111e4f079b15c049c193bec05767da37d3373a3d71c77b1ba613542a",
+    "bytes": 2087
+  },
+  "TEST-xyz.terlimo.test.ManualCaptchaPendingOwnerTest.xml": {
+    "sha256": "9ea4a46c9e489e0545b71ba4c321b4f1804a77c72c1d1a8e56edc6d4a0833f37",
+    "bytes": 788
+  }
+}

@@ -16,30 +16,46 @@ internal class CatalogStages {
     var stage: CatalogStage? = null; private set
     private var totalEnd = 0L
     private var enteredAt = 0L
+    private var pausedAt: Long? = null
     private val spent = mutableMapOf<CatalogStage, Long>()
     fun begin(attempt: String, cycle: String, now: Long) {
         this.attempt = attempt; this.cycle = cycle; stage = CatalogStage.CONNECTING
         totalEnd = now + TOTAL_MS
         enteredAt = now
+        pausedAt = null
         spent.clear()
     }
     fun advance(attempt: String, cycle: String, next: CatalogStage, now: Long): Boolean {
         val current = stage ?: return false
-        if (this.attempt != attempt || this.cycle != cycle || next == current || now >= end()) return false
+        if (pausedAt != null || this.attempt != attempt || this.cycle != cycle || next == current || now >= end()) return false
         spent[current] = (spent[current] ?: 0L) + (now - enteredAt).coerceAtLeast(0)
         enteredAt = now
         stage = next
         return true
     }
-    fun remaining(now: Long) = (end() - now).coerceAtLeast(0)
+    fun remaining(now: Long) = (end() - (pausedAt ?: now)).coerceAtLeast(0)
     fun canAccept(attempt: String, cycle: String, now: Long): Boolean =
-        stage != null && this.attempt == attempt && this.cycle == cycle && now < end()
+        pausedAt == null && stage != null && this.attempt == attempt && this.cycle == cycle && now < end()
+    fun pause(attempt: String, cycle: String, now: Long): Boolean {
+        if (!canAccept(attempt, cycle, now)) return false
+        pausedAt = now
+        return true
+    }
+    fun resume(now: Long): Boolean {
+        val start = pausedAt ?: return false
+        val wait = (now - start).coerceAtLeast(0)
+        totalEnd += wait
+        enteredAt += wait
+        pausedAt = null
+        return true
+    }
     // A real reconnect resumes only the unused active budget; elapsed time in AUTH
-    // cannot consume connection time. The whole-operation wall cap never pauses.
+    // cannot consume connection time. Only an owned bounded CAPTCHA wait excludes time
+    // from both stage and whole-operation active-processing budgets.
     private fun end(): Long {
         val current = stage ?: return totalEnd
         return minOf(totalEnd, enteredAt + current.budgetMs - (spent[current] ?: 0L))
     }
-    fun clear() { attempt = null; cycle = null; stage = null; spent.clear() }
+    fun clear() { attempt = null; cycle = null; stage = null; pausedAt = null; spent.clear() }
     companion object { const val TOTAL_MS = 65_000L }
 }

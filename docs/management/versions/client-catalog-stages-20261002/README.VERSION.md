@@ -1,3 +1,36 @@
+# CAPTCHA: два локальных исправления, source receipt
+
+Incoming: whitelist-20261002-captcha-two-local-fixes-v1.
+Base: 5ab55149da7e53a030e4a08ce65183b5b89d70e2. Commit: 806d54a762848436108d645a63b7cc6fc63ccad7.
+Локальная ветка `laptop/captcha-two-local-fixes-20261002`, checkout `/home/pavel/terlimo-captcha-two-fixes-20261002`. Рабочее дерево чистое. Публикация принадлежит Руководителю проекта Белые списки; Laptop push не выполнял.
+
+## Исправления
+
+1. `CatalogStages` и `CatalogDeadlineTimer`: бюджеты20/25/10/10 и общий65 сохранены численно. Из них исключается только bounded CAPTCHA wait с владельцем attempt+catalog cycle+request. Pause фиксирует остаток через остановку учёта времени; resume сдвигает stage/total deadlines ровно на ожидание, без выдачи нового бюджета. Во время pause запрещены accept и advance. Уже истёкший бюджет не паузится; дубликат begin/pause, чужой resume и повтор завершённого request не сбрасывают время. Pause/disarm/clear/new cycle отзывают callbacks; операции и timer callback синхронизированы, чтобы timeout не обогнал pause между проверкой и отзывом. Стандартные timeout handlers сохранены, включая Connected refresh cancel без выключения VPN. Legacy15s ARM не получает новую паузу: интеграция ограничена непустым staged catalogCycle.
+
+2. `ManualCaptchaPendingOwner` и `ManlCaptchaWebViewManager`: immutable generation принадлежит pending record, foreground Intent, уникальным immutable notification PendingIntents, Activity и JS callbacks. Результат атомарно consume только своего owner, до completion. Cleanup/finish/onDestroy/onNewIntent и background reopen учитывают владельца; старый Intent не загружает чужой redirect и не закрывает новое окно. Notification cancel повторно проверяет owner в SessionService при обработке очереди. Ordinary Disconnect сохраняет прежний путь. Donor JS/способы решения/численные deadlines/внешний bridge protocol не изменены; raw error не пишется в лог.
+
+3. В этой же границе Disconnect завершена необходимая интеграция: teardownCaptcha синхронно отменяет scope retiring Service и отзывает queue/manager ownership. Прежний cleanup ставился в actor непосредственно перед actor.close(), который мог его выбросить. Поздний coroutine launch наследует отменённый scope. Нового процесса/обработчика/транспортного механизма нет.
+
+## Достаточная проверка
+
+- Сохранённый `catalog-before.log`: две новые регрессии FAIL2/2 на поведении без pause. Для компиляции нового API в baseline были временные no-op pause/resume, возвращавшие false; это не отдельный запуск pristine canonical и не device reproduction. Эта проверка не повторялась после runtime recovery.
+- `targeted-final.log`: CatalogStagesTest13/13 и ManualCaptchaPendingOwnerTest3/3, всего16 PASS, failures/errors/skipped0. Новых сценариев5; остальные11 — существующие непосредственно затронутые правила каталога, включая обычные deadlines/старые callbacks/accept/disarm.
+- Новые проверки покрывают fake-clock wait95s (дольше прежних20/65), отсутствие accept/advance при pause, оставшиеся15s стадии после resume, общий остаток65 активных секунд, duplicate/stale/expired/Disconnect/new cycle/disarm, чужой manual callback/cleanup, текущий callback exactly once и старую notification cancellation ownership.
+- `compileDebugAndroidTestKotlin` PASS: два существующих fixture callers обновлены для обязательного owner. Android tests только скомпилированы, НЕ запускались. Изолированной beforeFAIL для manual helper нет; old global-consume defect подтверждён предыдущим source review, а новый barrier покрыт3 regressions.
+- `git diff --check` PASS. После первой успешной проверки16 повторён только этот же набор и compile из-за финальной source-коррекции teardown; полный suite/Go33/parity/прошлые31/10 не повторялись.
+- Команда (offline): `gradle --offline --no-daemon --max-workers=2 -p clients/android -Pandroid.builder.sdkDownload=false -Dorg.gradle.jvmargs='-Xmx1536m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8' :testapp:testDebugUnitTest -x :testapp:verifyNativeInput --tests xyz.terlimo.test.CatalogStagesTest --tests xyz.terlimo.test.ManualCaptchaPendingOwnerTest :testapp:compileDebugAndroidTestKotlin`. Исключён только guard наличия native для чистой JVM/compile проверки: APK/native не собирались и не упаковывались.
+
+## Сохранённая основа и пределы
+
+Installed app5a31/APKef84/native792/servera42 сохранены; телефон, APK, сервер, права и платежи не затрагивались. Go и остальные части monorepo не менялись. Full101 паспорт сохранён в README.VERSION.md без повышения исторических статусов. Новый commit — source candidate, не installed/live PASS.
+
+После capacity проверен `/root/manual_owner`: errored, незавершённых Gradle/test процессов не было. Сохранённые правки приняты, помощник не перезапускался; дальнейшая интеграция одним writer Laptop в прежней сессии.
+
+Оставшееся ограничение: реальные Android lifecycle/notification/JS scheduling и natural VK challenge не исполнены этим offline gate. Нового конкретного source blocker после интеграции не выявлено. Решение о source acceptance и единственной необходимой device проверке остаётся за Руководителем проекта; повторять live run либо искусственно вызывать CAPTCHA сейчас не требуется.
+
+## Полный прежний паспорт установленной версии (история сохранена)
+
 # Selection build/install/device result — 2026-10-02
 
 Canonical app source5a31c7aa1120c6045f76c35b6c02c7e70c61fbec, repo https://github.com/pavelvital2/terlimo branchfix/catalog-stage-deadlines-20261002; app source equals reviewed dfe99b8 cumulative. APKef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3, packaged/installed native792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef reused exactly from priorb470. Go subtree unchanged, no Go build/serverchanges; native Go buildinfo deliberately remainsb470. Signer42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b unchanged. Private overlay preserved local-only; other native libs match previousAPK. apksigner/zipalign16KiB/ELF/provenance checks PASS. INSTALL-VERIFIED and artifact-manifest are before-run receipts, final result.json records actual run.

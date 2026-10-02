@@ -1,0 +1,73 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Calculating task graph as no cached configuration is available for tasks: :testapp:testDebugUnitTest --tests xyz.terlimo.test.CatalogStagesTest.captcha*
+Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+> Task :testapp:preBuild UP-TO-DATE
+> Task :testapp:preDebugUnitTestBuild UP-TO-DATE
+> Task :testapp:preDebugBuild UP-TO-DATE
+> Task :testapp:generateDebugResources FROM-CACHE
+> Task :testapp:packageDebugResources FROM-CACHE
+> Task :testapp:javaPreCompileDebug FROM-CACHE
+> Task :testapp:processDebugNavigationResources FROM-CACHE
+> Task :testapp:checkDebugAarMetadata
+> Task :testapp:compileDebugNavigationResources FROM-CACHE
+> Task :testapp:parseDebugLocalResources FROM-CACHE
+> Task :testapp:generateDebugRFile FROM-CACHE
+> Task :testapp:mapDebugSourceSetPaths
+> Task :testapp:mergeDebugResources FROM-CACHE
+> Task :testapp:createDebugCompatibleScreenManifests
+> Task :testapp:extractDeepLinksDebug FROM-CACHE
+> Task :testapp:processDebugMainManifest FROM-CACHE
+> Task :testapp:processDebugManifest FROM-CACHE
+> Task :testapp:processDebugManifestForPackage FROM-CACHE
+> Task :testapp:processDebugResources FROM-CACHE
+> Task :testapp:javaPreCompileDebugUnitTest FROM-CACHE
+> Task :testapp:compileDebugKotlin
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/CaptchaWebViewManager.kt:335:25 'var databaseEnabled: Boolean' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/CatalogDeadlineTimer.kt:96:24 Condition is always 'true'.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/HelpContent.kt:53:88 'field versionCode: Int' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:22:8 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:250:21 'constructor(p0: Activity!): IntentIntegrator' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:252:51 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:1343:20 'class IntentIntegrator : Any' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/MainActivity.kt:1343:37 'static fun parseActivityResult(p0: Int, p1: Int, p2: Intent!): IntentResult!' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/ManlCaptchaWebViewManager.kt:301:13 'var databaseEnabled: Boolean' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:1131:33 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2650:26 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2719:69 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2753:73 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2812:69 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/VpnReadinessProbe.kt:48:30 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+
+> Task :testapp:processDebugJavaRes
+> Task :testapp:compileDebugJavaWithJavac
+> Task :testapp:bundleDebugClassesToCompileJar
+> Task :testapp:bundleDebugClassesToRuntimeJar
+> Task :testapp:compileDebugUnitTestKotlin
+> Task :testapp:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :testapp:processDebugUnitTestJavaRes
+
+> Task :testapp:testDebugUnitTest
+
+CatalogStagesTest > captchaWaitExcludesOnlyWaitAndResumesUnusedStageAndTotal FAILED
+    java.lang.AssertionError at CatalogStagesTest.kt:17
+
+CatalogStagesTest > captchaPauseCannotReviveExpiredStoppedOrSupersededCycle FAILED
+    java.lang.AssertionError at CatalogStagesTest.kt:51
+
+2 tests completed, 2 failed
+
+> Task :testapp:testDebugUnitTest FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':testapp:testDebugUnitTest'.
+> There were failing tests. See the report at: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/build/reports/tests/testDebugUnitTest/index.html
+
+* Try:
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+
+BUILD FAILED in 2m 3s
+25 actionable tasks: 11 executed, 14 from cache
+Configuration cache entry stored.

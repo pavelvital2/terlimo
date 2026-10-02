@@ -1,0 +1,56 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Reusing configuration cache.
+> Task :testapp:preBuild UP-TO-DATE
+> Task :testapp:preDebugUnitTestBuild UP-TO-DATE
+> Task :testapp:preDebugBuild UP-TO-DATE
+> Task :testapp:generateDebugResources UP-TO-DATE
+> Task :testapp:packageDebugResources UP-TO-DATE
+> Task :testapp:javaPreCompileDebug UP-TO-DATE
+> Task :testapp:processDebugNavigationResources UP-TO-DATE
+> Task :testapp:checkDebugAarMetadata UP-TO-DATE
+> Task :testapp:compileDebugNavigationResources UP-TO-DATE
+> Task :testapp:parseDebugLocalResources UP-TO-DATE
+> Task :testapp:generateDebugRFile UP-TO-DATE
+> Task :testapp:mapDebugSourceSetPaths UP-TO-DATE
+> Task :testapp:mergeDebugResources UP-TO-DATE
+> Task :testapp:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :testapp:extractDeepLinksDebug UP-TO-DATE
+> Task :testapp:processDebugMainManifest UP-TO-DATE
+> Task :testapp:processDebugManifest UP-TO-DATE
+> Task :testapp:processDebugManifestForPackage UP-TO-DATE
+
+> Task :testapp:processDebugResources UP-TO-DATE
+Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+
+> Task :testapp:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :testapp:preDebugAndroidTestBuild SKIPPED
+> Task :testapp:generateDebugAndroidTestResources UP-TO-DATE
+> Task :testapp:packageDebugAndroidTestResources UP-TO-DATE
+> Task :testapp:processDebugAndroidTestNavigationResources UP-TO-DATE
+> Task :testapp:parseDebugAndroidTestLocalResources UP-TO-DATE
+> Task :testapp:generateDebugAndroidTestRFile UP-TO-DATE
+> Task :testapp:compileDebugKotlin
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:1140:33 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2659:26 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2728:69 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2762:73 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt:2821:69 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+
+> Task :testapp:processDebugJavaRes UP-TO-DATE
+> Task :testapp:compileDebugJavaWithJavac UP-TO-DATE
+> Task :testapp:bundleDebugClassesToCompileJar
+> Task :testapp:bundleDebugClassesToRuntimeJar
+> Task :testapp:compileDebugUnitTestKotlin
+> Task :testapp:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :testapp:processDebugUnitTestJavaRes UP-TO-DATE
+> Task :testapp:testDebugUnitTest
+
+> Task :testapp:compileDebugAndroidTestKotlin
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/androidTest/java/xyz/terlimo/test/OwnerPhoneTest.kt:82:27 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/androidTest/java/xyz/terlimo/test/SelectedNodeRun.kt:74:27 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+w: file:///home/pavel/terlimo-captcha-two-fixes-20261002/clients/android/testapp/src/androidTest/java/xyz/terlimo/test/StabilityRun.kt:51:41 'val allNetworks: Array<(out) Network!>' is deprecated. Deprecated in Java.
+
+BUILD SUCCESSFUL in 52s
+31 actionable tasks: 6 executed, 25 up-to-date
+Configuration cache entry reused.

@@ -4,7 +4,7 @@
 //  * package/imports;
 //  * the Compose shell of ManlCaptchaActivity is rendered with the platform View layer
 //    (testapp has no Compose) while every WebView setting, the interceptor/close JS, the
-//    touch handling and the onDestroy semantics stay donor-exact;
+//    touch handling and Back semantics are retained; callbacks and cleanup are owner-bound;
 //  * foreground bookkeeping uses AppForeground/CaptchaPendingPolicy (same decisions);
 //  * the notification cancel action routes to the existing SessionService "cancel" intent
 //    (same "disable the tunnel" effect as the donor TunnelManager.stop).
@@ -33,33 +33,64 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
-import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
 
 object ManlCaptchaWebViewManager {
     private const val TAG = "ManlCaptchaWV"
     private const val CAPTCHA_TIMEOUT_MS = 180_000L
 
     val captchaMutex = Mutex()
-    val pendingResult = AtomicReference<CompletableDeferred<Result<String>>?>(null)
-    var activeActivity: ManlCaptchaActivity? = null
-    var pendingIntentToStart: Intent? = null
-    var isCaptchaPending = false
+    const val EXTRA_CAPTCHA_OWNER = "manualCaptchaOwner"
+    private data class Request(val result: CompletableDeferred<Result<String>>, val intent: Intent)
+    private data class Window(val owner: String, val activity: ManlCaptchaActivity)
+    private val pending = ManualCaptchaPendingOwner<Request>()
+    private var displayedRequest: ManualCaptchaPendingOwner.Pending<Request>? = null
+    private var window: Window? = null
 
-    fun checkAndShowPendingCaptcha(context: Context) {
-        val intent = pendingIntentToStart
-        if (CaptchaPendingPolicy.shouldRelaunchPending(intent != null, activeActivity != null)) {
-            context.startActivity(intent)
+    val pendingOwner: String? get() = synchronized(pending) { pending.current()?.owner }
+    val activeActivity: ManlCaptchaActivity? get() = synchronized(pending) { window?.activity }
+    val pendingIntentToStart: Intent? get() = synchronized(pending) { pending.current()?.value?.intent }
+    val isCaptchaPending: Boolean get() = synchronized(pending) { pending.current() != null }
+
+    fun checkAndShowPendingCaptcha(context: Context) = synchronized(pending) {
+        val current = pending.current() ?: return@synchronized
+        if (CaptchaPendingPolicy.shouldRelaunchPending(true, window?.owner == current.owner)) {
+            context.startActivity(current.value.intent)
         }
     }
 
-    fun cancelCaptcha() {
-        pendingResult.get()?.completeExceptionally(CancellationException("Cancelled by system"))
+    /** Notification commands are checked again when SessionService handles the queued Intent. */
+    fun runIfPendingOwner(owner: String, action: () -> Unit): Boolean = synchronized(pending) {
+        if (pending.current()?.owner != owner) return@synchronized false
+        action()
+        true
+    }
+
+    fun cancelCaptcha() = synchronized(pending) {
+        val current = pending.current() ?: return@synchronized
+        pending.consume(current.owner)?.value?.result
+            ?.completeExceptionally(CancellationException("Cancelled by system"))
+    }
+
+    internal fun attachActivity(owner: String, activity: ManlCaptchaActivity): Boolean = synchronized(pending) {
+        if (pending.current()?.owner != owner) return@synchronized false
+        val previous = window
+        window = Window(owner, activity)
+        if (previous?.activity !== activity) previous?.activity?.finishForOwner(previous.owner)
+        true
+    }
+
+    internal fun detachActivity(owner: String?, activity: ManlCaptchaActivity): Boolean = synchronized(pending) {
+        if (window?.owner != owner || window?.activity !== activity) return@synchronized false
+        window = null
+        val currentOwner = pending.current()?.owner ?: displayedRequest?.owner
+        currentOwner == null || currentOwner == owner
     }
 
     private const val NOTIFICATION_ID = 9001
     private const val CHANNEL_ID = "captcha_channel"
 
-    private fun showCaptchaNotification(context: Context, redirectUri: String) {
+    private fun showCaptchaNotification(context: Context, owner: String, openIntent: Intent) {
         if (!CaptchaPendingPolicy.shouldNotify(AppForeground.isForeground)) return
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -73,16 +104,15 @@ object ManlCaptchaWebViewManager {
             notificationManager.createNotificationChannel(channel)
         }
 
-        val openIntent = Intent(context, ManlCaptchaActivity::class.java).apply {
-            putExtra("redirectUri", redirectUri)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-        }
-
+        // Unique immutable PendingIntents prevent an old notification from acquiring a new owner.
         val openPendingIntent = PendingIntent.getActivity(
-            context, 0, openIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            context, 0, openIntent, PendingIntent.FLAG_IMMUTABLE
         )
 
-        val cancelIntent = Intent(context, CaptchaCancelReceiver::class.java)
+        val cancelIntent = Intent(context, CaptchaCancelReceiver::class.java).apply {
+            action = "manual_captcha_cancel:$owner"
+            putExtra(EXTRA_CAPTCHA_OWNER, owner)
+        }
         val cancelPendingIntent = PendingIntent.getBroadcast(
             context, 1, cancelIntent, PendingIntent.FLAG_IMMUTABLE
         )
@@ -107,48 +137,45 @@ object ManlCaptchaWebViewManager {
 
     suspend fun solveCaptchaAsync(context: Context, redirectUri: String, sessionToken: String): String {
         return captchaMutex.withLock {
-            isCaptchaPending = true
+            val owner = UUID.randomUUID().toString()
             val deferred = CompletableDeferred<Result<String>>()
-            // Если предыдущий вызов завис, отменяем его
-            pendingResult.getAndSet(deferred)?.cancel()
-
-            showCaptchaNotification(context, redirectUri)
-
             val intent = Intent(context, ManlCaptchaActivity::class.java).apply {
+                action = "manual_captcha_open:$owner"
                 putExtra("redirectUri", redirectUri)
+                putExtra(EXTRA_CAPTCHA_OWNER, owner)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
             }
-            pendingIntentToStart = intent
-
-            if (CaptchaPendingPolicy.shouldStartActivity(AppForeground.isForeground)) {
-                // Запускаем окно только если интерфейс приложения активен (иначе Android блокирует старт)
-                context.startActivity(intent)
-            }
-
+            val request = ManualCaptchaPendingOwner.Pending(owner, Request(deferred, intent))
             try {
-                withTimeout(CAPTCHA_TIMEOUT_MS) {
-                    deferred.await().getOrThrow()
+                synchronized(pending) {
+                    pending.replace(request)?.value?.result?.cancel()
+                    displayedRequest = request
+                    showCaptchaNotification(context, owner, intent)
+                    if (CaptchaPendingPolicy.shouldStartActivity(AppForeground.isForeground)) {
+                        context.startActivity(intent)
+                    }
                 }
+                withTimeout(CAPTCHA_TIMEOUT_MS) { deferred.await().getOrThrow() }
             } finally {
-                isCaptchaPending = false
-                pendingResult.set(null)
-                pendingIntentToStart = null
-                clearCaptchaNotification(context)
-                try {
-                    activeActivity?.finish()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error finishing activity: ${e.message}")
+                synchronized(pending) {
+                    pending.consume(owner)
+                    if (displayedRequest?.owner == owner) {
+                        displayedRequest = null
+                        clearCaptchaNotification(context)
+                        val currentWindow = window
+                        if (currentWindow?.owner == owner) {
+                            // The queued finish also checks its bound owner after onNewIntent.
+                            currentWindow.activity.finishForOwner(owner)
+                        }
+                    }
                 }
-                activeActivity = null
             }
         }
     }
 
-    fun notifyResult(result: Result<String>) {
-        val deferred = pendingResult.getAndSet(null) ?: return
-        if (!deferred.isCompleted) {
-            deferred.complete(result)
-        }
+    fun notifyResult(owner: String, result: Result<String>): Boolean = synchronized(pending) {
+        val request = pending.consume(owner) ?: return@synchronized false
+        request.value.result.complete(result)
     }
 }
 
@@ -160,6 +187,7 @@ class ManlCaptchaActivity : Activity() {
 
     private var browser: WebView? = null
     private var loading: ProgressBar? = null
+    private var boundOwner: String? = null
 
     private val interceptorJSCode = """
         (function() {
@@ -264,9 +292,31 @@ class ManlCaptchaActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
-        ManlCaptchaWebViewManager.activeActivity = this
-        AppForeground.isForeground = true // Если появилось само окно капчи, мы тоже считаемся в фореграунде
-        val redirectUri = intent.getStringExtra("redirectUri") ?: return finish()
+        if (!showRequest(intent)) finish()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // A stale notification must neither reload a redirect nor close the current window.
+        val owner = intent.getStringExtra(ManlCaptchaWebViewManager.EXTRA_CAPTCHA_OWNER) ?: return
+        if (ManlCaptchaWebViewManager.pendingOwner != owner) return
+        if (boundOwner == owner) return
+        showRequest(intent)
+    }
+
+    internal fun finishForOwner(owner: String) {
+        runOnUiThread { if (boundOwner == owner) finish() }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun showRequest(requestIntent: Intent): Boolean {
+        val owner = requestIntent.getStringExtra(ManlCaptchaWebViewManager.EXTRA_CAPTCHA_OWNER) ?: return false
+        val redirectUri = requestIntent.getStringExtra("redirectUri") ?: return false
+        if (!ManlCaptchaWebViewManager.attachActivity(owner, this)) return false
+        destroyBrowser()
+        boundOwner = owner
+        setIntent(requestIntent)
+        AppForeground.isForeground = true
 
         val root = FrameLayout(this)
         val web = WebView(this)
@@ -311,14 +361,13 @@ class ManlCaptchaActivity : Activity() {
             @JavascriptInterface
             fun onSuccess(token: String) {
                 Log.d("ManlCaptchaWV", "Token received")
-                ManlCaptchaWebViewManager.notifyResult(Result.success(token))
-                finish()
+                if (ManlCaptchaWebViewManager.notifyResult(owner, Result.success(token))) finishForOwner(owner)
             }
             @JavascriptInterface
             fun onError(err: String) {
-                Log.e("ManlCaptchaWV", "Error: $err")
-                ManlCaptchaWebViewManager.notifyResult(Result.failure(Exception("VK Captcha error: $err")))
-                finish()
+                Log.e("ManlCaptchaWV", "VK captcha check failed")
+                if (ManlCaptchaWebViewManager.notifyResult(owner,
+                        Result.failure(Exception("VK Captcha error: $err")))) finishForOwner(owner)
             }
             @JavascriptInterface
             fun onCheckStatus(status: String, showType: String) {
@@ -331,8 +380,8 @@ class ManlCaptchaActivity : Activity() {
             @JavascriptInterface
             fun onCancel() {
                 Log.d("ManlCaptchaWV", "User closed VK captcha")
-                ManlCaptchaWebViewManager.notifyResult(Result.failure(Exception("Cancelled by user")))
-                finish()
+                if (ManlCaptchaWebViewManager.notifyResult(owner,
+                        Result.failure(Exception("Cancelled by user")))) finishForOwner(owner)
             }
         }, "WdttCaptcha")
 
@@ -350,36 +399,42 @@ class ManlCaptchaActivity : Activity() {
         }
         web.webChromeClient = WebChromeClient()
         web.loadUrl(redirectUri)
+        return true
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        AppForeground.isForeground = false
-        if (ManlCaptchaWebViewManager.activeActivity === this) {
-            ManlCaptchaWebViewManager.activeActivity = null
-        }
+    private fun destroyBrowser() {
         browser?.apply {
             stopLoading()
             try { removeJavascriptInterface("WdttCaptcha") } catch (_: Exception) {}
             destroy()
         }
         browser = null
+        loading = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (ManlCaptchaWebViewManager.detachActivity(boundOwner, this)) {
+            AppForeground.isForeground = false
+        }
+        destroyBrowser()
         // Мы НЕ отправляем ошибку здесь! 
         // Если юзер смахнул окно (нажал назад), капча останется висеть в памяти (через пуш).
-        // Ошибка или Успех отправляются только по явным действиям (крестик, решение, или таймаут 5 мин).
+        // Ошибка или Успех отправляются только по явным действиям (крестик, решение, или таймаут 180 секунд).
     }
 }
 
 class CaptchaCancelReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val stop = Intent(context, SessionService::class.java).setAction("cancel")
-        try {
-            context.startForegroundService(stop)
-        } catch (_: Exception) {
-            runCatching { context.startService(stop) }
+        val owner = intent.getStringExtra(ManlCaptchaWebViewManager.EXTRA_CAPTCHA_OWNER) ?: return
+        ManlCaptchaWebViewManager.runIfPendingOwner(owner) {
+            val stop = Intent(context, SessionService::class.java).setAction("cancel")
+                .putExtra(ManlCaptchaWebViewManager.EXTRA_CAPTCHA_OWNER, owner)
+            try {
+                context.startForegroundService(stop)
+            } catch (_: Exception) {
+                runCatching { context.startService(stop) }
+            }
         }
-        ManlCaptchaWebViewManager.activeActivity?.finish()
-        val notifMgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notifMgr.cancel(9001) // NOTIFICATION_ID
     }
 }

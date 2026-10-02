@@ -1079,6 +1079,15 @@ class SessionService : Service() {
                 }
             }
             "cancel" -> {
+                val captchaOwner = intent.getStringExtra(ManlCaptchaWebViewManager.EXTRA_CAPTCHA_OWNER)
+                if (captchaOwner != null) {
+                    // Re-check at command consumption: an old queued notification cannot
+                    // cancel the next manual request or its attempt.
+                    ManlCaptchaWebViewManager.runIfPendingOwner(captchaOwner) {
+                        stopAttempt(null, "user_cancel")
+                    }
+                    return START_NOT_STICKY
+                }
                 PowerDiagnostics.line("svc.cancel.enter",
                     "phase" to view.phase,
                     "attemptLive" to (gate.active != null).toString(),
@@ -2974,7 +2983,14 @@ class SessionService : Service() {
         val mode = event.optString("mode", "auto").lowercase()
         val sessionToken = event.optString("session_token")
 
-        val entry = CaptchaQueue.Entry(attempt, id, mode, url, sessionToken)
+        // Only the staged mobile catalogue participates; legacy ARM remains unchanged.
+        val catalogOwner = catalogCycle?.takeIf { catalogTimer.pending(attempt) }
+            ?.let { CatalogCaptchaOwner(attempt, it, id) }
+        if (catalogOwner != null && !catalogTimer.pauseCaptcha(catalogOwner)) {
+            sendCaptchaResult(id, "error:timeout") // never revive an expired catalogue
+            return
+        }
+        val entry = CaptchaQueue.Entry(attempt, id, mode, url, sessionToken, catalogOwner)
         captchaQueue.activate(entry)
         captchaPending = true
         publishActive(attempt, view.copy(
@@ -3004,6 +3020,7 @@ class SessionService : Service() {
         captchaJob = null
         captchaPending = false
         if (gate.active == completed.attempt && !stopping.get()) {
+            completed.catalogOwner?.let { catalogTimer.resumeCaptcha(it) }
             val resumed = connectBudget.resume(completed.attempt, SystemClock.elapsedRealtime())
             if (debugSeamEnabled) android.util.Log.i("WDTT/Captcha",
                 "debug complete request=${completed.id} value_len=${value.length} resumed=${resumed != null}")
@@ -3028,16 +3045,16 @@ class SessionService : Service() {
     }
 
     private fun teardownCaptcha() {
-        val cleanup = Runnable {
-            if (debugSeamEnabled) android.util.Log.i("WDTT/Captcha", "debug teardown captcha")
-            captchaQueue.invalidate()
-            captchaPending = false
-            captchaJob?.cancel()
-            captchaJob = null
-            CaptchaWebViewManager.onTunnelStop()
-            ManlCaptchaWebViewManager.cancelCaptcha()
-        }
-        if (actor.submit { cleanup.run() } == BridgeActor.Result.CLOSED) cleanup.run()
+        // stopAttempt has already cancelled the attempt. Do not queue invalidation on
+        // the actor: its immediate close can discard that task. This scope belongs to
+        // the retiring Service, so cancelling it also fences a racing late launch.
+        if (debugSeamEnabled) android.util.Log.i("WDTT/Captcha", "debug teardown captcha")
+        captchaScope.cancel()
+        captchaQueue.invalidate()
+        captchaPending = false
+        captchaJob = null
+        CaptchaWebViewManager.onTunnelStop()
+        ManlCaptchaWebViewManager.cancelCaptcha()
     }
 
     // One Connect budget owns one watchdog; pausing the budget for a CAPTCHA removes it and

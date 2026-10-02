@@ -104,7 +104,8 @@ class CaptchaServicePathTest {
         assertNotEquals("no premature watchdog terminal", "VPN_SETUP_TIMEOUT", SessionService.view.error)
 
         // Real manager callback → service queue → correlated result to native.
-        ManlCaptchaWebViewManager.notifyResult(Result.success("synth-token"))
+        ManlCaptchaWebViewManager.notifyResult(checkNotNull(ManlCaptchaWebViewManager.pendingOwner),
+            Result.success("synth-token"))
         waitFor(10_000, "completion") { !SessionService.captchaPending }
         val end1 = SessionService.debugBudgetEnd()
         assertTrue("budget must resume with the remaining time (end0=$end0 end1=$end1)",
@@ -124,12 +125,13 @@ class CaptchaServicePathTest {
             SessionService.captchaPending && ManlCaptchaWebViewManager.activeActivity != null
         }
 
+        val owner = checkNotNull(ManlCaptchaWebViewManager.pendingOwner)
         context.startForegroundService(Intent(context, SessionService::class.java).setAction("cancel"))
         waitFor(15_000, "captcha torn down") { !SessionService.captchaPending }
         waitFor(15_000, "window closed") { ManlCaptchaWebViewManager.activeActivity == null }
 
         // A late UI callback of the cancelled prompt must not resurrect anything.
-        ManlCaptchaWebViewManager.notifyResult(Result.success("late"))
+        ManlCaptchaWebViewManager.notifyResult(owner, Result.success("late"))
         Thread.sleep(1_500)
         assertFalse(SessionService.captchaPending)
         assertNull(ManlCaptchaWebViewManager.activeActivity)

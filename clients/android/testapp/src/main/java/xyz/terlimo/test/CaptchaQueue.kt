@@ -9,7 +9,7 @@ package xyz.terlimo.test
 internal class CaptchaQueue {
     enum class Decision { IGNORE_DUPLICATE, BUSY, ACCEPT }
     data class Entry(val attempt: String, val id: String, val mode: String,
-        val url: String, val sessionToken: String)
+        val url: String, val sessionToken: String, val catalogOwner: CatalogCaptchaOwner? = null)
 
     private var active: Entry? = null
     private var lastCompletedId: String? = null

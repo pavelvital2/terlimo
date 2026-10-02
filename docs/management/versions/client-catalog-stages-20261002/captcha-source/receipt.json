@@ -1,0 +1,39 @@
+{
+  "event_id": "whitelist-20261002-captcha-two-local-fixes-v1",
+  "base": "5ab55149da7e53a030e4a08ce65183b5b89d70e2",
+  "commit": "806d54a762848436108d645a63b7cc6fc63ccad7",
+  "branch": "laptop/captcha-two-local-fixes-20261002",
+  "worktree": "/home/pavel/terlimo-captcha-two-fixes-20261002",
+  "tests": [
+    {
+      "class": "CatalogStagesTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "ManualCaptchaPendingOwnerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "android_test": "compile_only_PASS",
+  "catalog_before": "2 FAIL with no-op pause/resume shim; see REPORT.md",
+  "native_apk_phone_server": "untouched",
+  "published": false,
+  "changed_files": [
+    "clients/android/testapp/src/androidTest/java/xyz/terlimo/test/CaptchaServicePathTest.kt",
+    "clients/android/testapp/src/androidTest/java/xyz/terlimo/test/CaptchaWebViewFixturesTest.kt",
+    "clients/android/testapp/src/main/java/xyz/terlimo/test/CaptchaQueue.kt",
+    "clients/android/testapp/src/main/java/xyz/terlimo/test/CatalogDeadlineTimer.kt",
+    "clients/android/testapp/src/main/java/xyz/terlimo/test/CatalogStages.kt",
+    "clients/android/testapp/src/main/java/xyz/terlimo/test/ManlCaptchaWebViewManager.kt",
+    "clients/android/testapp/src/main/java/xyz/terlimo/test/ManualCaptchaPendingOwner.kt",
+    "clients/android/testapp/src/main/java/xyz/terlimo/test/SessionService.kt",
+    "clients/android/testapp/src/test/java/xyz/terlimo/test/CatalogStagesTest.kt",
+    "clients/android/testapp/src/test/java/xyz/terlimo/test/ManualCaptchaPendingOwnerTest.kt"
+  ]
+}

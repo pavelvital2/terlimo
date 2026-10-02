@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -81,10 +83,13 @@ class CaptchaWebViewFixturesTest {
     }
 
     @Test fun manualWindowSolvesAndReportsExactlyOnce() = runBlocking {
-        val token = ManlCaptchaWebViewManager.solveCaptchaAsync(context, dataUrl(manualSuccess), "fixture-session")
-        assertEquals("manual-fixture-token", token)
+        val result = async(start = CoroutineStart.UNDISPATCHED) {
+            ManlCaptchaWebViewManager.solveCaptchaAsync(context, dataUrl(manualSuccess), "fixture-session")
+        }
+        val owner = checkNotNull(ManlCaptchaWebViewManager.pendingOwner)
+        assertEquals("manual-fixture-token", result.await())
         // Late/duplicate callback after completion is dropped by the official manager.
-        ManlCaptchaWebViewManager.notifyResult(Result.success("late"))
+        ManlCaptchaWebViewManager.notifyResult(owner, Result.success("late"))
         assertFalse(ManlCaptchaWebViewManager.isCaptchaPending)
     }
 
