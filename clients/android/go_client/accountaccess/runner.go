@@ -44,7 +44,9 @@ type RunnerConfig struct {
 	// the manual-refresh fence is cleared (manual cycle finished). Nil is a no-op and it
 	// never re-enters the coordinator.
 	OnManualCycleFinished func()
-	// BeginAttempt binds one complete retry group to its host operation. finish
+	// BeginAttempt binds one complete retry group to its host operation. The bool
+	// identifies TriggerManual (a host catalog operation), not an ordinary
+	// Trigger("manual") used to refresh credentials for explicit Connect. finish
 	// runs after the manual fence is cleared, so a replacement operation can wake
 	// this same runner without being lost behind the canceled request.
 	BeginAttempt func(context.Context, bool) (context.Context, func())
@@ -245,11 +247,11 @@ func (r *Runner) Run(ctx context.Context) error {
 		case <-r.manualWake:
 			timer.Stop()
 			manual = true
-		case reason := <-r.wake:
+		case <-r.wake:
 			timer.Stop()
-			if reason == "manual" {
-				manual = true
-			}
+			// Ordinary credential refresh stays untagged, even when its
+			// historical reason string is "manual". Only manualWake binds
+			// the next iteration to a host catalog cycle.
 		}
 	}
 }

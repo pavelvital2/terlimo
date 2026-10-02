@@ -1,3 +1,9 @@
+# First device acceptance and native follow-up
+
+Installed candidate17d12e7/APK63a4ae1a failed first ordinary launch: establish2.951s, AUTH frame completed18.173s with SERVICE_UNAVAILABLE, retry then CATALOG_CONNECTING_TIMEOUT at20s. No visible catalog/Connect/HTTPS acceptance; final idle06:19:28.137111Z. READ_OK does not establish AUTH success. Missing stage in filtered stderr does not establish lost product events; revisiting CONNECTING restores its original wall deadline. Android visible-stage/reconnect corrections pending; server wait cause under correlation.
+
+Separate native source defect fixed here: ordinary Trigger("manual") for credential refresh no longer enters the UUID-bound manual operation/cancel fence; only TriggerManual uses that path. Runner lifecycle regression PASS; accountaccess full race3.832s and affected main race8.629s PASS. This follow-up is NOT_BUILT/NOT_INSTALLED/NOT_DEVICE_TESTED and does not resolve the server SERVICE_UNAVAILABLE.
+
 # Combined source candidate
 
 Android source b4cd9f9c26ab0992c3a4dbbe651c4e7a500917f7 (499b18c baseline) integrated after review: active-right browse Connect keeps consent and ordinary native admission, no new hour; actual reconnect displays without resetting visited-stage budgets; monotonic deadline checked before catalog publication. 97 targeted JVM tests and Android compilation PASS per attached executor receipts; expanded suite has 3 inherited source-assertion failures, not full-suite PASS. Native integration complete: separate explicit display read and ordinary credential Connect; root affected native race tests PASS (8.064s), complete accountaccess race suite PASS (3.639s). Build/device acceptance pending. Existing 101 feature rows below are retained; no new feature PASS inferred.
