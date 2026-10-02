@@ -1,3 +1,25 @@
+# Selection build/install/device result — 2026-10-02
+
+Canonical app source5a31c7aa1120c6045f76c35b6c02c7e70c61fbec, repo https://github.com/pavelvital2/terlimo branchfix/catalog-stage-deadlines-20261002; app source equals reviewed dfe99b8 cumulative. APKef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3, packaged/installed native792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef reused exactly from priorb470. Go subtree unchanged, no Go build/serverchanges; native Go buildinfo deliberately remainsb470. Signer42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b unchanged. Private overlay preserved local-only; other native libs match previousAPK. apksigner/zipalign16KiB/ELF/provenance checks PASS. INSTALL-VERIFIED and artifact-manifest are before-run receipts, final result.json records actual run.
+
+## Build/install
+
+Existing working APKd375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677 pulled and retained locally as rollback-installed.apk. Ordinary install-r/user0; readback APK and packagednative hashes exact. identity10246/ceDataInode21342/firstInstall2026-09-24 20:15:13 preserved; installation marker and encrypted state bytewise unchanged across replacement; no reset/uninstall. Prior31/target10 sourcegates accepted and not repeated. No donorpush/canonical source changes by Laptop.
+
+## Ordinary acceptance
+
+One launcher at planned08:31:00.543530Z (actual inresult), cold autoload ARM→ACCEPT35564ms. Initial native DTLS candidateTIMEOUT8097ms observed, native internally recovered; this was not a hostcatalogTIMEOUT or repeatlauncher. Active access24h stillconfirmed, onegateway. Initiallyunselected, one exact UI gatewayselect08:32:09Z. SubsequentmanualpreConnectRefresh08:32:31Z/736ms preserved visible selectedrow, no second select. UI remainedbrowse both08:32:35Z and08:33:21Z; no separate subsequent ordinary credential snapshot BEFOREConnect observed. This requested checkpoint is NOT_OBSERVED, not silently upgraded toPASS. Runtime raw stablegatewayIDs were not available in existing safe trace/UI; exact-ID equalityUNKNOWN, not inferred from gatewayname. Source sameID/reorder/removal/revocation/secondsnapshot target proof remains accepted separately.
+
+ExplicitConnect08:34:09Z, priorVPNconsent sufficient/no newdialog. UIConnected08:35:03Z, 36/36readychannels. Existing built-in VpnReadinessProbe completed: DNStrue/HTTPStrue/HTTP200true/expectedExittrue/readytrue, readiness3007ms/deadlinefalse/stageREADY/exceptionNONE/freshhandshake. Runtimefacts obtained from normal completed-attempt diagnostics afterDisconnect. No separatebrowserrequest or new diagnostic instrumentation.
+
+OneConnectedRefresh08:35:17Z/ARM→ACCEPT1798ms, immediate selectedrow retained, no reselect, UIConnected36/36. Current systemVPNnetwork122 and creation527391707149 exact before/after; no networkreplacement inferred from names. OrdinaryOrbitDisconnect08:35:38Z; originalattempt9e2f48e0-e083-4291-a0d7-cbf8948079ef/gen1/exit0/HOST_STOP/user_cancel/teardowncomplete. IndependentOFF08:36:18.755113Z: serviceOFF/nativeabsent/VPNOFF/UIclosed, identity+installationmarkerpreserved. Retained safe-tag capture throughChildExit+>=5s/logcatnotcleared. TESTrights/server unchanged by Laptop; no newhour/trial/payment. OwnerVPNleftOFF.
+
+## Verdict and limits
+
+Build/installPASS; visible selection after freshRefreshPASS; explicitVPN/HTTPS/ConnectedRefresh selection+network continuity/OFFPASS. Separate subsequentcredentialupdate beforeConnect NOT_OBSERVED; runtimeIDequalityUNKNOWN. Therefore complete all-checkpoints acceptance NOT_CLAIMED. No blind repeat/new instrumentation/longstabilityrun. Current installed candidate operational in testedflow; fallbackd375 retained. Finalservercorrelation belongs toEngineer. Passport full101 preserved as historical requirements/statuses, not all101 currentPASS. Stage/UI exact durations beyond loggedcatalogARM→ACCEPT not claimed.
+
+## Prior historical full101 passport, preserved
+
 # Active TEST access VPN acceptance — 2026-10-02
 
 Current b47069c0962868a5aa3230787d1b2ed32db99d68 / APK d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677 / native792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef. Без сборки/установки/смены identity. READY exact existing TEST от Engineer принят: nodea42fa90e/relay8c4667ba/authdd16bd8f/browse7bec1ebd, существующее право24h/gateway applied. Это server READY; корреляция именно этого run — отдельно Engineer.

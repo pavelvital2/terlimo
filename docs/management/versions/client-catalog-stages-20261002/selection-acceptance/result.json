@@ -1,0 +1,152 @@
+{
+  "source": "5a31c7aa1120c6045f76c35b6c02c7e70c61fbec",
+  "canonical_repository": "https://github.com/pavelvital2/terlimo",
+  "branch": "fix/catalog-stage-deadlines-20261002",
+  "apk_sha256": "ef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3",
+  "native_sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+  "native_provenance": "exact reused previously packaged b470 native, original Go vcs remains b470; Go subtree unchanged; no Go build",
+  "rollback_apk_sha256": "d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677",
+  "signer_sha256": "42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b",
+  "planned_t0": "2026-10-02T08:31:00.543530+00:00",
+  "actual_launcher_utc": "2026-10-02T08:31:00.544973+00:00",
+  "attempt": "9e2f48e0-e083-4291-a0d7-cbf8948079ef",
+  "host_pid": 29366,
+  "child_exit_generation": 1,
+  "child_exit_code": 0,
+  "child_exit_boundary": "HOST_STOP/user_cancel",
+  "launcher_count": 1,
+  "gateway_selection_taps": 1,
+  "manual_refresh_count": 2,
+  "catalog_durations_ms": {
+    "autoload": 35564,
+    "pre_connect_refresh": 736,
+    "connected_refresh": 1798
+  },
+  "observed_first_dtls_timeout_ms": 8097,
+  "observations": {
+    "build_install_identity": "PASS",
+    "pre_connect_refresh_selection_display": "PASS, selected before and after, no reselect",
+    "subsequent_ordinary_credential_update_before_connect": "NOT_OBSERVED: after Refresh UI remained browse, no additional safe trace cycle during pre-Connect interval",
+    "runtime_stable_gateway_id_equality": "UNKNOWN; raw bridge IDs not exported by existing safe trace/UI, equality not inferred from names",
+    "vpn_explicit_connect": "PASS",
+    "useful_https": "PASS: existing VPN-bound probe DNS/HTTPS200/expectedExit/READY=true",
+    "connected_refresh_selection_display": "PASS, selected immediate post-refresh, no reselect",
+    "vpn_continuity": "PASS, current network122/creation527391707149 unchanged",
+    "disconnect_off": "PASS",
+    "new_hour_trial_payment": "NOT_TRIGGERED",
+    "all101_or_long_stability": "NOT_CLAIMED"
+  },
+  "source_gates": "prior31 and correctiontarget10 accepted, not repeated",
+  "readiness": {
+    "statsOk": [
+      "true"
+    ],
+    "handshakePresent": [
+      "true"
+    ],
+    "handshakeFresh": [
+      "true"
+    ],
+    "vpnPresent": [
+      "true"
+    ],
+    "dnsOk": [
+      "true"
+    ],
+    "httpsOk": [
+      "true"
+    ],
+    "httpStatusOk": [
+      "true"
+    ],
+    "expectedExitOk": [
+      "true"
+    ],
+    "ready": [
+      "true"
+    ],
+    "deadline": [
+      "false"
+    ],
+    "stage": [
+      "READY"
+    ],
+    "exceptionClass": [
+      "NONE"
+    ],
+    "failureCode": [
+      "READY"
+    ],
+    "readiness_elapsed_ms": [
+      "3007"
+    ],
+    "config_worker_start_count": [
+      "1"
+    ],
+    "config_worker_ready_count": [
+      "1"
+    ],
+    "data_worker_start_count": [
+      "36"
+    ],
+    "data_worker_ready_count": [
+      "35"
+    ],
+    "local_udp_write_errors": [
+      "0"
+    ]
+  },
+  "vpn_before": {
+    "utc": "2026-10-02T08:35:17.710682+00:00",
+    "vpn_agents": [
+      {
+        "network_id": [
+          "122"
+        ],
+        "creation": [
+          "527391707149"
+        ],
+        "vpn": true
+      }
+    ]
+  },
+  "vpn_after": {
+    "utc": "2026-10-02T08:35:22.725368+00:00",
+    "vpn_agents": [
+      {
+        "network_id": [
+          "122"
+        ],
+        "creation": [
+          "527391707149"
+        ],
+        "vpn": true
+      }
+    ]
+  },
+  "final_idle": {
+    "utc": "2026-10-02T08:36:18.755113+00:00",
+    "identity": {
+      "appId": "10246",
+      "ceDataInode": "21342",
+      "firstInstallTime": "2026-09-24 20:15:13"
+    },
+    "service_off": true,
+    "native_absent": true,
+    "vpn_off": true,
+    "test_processes": [
+      "29366 xyz.terlimo.test            xyz.terlimo.test"
+    ],
+    "test_activity_resumed": false
+  },
+  "installation_marker_unchanged": true,
+  "capture_completion": {
+    "utc": "2026-10-02T08:37:20.863031+00:00",
+    "child_exit_epoch": 1790930138.544,
+    "device_epoch_floor": 1790930240,
+    "seconds_after_child_exit_lower_bound": 101.45600008964539,
+    "capture": "retained safe tags only"
+  },
+  "server": "a42fa90e/8c4667ba/d16bd8f/7bec unchanged by Laptop; exact this-run server correlation pending Engineer",
+  "status": "SEQUENCE_COMPLETE_WITH_NOT_OBSERVED_CHECKPOINT_NO_FULL_ACCEPTANCE_CLAIM"
+}

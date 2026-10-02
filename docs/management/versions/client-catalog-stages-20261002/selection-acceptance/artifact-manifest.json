@@ -1,0 +1,44 @@
+{
+  "canonical_repository": "https://github.com/pavelvital2/terlimo",
+  "branch": "fix/catalog-stage-deadlines-20261002",
+  "canonical_commit": "5a31c7aa1120c6045f76c35b6c02c7e70c61fbec",
+  "clean_source": true,
+  "native_reused_from_verified_b470": true,
+  "package": "xyz.terlimo.test",
+  "version_code": 14,
+  "signer_sha256": "42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b",
+  "overlay_preserved_local_only": true,
+  "packaged_native_matches_reused_input": true,
+  "other_native_libraries_preserved": true,
+  "rollback_sha256": "d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677",
+  "tests": "accepted source31/target10 gates reused; no rerun",
+  "status": "BUILT_NOT_INSTALLED_NOT_RUN",
+  "toolchain": {
+    "go": "1.27.0",
+    "NDK": "28.2.13676358",
+    "JDK": "21.0.12.1+1",
+    "Gradle": "9.1.0"
+  },
+  "artifacts": {
+    "candidate.apk": {
+      "sha256": "ef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3",
+      "bytes": 18158258
+    },
+    "candidate-native.so": {
+      "sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+      "bytes": 20118776
+    },
+    "candidate-packaged-native.so": {
+      "sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+      "bytes": 20118776
+    },
+    "build-candidate.sh": {
+      "sha256": "a95c5eb6c91f9bcd2eb609717337a95a998178f2948eae50433d1699f16bc7cd",
+      "bytes": 666
+    },
+    "build.log": {
+      "sha256": "bf932eb9d0633138711c1e29655f9b45b0ca82378cbe07d5006a541bf32c8fd4",
+      "bytes": 2891
+    }
+  }
+}

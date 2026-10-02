@@ -1,0 +1,31 @@
+{
+  "utc": "2026-10-02T08:42:07.009273+00:00",
+  "source": "5a31c7aa1120c6045f76c35b6c02c7e70c61fbec",
+  "apk": "ef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3",
+  "native": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+  "server": "a42fa90e/8c4667ba/d16bd8f/7bec unchanged",
+  "accepted": [
+    "build/install/identity",
+    "single launch catalog success35.564s with internal retry",
+    "visible selection retained after preConnectRefresh736ms",
+    "explicit Connect and ordinary VPN-bound HTTPS200/expected exit",
+    "ConnectedRefresh1798ms selected row retained and same network122/creation527391707149",
+    "normal Disconnect exit0 and independent OFF"
+  ],
+  "limits": [
+    "initial loading speed unresolved35.564s; not all delay explained by first8s DTLS timeout",
+    "subsequent ordinary credential snapshot beforeConnect NOT_OBSERVED; deterministic source regression PASS separately",
+    "raw runtime stable ID equality UNKNOWN; UI evidence not identity proof",
+    "full101 and long-term stability not accepted",
+    "current run server correlation in progress by existing TERLIMO; no duplicate task"
+  ],
+  "latency_breakdown_ms": {
+    "first_establish_failed": 9609,
+    "second_establish": 7687,
+    "second_challenge_remaining_exchange": 11279,
+    "session_exchange": 3451,
+    "me": 2053,
+    "gateway": 198
+  },
+  "device_runs_added_by_root_review": 0
+}
