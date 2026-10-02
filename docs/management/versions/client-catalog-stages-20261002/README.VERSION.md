@@ -1,3 +1,42 @@
+# CAPTCHA build/install/short acceptance — 02.10.2026
+
+Incoming `whitelist-20261002-captcha-build-install-accept-v1`. Build/install, two required local fixtures after one fixture-only correction, ordinary catalogue/selection and final OFF completed.
+
+## Exact installed artifact
+
+- Canonical repository `https://github.com/pavelvital2/terlimo.git`, branch `fix/catalog-stage-deadlines-20261002`, source **bc984965de12773f5806b289c77ceeba08b7ec46**, clean at build, app source identical to accepted806d54a. Publisher remains root; Laptop did not push or change remotes.
+- Installed and final readback APK **a23e39c9216992584b38ecddff8a1343c0c10c683b3f84ea004081ef84ef25e6**; package xyz.terlimo.test, versionCode14/versionName0.14-routing.
+- Native input = packaged = installed **792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef**, exact reused verified native792. Its Go buildinfo remains b47069c0962868a5aa3230787d1b2ed32db99d68 as expected; Go not rebuilt, server untouched.
+- Signer **42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b**. Native ELF/provenance, APK package/signature/16KiB alignment guards PASS; other native libraries preserved; private overlay verified equal locally and never exported.
+- Rollback APK **ef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3** saved locally as rollback-installed.apk. Replacement install-r, user0; no clear/uninstall. appId10246, ceDataInode21342, firstInstall2026-09-24 20:15:13 preserved. Installation marker and encrypted state byte-exact before/after installation; final marker unchanged. After ordinary catalogue operation encrypted state hash changed; it remains present, no clearing/reset performed. Final APK readback still exact a23e39c9.
+
+## Two local fixture results
+
+First prepared T0 `2026-10-02T09:59:17.914760+00:00`. Ordinary instrumentation runner executed only the two requested methods, using data: pages. Service/native/VPN were OFF before them; synthetic token stays in the local manager and is not sent to server.
+
+1. `CaptchaWebViewFixturesTest#manualWindowSolvesAndReportsExactlyOnce` **PASS** on first run; never repeated.
+2. `#backgroundShowsNotificationAndReturnRelaunchesTheSameWindow` first run reached visible notification, reopened the window and received the expected local token, then **FAIL** at line122: immediate assertion that notification already disappeared. The target notification was absent on subsequent system observation and service/native/VPN remained OFF. The fixture asserted an asynchronously applied system state without waiting.
+
+Authorized technical correction: local commit **2d6d66a4edf7754b13bcaf7221061ff1df6bb83a**, one androidTest file,8 additions/1 deletion. It observes notification removal with the same bounded40×100ms pattern already used for appearance. Product source, APK, native, mode/operation deadlines unchanged. Only test APK rebuilt/reinstalled; only the failed method retried at `2026-10-02T10:03:20.313788+00:00` → **PASS**, runner `OK (1 test)`, per-test status0, completed `2026-10-02T10:03:23.840792+00:00`. Initial runner `2 tests/1 failure` is retained, not overwritten. Corrected test APK SHA `610b132ef353957a75e290570acb5db71ef9d58f35221da4b97797709c832707`; test-only patch included for canonical publication by root.
+
+Original16 JVM/Go/parity/full suites not repeated. Test APK is ordinary instrumentation; no second product runtime created.
+
+## Ordinary catalogue and OFF
+
+After completed fixtures, idle target process absence proved before a single ordinary launcher at `2026-10-02T10:03:25.330508+00:00`. No previous launcher/catalog attempt occurred during the fixture correction. Native attempt **2065de12-503b-4725-83ba-6b241e80b5e7**, hostPID3779, generation1. Autoload ARM10:03:27.061Z → ACCEPT10:03:56.125Z, marker elapsed **29065ms**. UI showed catalogue,1 available gateway, active existing access. Initially unselected; one ordinary selection produced the visible selected row and chosen-gateway card. No manual refresh, ping, VPN Connect, HTTPS/ConnectedRefresh repetition or trial/hour/payment action.
+
+Ordinary notification action **«Отключить»** at trace10:07:30.613Z; ChildExit10:07:30.752Z, generation1/exit0/HOST_STOP, teardown complete10:07:30.844Z. Capture retained through final OFF, without clearing logcat. Independent final check **2026-10-02T10:08:03.191052+00:00**: serviceOFF, native absent, VPNOFF, target activity not resumed, identity/installation marker preserved. Cached UI process3779 remains; this is not a claim of final cold-process absence. Existing personal Internet was not changed.
+
+## Verdict / remaining limits
+
+**PASS:** build provenance and replacement install; required local manual success/notification-return fixtures after documented fixture correction; ordinary autoload/visible catalogue/selection; finalOFF and identity preservation.
+
+**NOT_TESTED:** runtime Disconnect while manual CAPTCHA is still pending; that is not proved by an ordinary catalogue Stop. All other CAPTCHA branches, real VK end-to-end solving, VPN/HTTPS, ConnectedRefresh and broad101 acceptance are not promoted by this run. Natural VK CAPTCHA was **NOT_OBSERVED** after ordinary launcher (zero challenge markers in retained tags, no challenge UI). No artificial VK triggering.
+
+Observed catalogue29.1s in this run does not remove the known historical~35s latency limit or establish a latency improvement/stability result. Full prior101 version passport retained verbatim below the new result, with its historical statuses. This is the requested installed TEST acceptance, not production/liveVKPASS. No remaining concrete failure in this scope; root can review the small fixture patch and continue browser checkout under its own next task.
+
+## Prior full version passport (historical evidence retained)
+
 # CAPTCHA: два локальных исправления, source receipt
 
 Incoming: whitelist-20261002-captcha-two-local-fixes-v1.

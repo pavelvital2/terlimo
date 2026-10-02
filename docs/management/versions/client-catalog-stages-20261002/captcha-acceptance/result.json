@@ -1,0 +1,104 @@
+{
+  "incoming_event": "whitelist-20261002-captcha-build-install-accept-v1",
+  "source": "bc984965de12773f5806b289c77ceeba08b7ec46",
+  "apk_sha256": "a23e39c9216992584b38ecddff8a1343c0c10c683b3f84ea004081ef84ef25e6",
+  "native_sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+  "signer_sha256": "42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b",
+  "package": "xyz.terlimo.test",
+  "user": 0,
+  "install": {
+    "source": "bc984965de12773f5806b289c77ceeba08b7ec46",
+    "apk_sha256": "a23e39c9216992584b38ecddff8a1343c0c10c683b3f84ea004081ef84ef25e6",
+    "native_input_sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+    "packaged_installed_native_sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+    "identity": {
+      "appId": "10246",
+      "ceDataInode": "21342",
+      "firstInstallTime": "2026-09-24 20:15:13"
+    },
+    "identity_preserved": true,
+    "installation_marker_and_encrypted_state_unchanged": true,
+    "user0": true,
+    "signer_preserved": true,
+    "final_idle_utc": "2026-10-02T09:56:21.990337+00:00",
+    "service_off": true,
+    "native_absent": true,
+    "vpn_off": true,
+    "activity_not_resumed": true,
+    "rollback_sha256": "ef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3",
+    "status": "INSTALLED_IDLE_OFF_NOT_RUN",
+    "launch_refresh_phone_runs": 0
+  },
+  "fixture_correction": {
+    "commit": "2d6d66a4edf7754b13bcaf7221061ff1df6bb83a",
+    "app_source_unchanged": "bc984965de12773f5806b289c77ceeba08b7ec46",
+    "test_apk_sha256": "610b132ef353957a75e290570acb5db71ef9d58f35221da4b97797709c832707",
+    "cause": "immediate assertion after asynchronous notification cancel; token/window path succeeded; post-run notification absent",
+    "changes": "existing fixture only, bounded wait up to4s with existing100ms/40 pattern",
+    "retry": "backgroundShowsNotificationAndReturnRelaunchesTheSameWindow only"
+  },
+  "fixtures": {
+    "manual_success_exactly_once": {
+      "verdict": "PASS",
+      "run": "2026-10-02T09:59:17.914760+00:00",
+      "repeat": false
+    },
+    "background_notification_return": {
+      "initial_verdict": "FAIL immediate post-cancel notification assertion",
+      "initial_run": "2026-10-02T09:59:17.914760+00:00",
+      "corrected_verdict": "PASS",
+      "corrected_run": "2026-10-02T10:03:20.313788+00:00",
+      "corrected_end": "2026-10-02T10:03:23.840792+00:00"
+    },
+    "natural_vk": "NOT_OBSERVED",
+    "pending_manual_runtime_teardown": "NOT_TESTED"
+  },
+  "catalog": {
+    "launcher": {
+      "utc": "2026-10-02T10:03:25.330508+00:00",
+      "entry": "ordinary launcher after completed local fixtures",
+      "prior_cached_pid": "",
+      "cold_absence_proven": true,
+      "source": "bc984965de12773f5806b289c77ceeba08b7ec46"
+    },
+    "attempt": "2065de12-503b-4725-83ba-6b241e80b5e7",
+    "generation": 1,
+    "host_pid": 3779,
+    "arm_utc": "2026-10-02T10:03:27.061Z",
+    "accept_utc": "2026-10-02T10:03:56.125Z",
+    "elapsed_ms": 29065,
+    "verdict": "PASS",
+    "visible_rows": 1,
+    "initial_selection": "not selected",
+    "one_normal_select": "selected row and chosen gateway card observed",
+    "vpn_https_connected_refresh": "NOT_REPEATED"
+  },
+  "stop": {
+    "utc": "2026-10-02T10:07:31.306387+00:00",
+    "method": "ordinary foreground notification action Отключить; then Home"
+  },
+  "final": {
+    "utc": "2026-10-02T10:08:03.191052+00:00",
+    "identity": {
+      "appId": "10246",
+      "ceDataInode": "21342",
+      "firstInstallTime": "2026-09-24 20:15:13"
+    },
+    "service_off": true,
+    "native_absent": true,
+    "vpn_off": true,
+    "test_processes": [
+      " 3779 xyz.terlimo.test            xyz.terlimo.test"
+    ],
+    "test_activity_resumed": false
+  },
+  "final_apk_readback_matches": true,
+  "installation_marker_preserved": true,
+  "encrypted_state_byte_exact_at_install": true,
+  "encrypted_state_changed_after_catalog": true,
+  "clear_uninstall_new_identity": false,
+  "rollback_sha256": "ef84c3e0ae1c595ae24809a8f3043c34dc892c3e54c647156c83b2332fb210f3",
+  "source_published_by_laptop": false,
+  "new_test_patch_published": false,
+  "server_or_rights_changed_by_laptop": false
+}

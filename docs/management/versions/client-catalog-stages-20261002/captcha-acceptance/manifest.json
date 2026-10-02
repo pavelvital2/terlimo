@@ -1,0 +1,42 @@
+{
+  "REPORT.md": {
+    "sha256": "657b2054c3ec5f30691e5bb5b6422643cc858bcee535afdca3b8e925b5cc3377",
+    "bytes": 5762
+  },
+  "README.VERSION.md": {
+    "sha256": "b32777c0e634f8b71196e75b7ce411e32de27a300d91c96808d64a16db5f1872",
+    "bytes": 63196
+  },
+  "result.json": {
+    "sha256": "33293d6f3ef7bea992be8b89b26203b949e1c392b292fb3c156e608aac83aad4",
+    "bytes": 4227
+  },
+  "fixture-correction.patch": {
+    "sha256": "05600935fa4bb0d412933799c67cf117c7879237683f0d1818df1b95af3ba2f6",
+    "bytes": 1152
+  },
+  "artifact-manifest.json": {
+    "sha256": "5133ad52a0e01e26e0988b3d6740182a949c121fbec4771363e4b002c2873645",
+    "bytes": 1712
+  },
+  "INSTALL-VERIFIED.json": {
+    "sha256": "7fbaddc01654221e7983a7c1743496b06d5d9a694174c4aff2b45d7ca1070266",
+    "bytes": 915
+  },
+  "instrumentation-initial.log": {
+    "sha256": "3190e8d97e149a959783b910734f61831a071fb1a30c8a3f9aa31d2d1d25d3f2",
+    "bytes": 5107
+  },
+  "instrumentation-corrected.log": {
+    "sha256": "97d15d9a70afa14210cb0adab36077cd6d6c4bf5347edbac39e8855703d4c444",
+    "bytes": 813
+  },
+  "original-safe-trace.log": {
+    "sha256": "41e5bd1ba029dd5cb158072d71abaf01ff6fcc58457caed0d49fc4640af5b7f4",
+    "bytes": 1046
+  },
+  "selected.png": {
+    "sha256": "99b92b4edbcc14a86288c8e8687fde2247b2656a56eb4741c8b1c1e1ff09926c",
+    "bytes": 126306
+  }
+}

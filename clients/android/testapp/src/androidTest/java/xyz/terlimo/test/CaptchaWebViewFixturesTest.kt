@@ -119,6 +119,13 @@ class CaptchaWebViewFixturesTest {
         AppForeground.isForeground = true
         ManlCaptchaWebViewManager.checkAndShowPendingCaptcha(context)
         job.join()
-        assertFalse(manager.activeNotifications.any { it.id == 9001 })
+        // cancel() has returned, but NotificationManager applies removal asynchronously.
+        // Use the same bounded observation window as notification publication above.
+        var removed = false
+        for (attempt in 0 until 40) {
+            if (manager.activeNotifications.none { it.id == 9001 }) { removed = true; break }
+            delay(100)
+        }
+        assertTrue("completed CAPTCHA notification was not removed", removed)
     }
 }

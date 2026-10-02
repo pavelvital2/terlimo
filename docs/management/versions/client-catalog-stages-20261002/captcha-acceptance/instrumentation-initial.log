@@ -1,0 +1,88 @@
+INSTRUMENTATION_STATUS: class=xyz.terlimo.test.CaptchaWebViewFixturesTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=
+xyz.terlimo.test.CaptchaWebViewFixturesTest:
+INSTRUMENTATION_STATUS: test=backgroundShowsNotificationAndReturnRelaunchesTheSameWindow
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=xyz.terlimo.test.CaptchaWebViewFixturesTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertFalse(Assert.java:65)
+	at org.junit.Assert.assertFalse(Assert.java:75)
+	at xyz.terlimo.test.CaptchaWebViewFixturesTest$backgroundShowsNotificationAndReturnRelaunchesTheSameWindow$1.invokeSuspend(CaptchaWebViewFixturesTest.kt:122)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:280)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:85)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:59)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:38)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at xyz.terlimo.test.CaptchaWebViewFixturesTest.backgroundShowsNotificationAndReturnRelaunchesTheSameWindow(CaptchaWebViewFixturesTest.kt:104)
+
+INSTRUMENTATION_STATUS: stream=
+Error in backgroundShowsNotificationAndReturnRelaunchesTheSameWindow(xyz.terlimo.test.CaptchaWebViewFixturesTest):
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertFalse(Assert.java:65)
+	at org.junit.Assert.assertFalse(Assert.java:75)
+	at xyz.terlimo.test.CaptchaWebViewFixturesTest$backgroundShowsNotificationAndReturnRelaunchesTheSameWindow$1.invokeSuspend(CaptchaWebViewFixturesTest.kt:122)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:280)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:85)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:59)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:38)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at xyz.terlimo.test.CaptchaWebViewFixturesTest.backgroundShowsNotificationAndReturnRelaunchesTheSameWindow(CaptchaWebViewFixturesTest.kt:104)
+
+INSTRUMENTATION_STATUS: test=backgroundShowsNotificationAndReturnRelaunchesTheSameWindow
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_STATUS: class=xyz.terlimo.test.CaptchaWebViewFixturesTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=manualWindowSolvesAndReportsExactlyOnce
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=xyz.terlimo.test.CaptchaWebViewFixturesTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=2
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=manualWindowSolvesAndReportsExactlyOnce
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 3,422
+There was 1 failure:
+1) backgroundShowsNotificationAndReturnRelaunchesTheSameWindow(xyz.terlimo.test.CaptchaWebViewFixturesTest)
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertFalse(Assert.java:65)
+	at org.junit.Assert.assertFalse(Assert.java:75)
+	at xyz.terlimo.test.CaptchaWebViewFixturesTest$backgroundShowsNotificationAndReturnRelaunchesTheSameWindow$1.invokeSuspend(CaptchaWebViewFixturesTest.kt:122)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:280)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:85)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:59)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:38)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at xyz.terlimo.test.CaptchaWebViewFixturesTest.backgroundShowsNotificationAndReturnRelaunchesTheSameWindow(CaptchaWebViewFixturesTest.kt:104)
+
+FAILURES!!!
+Tests run: 2,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1
