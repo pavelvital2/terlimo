@@ -1,0 +1,77 @@
+{
+  "root_task": "whitelist-20261002-corrected-pair-observe-server-v1",
+  "run_actual_T0": "2026-10-02T07:17:56.772969+00:00",
+  "attempt": "b2f9f386-d588-46bf-ad2f-35df5f1b9151",
+  "server_forward_rows": [
+    {
+      "gen": "1",
+      "seq": "1",
+      "class": "AUTH",
+      "status": "200",
+      "dur_ms": "3186",
+      "utc_ms": "1790925486152"
+    },
+    {
+      "gen": "1",
+      "seq": "2",
+      "class": "AUTH",
+      "status": "200",
+      "dur_ms": "3476",
+      "utc_ms": "1790925489759"
+    },
+    {
+      "gen": "1",
+      "seq": "3",
+      "class": "ME",
+      "status": "200",
+      "dur_ms": "5648",
+      "utc_ms": "1790925495562"
+    },
+    {
+      "gen": "1",
+      "seq": "4",
+      "class": "GATEWAYS",
+      "status": "200",
+      "dur_ms": "8",
+      "utc_ms": "1790925495747"
+    },
+    {
+      "gen": "1",
+      "seq": "5",
+      "class": "ANNOUNCEMENTS",
+      "status": "200",
+      "dur_ms": "28",
+      "utc_ms": "1790925495874"
+    },
+    {
+      "gen": "1",
+      "seq": "6",
+      "class": "ME",
+      "status": "200",
+      "dur_ms": "26",
+      "utc_ms": "1790925498527"
+    },
+    {
+      "gen": "1",
+      "seq": "7",
+      "class": "GATEWAYS",
+      "status": "200",
+      "dur_ms": "7",
+      "utc_ms": "1790925498648"
+    }
+  ],
+  "client_server_endpoint_join": true,
+  "catalog": "PASS autoload oneARM/ACCEPT16067 visiblelist plus explicitbrowse200",
+  "normal_Disconnect_OFF": "PASS original notification user_cancel ChildExit0/HOST_STOP and independent idlecheck",
+  "active_VPN_HTTPS_ConnectedRefresh": "NOT_TESTED absent existing active right per UI; literal grant.dataAccess UNKNOWN",
+  "other_UI_stage_transitions": "NOT_OBSERVED; not proof of missing bridge",
+  "full101_product": "NOT_CLAIMED",
+  "expanded_budget_live_cutoff_exercise": false,
+  "original_delay_root_cause": "UNKNOWN",
+  "default_gateways200": "not credential/admission PASS: credential body not exported, no activeVPN run",
+  "post_catalog_idle_close_and_gen2": "server idle10close and subsequent handshakeFAIL preserved, cause not inferred; not AUTH15 cutoff",
+  "final_client_idle_UTC": "2026-10-02T07:21:29.284907+00:00",
+  "server_projection_UTC": "2026-10-02T07:23:43.203804+00:00",
+  "wire_RID_and_crossclock_join": "NOT_PROVEN",
+  "runtime_mutations": false
+}

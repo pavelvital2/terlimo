@@ -1,0 +1,59 @@
+{
+  "statsOk": [
+    "true"
+  ],
+  "handshakePresent": [
+    "true"
+  ],
+  "handshakeFresh": [
+    "true"
+  ],
+  "vpnPresent": [
+    "true"
+  ],
+  "dnsOk": [
+    "true"
+  ],
+  "httpsOk": [
+    "true"
+  ],
+  "httpStatusOk": [
+    "true"
+  ],
+  "expectedExitOk": [
+    "true"
+  ],
+  "ready": [
+    "true"
+  ],
+  "deadline": [
+    "false"
+  ],
+  "stage": [
+    "READY"
+  ],
+  "exceptionClass": [
+    "NONE"
+  ],
+  "failureCode": [
+    "READY"
+  ],
+  "readiness_elapsed_ms": [
+    "843"
+  ],
+  "config_worker_start_count": [
+    "1"
+  ],
+  "config_worker_ready_count": [
+    "1"
+  ],
+  "data_worker_start_count": [
+    "38"
+  ],
+  "data_worker_ready_count": [
+    "35"
+  ],
+  "local_udp_write_errors": [
+    "0"
+  ]
+}

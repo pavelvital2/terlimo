@@ -1,0 +1,83 @@
+{
+  "source": "b47069c0962868a5aa3230787d1b2ed32db99d68",
+  "apk_sha256": "d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677",
+  "native_sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+  "server_ready": {
+    "node": "a42fa90e",
+    "relay": "8c4667ba",
+    "authd": "16bd8f",
+    "browse": "7bec",
+    "AUTH_budgets_seconds": [
+      22,
+      21,
+      20
+    ],
+    "flags": "OFF",
+    "via_root": true
+  },
+  "planned_T0": "2026-10-02T07:17:56.772803Z",
+  "actual_T0": "2026-10-02T07:17:56.772969+00:00",
+  "host_pid": 24595,
+  "attempt": "b2f9f386-d588-46bf-ad2f-35df5f1b9151",
+  "generation": 1,
+  "catalog_cycle_UUID": "UNKNOWN:not logged; one ARM and one ACCEPT for original attempt",
+  "ARM_device_epoch": 1790925479.094,
+  "ACCEPT_device_epoch": 1790925495.159,
+  "catalog_accept_elapsed_ms": 16067,
+  "manual_first_refresh_count": 0,
+  "visible_gateway_count": 1,
+  "visible_gateway_names": [
+    "STEP036 device node"
+  ],
+  "visible_catalog_utc": "2026-10-02T07:18:24.498863+00:00",
+  "visible_initial_stage": "Подключение к серверу",
+  "visible_initial_stage_utc": "2026-10-02T07:18:02.125094+00:00",
+  "other_UI_stages": "NOT_OBSERVED: asynchronous short transitions between snapshots; not evidence of missing bridge event",
+  "native_boundaries": {
+    "establish_ms": 2962,
+    "AUTH_challenge_decoded_ms": 6247,
+    "AUTH_session_exchange_ms": 3626,
+    "ME_read_ms": 5836,
+    "GW_read_ms": 108
+  },
+  "access_UI": "Срок доступа истёк · VPN не активен",
+  "subscription_expiry_UI_local": "01.10.2026 21:58",
+  "grant_dataAccess_literal": "UNKNOWN: not exported by safe capture",
+  "new_right_hour_trial_payment": false,
+  "Connect_VPN_HTTPS_ConnectedRefresh": "NOT_TESTED: no existing active right",
+  "cleanup": "one original own notification cancel/user_cancel; no force-stop",
+  "ChildExit_device_epoch": 1790925687.254,
+  "ChildExit_code": 0,
+  "final_idle_UTC": "2026-10-02T07:21:29.284907+00:00",
+  "native_service_VPN_OFF": true,
+  "UI_closed": true,
+  "identity": {
+    "appId": "10246",
+    "ceDataInode": "21342",
+    "firstInstallTime": "2026-09-24 20:15:13"
+  },
+  "identity_and_installation_marker_preserved": true,
+  "build_install_retry_count": 0,
+  "phone_launcher_count": 1,
+  "capture": {
+    "utc": "2026-10-02T07:23:17.741528+00:00",
+    "child_exit_device_epoch": 1790925687.254,
+    "end_device_epoch_lower_bound": 1790925797.0,
+    "after_exit_minimum_seconds": 109.74600005149841,
+    "capture_scope": "existing safe tags only, no cleared logs",
+    "original_attempt": "b2f9f386-d588-46bf-ad2f-35df5f1b9151",
+    "original_pid": 24595,
+    "no_product_timeout_override": true,
+    "stop": "normal user notification cancel then independent OFF"
+  },
+  "verdict": {
+    "ordinary_launch": "PASS",
+    "visible_initial_stage": "PASS",
+    "fresh_catalog_ACCEPT_and_visible_list": "PASS",
+    "access_status_recorded": "PASS",
+    "active_VPN_and_HTTPS": "NOT_TESTED",
+    "Connected_Refresh": "NOT_TESTED",
+    "normal_cleanup_OFF": "PASS",
+    "full_product_101": "NOT_CLAIMED"
+  }
+}

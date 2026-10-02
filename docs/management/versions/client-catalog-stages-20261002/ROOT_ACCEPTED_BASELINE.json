@@ -1,0 +1,22 @@
+{
+  "utc": "2026-10-02T08:07:34.438046+00:00",
+  "app_source": "b47069c0962868a5aa3230787d1b2ed32db99d68",
+  "apk": "d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677",
+  "server_node": "a42fa90e0b7459b128e445e473078f31b6c180d8da00310d332182c9dd210f1d",
+  "accepted": [
+    "ordinary autoload single run16.067s visible gateway",
+    "manual fresh catalogue13.812s",
+    "VPN bound built-in HTTPS probe200 and expected exit",
+    "ConnectedRefresh883ms same VPN network and creation",
+    "normal Disconnect and independent OFF",
+    "visible stages from original screenshots/video"
+  ],
+  "limits": [
+    "full101 and long-term stability not asserted",
+    "browser HTTPS and new VPN consent not exercised",
+    "hot resume retained old status until manualRefresh",
+    "source-only followup investigates reset of selected stable gateway across browse/verified projection",
+    "VPN run server correlation pending; initial catalogue server correlation accepted"
+  ],
+  "phone_runs_added_by_review": 0
+}

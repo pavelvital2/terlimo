@@ -1,0 +1,155 @@
+{
+  "source": "b47069c0962868a5aa3230787d1b2ed32db99d68",
+  "apk_sha256": "d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677",
+  "native_sha256": "792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef",
+  "server": {
+    "node": "a42fa90e",
+    "relay": "8c4667ba",
+    "authd": "d16bd8f",
+    "browse": "7bec1ebd",
+    "basis": "Engineer exact identity READY; current run server correlation separate"
+  },
+  "planned_t0": "2026-10-02T07:48:32.863675+00:00",
+  "actual_launcher": "2026-10-02T07:48:32.864920+00:00",
+  "launcher": "one ordinary HOT am start, no autoload; retained expired projection",
+  "initial_refresh_ms": 13812,
+  "connected_refresh_ms": 883,
+  "attempt": "917151a7-ecc3-425e-9973-d5d660e7d73b",
+  "host_pid": 24595,
+  "child_exit_generation": 2,
+  "child_exit_code": 141,
+  "child_exit_boundary": "HOST_STOP/user_cancel",
+  "results": {
+    "active_access": "PASS",
+    "available_gateway": "PASS, one STEP036 device node",
+    "four_visible_stages": "OBSERVED, snapshots connecting/checking; original video frames subscription/loading",
+    "vpn_connect": "PASS",
+    "https": "PASS, built-in VPN-bound probe DNS/HTTPS200/expectedExit/ready; no separate browser request",
+    "connected_refresh": "PASS, one ConnectedRefresh; same VPN network121 and creation523096739853; same selected gateway restored",
+    "disconnect_off": "PASS",
+    "hot_launcher_autoload": "NOT_OBSERVED; old retained subscription screen; initial ordinary Refresh required",
+    "new_hour_trial_payment": "NOT_TRIGGERED; existing TEST trial extended by Engineer, no Laptop activation",
+    "stability_long_run": "NOT_TESTED",
+    "all101_product": "NOT_CLAIMED"
+  },
+  "readiness": {
+    "statsOk": [
+      "true"
+    ],
+    "handshakePresent": [
+      "true"
+    ],
+    "handshakeFresh": [
+      "true"
+    ],
+    "vpnPresent": [
+      "true"
+    ],
+    "dnsOk": [
+      "true"
+    ],
+    "httpsOk": [
+      "true"
+    ],
+    "httpStatusOk": [
+      "true"
+    ],
+    "expectedExitOk": [
+      "true"
+    ],
+    "ready": [
+      "true"
+    ],
+    "deadline": [
+      "false"
+    ],
+    "stage": [
+      "READY"
+    ],
+    "exceptionClass": [
+      "NONE"
+    ],
+    "failureCode": [
+      "READY"
+    ],
+    "readiness_elapsed_ms": [
+      "843"
+    ],
+    "config_worker_start_count": [
+      "1"
+    ],
+    "config_worker_ready_count": [
+      "1"
+    ],
+    "data_worker_start_count": [
+      "38"
+    ],
+    "data_worker_ready_count": [
+      "35"
+    ],
+    "local_udp_write_errors": [
+      "0"
+    ]
+  },
+  "final_idle": {
+    "utc": "2026-10-02T07:56:08.819740+00:00",
+    "identity": {
+      "appId": "10246",
+      "ceDataInode": "21342",
+      "firstInstallTime": "2026-09-24 20:15:13"
+    },
+    "service_off": true,
+    "native_absent": true,
+    "vpn_off": true,
+    "test_processes": [
+      "24595 xyz.terlimo.test            xyz.terlimo.test"
+    ],
+    "test_activity_resumed": false
+  },
+  "installation_marker_unchanged": true,
+  "capture_completion": {
+    "utc": "2026-10-02T07:56:39.848881+00:00",
+    "child_exit_epoch": 1790927710.371,
+    "device_epoch_floor": 1790927799,
+    "seconds_after_child_exit_lower_bound": 88.62899994850159,
+    "capture": "retained safe tags only"
+  },
+  "video": {
+    "duration_seconds": 179.31,
+    "bytes": 2282078,
+    "sha256": "5c137bd53490ed21a491cd37b0dcb49c53cf8374cffb812fd7cd08815694c762",
+    "audio": false,
+    "export": "local private only; inspected extracted stage frames exported"
+  },
+  "stage_frame_pts": {
+    "subscription_status": 125.563078,
+    "loading_catalog": 125.944533,
+    "units": "seconds in video, not exact UTC or full stage durations"
+  },
+  "vpn_preservation": {
+    "before": [
+      {
+        "network_id": [
+          "121"
+        ],
+        "heading_numbers": [
+          "121",
+          "523096739853"
+        ],
+        "vpn": true
+      }
+    ],
+    "after": [
+      {
+        "network_id": [
+          "121"
+        ],
+        "heading_numbers": [
+          "121",
+          "523096739853"
+        ],
+        "vpn": true
+      }
+    ]
+  }
+}

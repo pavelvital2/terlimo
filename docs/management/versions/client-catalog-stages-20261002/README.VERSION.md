@@ -1,3 +1,73 @@
+# Active TEST access VPN acceptance — 2026-10-02
+
+Current b47069c0962868a5aa3230787d1b2ed32db99d68 / APK d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677 / native792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef. Без сборки/установки/смены identity. READY exact existing TEST от Engineer принят: nodea42fa90e/relay8c4667ba/authdd16bd8f/browse7bec1ebd, существующее право24h/gateway applied. Это server READY; корреляция именно этого run — отдельно Engineer.
+
+T0 planned07:48:32.863675Z, actual ordinary HOT launcher07:48:32.864920Z. Launcher только вернул прежний subscription screen со старой expired проекцией, нового autoload/ARM не было. Выбран cached gateway, первый tap Connect недоступной кнопки не дал native attempt. Для фактически актуального статуса выполнен один обычный initial Refresh07:50:25Z, ARM→ACCEPT13812ms. Accessactive до03.10.2026 07:41:20Z, один gateway STEP036 device node. Browse→verified list потребовал повторного выбора; после выбора active gateway explicit Connect07:52:06Z с уже сохранённым VPN consent (новый диалог не появился), UIConnected07:52:33Z. Один native attempt917151a7-ecc3-425e-9973-d5d660e7d73b/host24595; native generation2 при закрытии, не второй launcher.
+
+## Checked
+
+- VPN PASS: системный текущий VPN network121 + UIConnected; 36/36 ready channels в первом снимке, 35/36 перед Disconnect. Счётчики каналов не скорость и не long-term stability.
+- Полезный HTTPS PASS штатным VpnReadinessProbe: VPN-bound HttpsURLConnection, DNStrue/HTTPStrue/HTTP200true/expectedExittrue/readytrue, свежий handshake, readiness843ms/deadlinefalse/stageREADY/exceptionNONE. Прямые runtime facts получены из обычной «Диагностики последней попытки» после Disconnect; отдельный browser HTTPS не запускался.
+- ConnectedRefresh PASS: единственный tap07:52:56Z/ARM→ACCEPT883ms. UI остаётся Connected, системный network121/creation523096739853 до и после одинаков. Краткая browse projection показала невыбранную строку, перед Disconnect выбранный STEP036 снова отображён; выбор сохранился без дополнительного select.
+- Видимые stages OBSERVED4/4: connecting/checking screenshots + subscription_status/loading_catalog original screenrecord frames. VideoPTS125.563078/125.944533s, не exactUTC/fullstage duration. Никаких synthetic stages/замедления/product budget изменений.
+- Disconnect/OFF PASS: ordinary Orbit07:55:10Z; user_cancel, ChildExitgeneration2/exit141/HOST_STOP, teardowncomplete. Это observed exit141, не exit0. FinalOFF07:56:08.819740Z: native/service/VPNOFF/UIclosed. Identity10246/21342/firstInstall2026-09-24 20:15:13 + installation marker сохранены, APK неизменён. Retained safe-tag capture ChildExit+>=5sec, logcat не очищался.
+- Laptop не нажимал trial/hour/payment. Существующий kindtrial отображён, его ends_at ранее продлил Engineer; новая trial не создана Laptop.
+
+## Limits
+
+Горячий launcher не сделал autoload: stale old status устранён ordinary Refresh без cold process/replay. Первое disabled Connect не было отдельной попыткой. Новая consent-подача NOT_TESTED (существующее разрешение). Full101 сохранён без повышения исторических статусов; долгосрочная стабильность/all101PASS не заявлены. Video179.31s сохранено private локально, включает стадии, заканчивается до activeConnect; Connect/Refresh/OFF подтверждены screenshots/trace/system checks. Видео не отправлено; отправляются только визуально проверенные безопасные кадры. Серверная cross-run correlation ещё не утверждается.
+
+## Previous full101 passport, unchanged historical rows
+
+# Corrected client/server pair acceptance — 02.10.2026
+
+Обычная приёмка исправленной пары завершена: catalog PASS, условный active-VPN сценарий NOT_TESTED из-за отсутствия действующего доступа. Один launcher, без первого manualRefresh: autoload сработал. PlannedT0 2026-10-02T07:17:56.772803Z, actualT0 2026-10-02T07:17:56.772969+00:00; originalPID24595/attempt b2f9f386-d588-46bf-ad2f-35df5f1b9151/gen1. One ARM→ACCEPT16067ms, no TIMEOUT. Literal catalog_cycle UUID не логируется (UNKNOWN), не утверждаю значение по stderr; событий ARM/ACCEPT ровно по одному.
+Список на реальном экране 2026-10-02T07:18:24.498863+00:00: 1 шлюз STEP036 device node. Первоначальный видимый этап 2026-10-02T07:18:02.125094+00:00: Подключение к серверу на Orbit subtitle и карточке каталога. checking_device/subscription_status/loading_catalog не попали между редкими снимками: NOT_OBSERVED, не lostbridge/не PASS всех четырёх UI переходов. Native chronology: establish2962ms, challenge decoded6247ms отAUTHbegin; session exchange3626ms, firstME5836ms, firstGW108ms. Это native request durations, не измеренные host/UIstage durations. ME/GW2xx и hostACCEPT подтверждены.
+Статус UI на 2026-10-02T07:18:56.858664+00:00: Срок доступа истёк · VPN не активен; срокподписки01.10.2026 21:58 local. Literal grant.dataAccess не выводится retained safe tags (UNKNOWN); не выдаю inference за rawgrant. Connect/полезныйHTTPS/ConnectedRefresh NOT_TESTED по условию root отсутствующего active права. Новый час/trial/payment/rights не создавал.
+Штатное original own notification Отключить ровноодин раз, caller=user_cancel; ChildExit0/HOST_STOP deviceepoch1790925687.254; teardown штатный. Finalidle 2026-10-02T07:21:29.284907+00:00: nativeabsent/serviceOFF/VPNOFF/UIhome, identity иinstallationmarker сохранены. Scoped safe-tag capture доChildExit+5s завершена, fullunfilteredlogcapture не заявляется; никаких logclear/новыхdiagnosticflags/windows/force-stop.
+Exact app source b47069c0962868a5aa3230787d1b2ed32db99d68/APKd375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677/native792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef. Сервер по принятому root READY: nodea42fa90e/relay8c4667ba/authd16bd8f/browse7bec, flagsOFF; crossserver join ожидает Engineer ordinary correlation. Без builds/install/sourcechanges/replay. Паспорт full101 сохранён, product101/VPNPASS не объявляю; предыдущий17d/63a4 FAIL не переписан. TERMINAL/idle уже отправлены root и TERLIMO с собственными новымиIDs.
+
+| Acceptance item | Status |
+|---|---|
+| Ordinary opening / auto catalog | PASS |
+| Visible initial real connecting stage | PASS |
+| Other three UI stage labels this run | NOT_OBSERVED |
+| Fresh host ACCEPT + visible 1-gateway list | PASS,16067ms |
+| Current access status | Expired / VPN not active |
+| Active-right Connect / useful HTTPS | NOT_TESTED |
+| Connected manual Refresh preserving VPN | NOT_TESTED |
+| Normal cleanup, native/service/VPNOFF | PASS |
+| All101 current requirements | NOT_CLAIMED |
+
+## Preserved build/install and historical full101 passport
+
+# Catalog active-budget client — build/install receipt, 02.10.2026
+
+## Exact installed version
+
+Canonical repository https://github.com/pavelvital2/terlimo, branch fix/catalog-stage-deadlines-20261002, exact source `b47069c0962868a5aa3230787d1b2ed32db99d68`. Separate clean detached checkout `/home/pavel/terlimo-catalog-active-budget-build-20261002`; no push. Root native writer; Laptop build/install only. Includes visible stage, accumulated-active budgets20/25/10/10 + wall65 and ordinary credential wake correction.
+
+| Artifact | SHA-256 |
+|---|---|
+| Native fresh input | f53b59f8fc4c599aa58a24c773208ff8c9d7ebaf4f791622cb49552dec603ade |
+| Native packaged and installed readback | 792a133e887d3937f3b9cdd19a496190049b26e667f3f95a6f30d706e42023ef |
+| APK and installed readback | d375818957ef6ec24da100b8e7c90875e2a0675896b47af76117c6db955d9677 |
+| Saved immediate rollback APK | 63a4ae1a5223aea0b7e371db0afdfd3dc86a21ffdc61f4c0e03475f39a287f1c |
+
+Native FIRST from final Go source, Go VCS matches canonical SHA. Packaged native exactly equals freshly built input after NDK llvm-strip; previous native hash differs. Other packaged libraries and private bootstrap overlay preserved locally. Go1.27/NDK28.2.13676358/JDK21/Gradle9.1 offline; signature verification and16KiB alignment PASS. Package xyz.terlimo.test/versionCode14; signer42ab6d950c15742eaadcf538947f65b3e0bd3e7e1693d67afa969eb00e5d348b unchanged. Accepted97/43source gates reused, no rerun.
+
+install-r/readback PASS. user0/appId10246/inode21342/firstInstall2026-09-24 20:15:13 preserved; installation marker and encrypted state unchanged between immediate before/after. Rollbacks63a4,7d and6b retained. No uninstall/clear/key/rights/runtime flag changes.
+
+## Current readiness and limitations
+
+Final idle `2026-10-02T06:40:26.457416+00:00`: serviceOFF/nativeabsent/VPNOFF, activity not resumed. No launcher/Refresh/acceptance after this update. Current product/list/Connect/HTTPS/ConnectedRefresh NOT_TESTED. No new server/window/flags from Laptop. Server TEST A previous7bec1ebd did not pass original AUTH: SVCUNIX READSLICE deadline≈15s, SERVICE_UNAVAILABLE; underlying upstream cause UNKNOWN. This installed candidate awaits root confirmation of server correction before a new acceptance.
+
+Previous17d12e7/APK63a4 one-run result remains FAIL before catalog: no ACCEPT/list; host connecting timeout20s after real internal retry. READ_OK was error frame, not AUTH success; lostprogress not proven. Updating the APK does not revise that earlier result.
+
+## Historical full101 passport
+
+All101 unique requirement IDs preserved below from canonical source. Historical statuses belong to their stated snapshots; they are not current device/product PASS.
+
 # Active-time stage semantics accepted (source, not device)
 
 Android fb464048 integrated after root technical review: cumulative active time per real stage, budgets20/25/10/10 unchanged, absolute whole65 never paused. Reconnect resumes unused connection budget; duplicate/foreign/expired events do not reset progress. Observed CONNECTING0→DEVICE3→CONNECTING19 now leaves17s connection, DEVICE21 leaves9s device. 43 focused JVM and compile PASS per executor. Earlier first-visit wall semantics below are superseded. Server AUTH nested-budget correction remains separate; this source is for native-first build/install, no blind repeat of the failed server path.
