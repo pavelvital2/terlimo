@@ -1,0 +1,42 @@
+{
+  "UTC": "2026-10-02T06:58:19.808527+00:00",
+  "status": "READY_TO_APPLY_AFTER_ROOT_PUBLICATION_AND_APPROVAL",
+  "files": {
+    "wdtt-server-auth-budget-go1.26.8": {
+      "size": 13905729,
+      "sha256": "a42fa90e0b7459b128e445e473078f31b6c180d8da00310d332182c9dd210f1d"
+    },
+    "auth_api.py": {
+      "size": 52313,
+      "sha256": "d16bd8f4678200ab8068baa5e7fc3a6a219b970cce59da7811bc6aef0c76eef3"
+    },
+    "service_relay.py": {
+      "size": 32424,
+      "sha256": "8c4667ba2eac7c8d34526578a0890945b95e11301278bdcba97dc08c708b69de"
+    },
+    "source-inventory.json": {
+      "size": 4621,
+      "sha256": "e9976eaf6d044759f50a53b68c34a2d1414f0597a9bf093a5c6bc17b45c22c60"
+    },
+    "build-receipt.json": {
+      "size": 1883,
+      "sha256": "7054a374bd533b723690306c40b23484b62743867e8a2a579a1e34731f0684e2"
+    },
+    "buildinfo.txt": {
+      "size": 969,
+      "sha256": "992ee170e12481445a45ff4d1fbf2f85c70da3c7ac37f8bbfb138d1bef2e4892"
+    },
+    "build.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "package-baseline.safe.json": {
+      "size": 10064,
+      "sha256": "16f1914dc59550ed53738b1b7d15ca2d2849838d9b37f2267ce253f8779484e4"
+    },
+    "TEST-apply-rollback-plan.md": {
+      "size": 7280,
+      "sha256": "2de9cb1288d01e495da5987387925624b680bc0aca0e761d714b05c3398ac126"
+    }
+  }
+}

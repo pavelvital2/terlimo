@@ -1,0 +1,11 @@
+{
+  "verdict": "BUILD_ACCEPTED_FOR_TEST_APPLY",
+  "artifact_sha256": "a42fa90e0b7459b128e445e473078f31b6c180d8da00310d332182c9dd210f1d",
+  "runtime_baseline": "d847a41168c54f413e0a961e1ce198db116650b9",
+  "runtime_overlay": "runtime-client_test_service.go.txt",
+  "canonical_source_commit": "de6681e1cc9d92cb1d92e824ab885d026651aa84",
+  "canonical_not_identical_to_build": true,
+  "known_differences": "canonical client_test_service.go and udp_listener.go retain optional frame/preaccept observer hooks absent from deployed d847 baseline; reviewed diffs are diagnostics. go_client subtree is separately relocated and is not the gateway main build. Runtime source overlay and inventory explicitly accepted, not falsely labelled canonical gateway build.",
+  "apply_plan_adjustment": "Use exact reviewed runtime baseline+overlay inventory and artifact; canonical Python matches exactly; do not rebuild merely to introduce optional diagnostics.",
+  "product_pass": false
+}

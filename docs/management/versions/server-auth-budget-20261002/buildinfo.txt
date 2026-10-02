@@ -1,0 +1,17 @@
+/home/pavel/step036-receipts/private/s5-auth-nested-budget-build-20261002/wdtt-server-auth-budget-go1.26.8: go1.26.8
+	path	wg-turn-client
+	mod	wg-turn-client	(devel)	
+	dep	github.com/pion/dtls/v3	v3.1.5	h1:9xJtVsHwMYeSjPp5Hh1FTis4DchnQWtnOa5o+6ygqfc=
+	dep	github.com/pion/logging	v0.2.4	h1:tTew+7cmQ+Mc1pTBLKH2puKsOvhm32dROumOZ655zB8=
+	dep	github.com/pion/transport/v4	v4.1.0	h1:8S+nF2reM2cJuqC6g78OVy2BBgmbdns+acx3jA97BvQ=
+	dep	golang.org/x/crypto	v0.55.0	h1:+KWHjbgOaAQ66dh/YlkZKHlz9ZUlq61AFirAR9ntP8M=
+	dep	golang.org/x/net	v0.58.0	h1:ynWG7rqYi4ccpTEuPZ2QGWHktVEM9DMCj9yzDE0Q7To=
+	dep	golang.org/x/sys	v0.47.0	h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
+	dep	golang.zx2c4.com/wireguard	v0.0.0-20260522210424-ecfc5a8d5446	h1:cqHQ3AycTHvM2R7ikgyX57D+XvtcSnGylsLkOVhta/w=
+	build	-buildmode=exe
+	build	-compiler=gc
+	build	DefaultGODEBUG=cryptocustomrand=1,tlssecpmlkem=0,urlstrictcolons=0
+	build	CGO_ENABLED=0
+	build	GOARCH=amd64
+	build	GOOS=linux
+	build	GOAMD64=v1

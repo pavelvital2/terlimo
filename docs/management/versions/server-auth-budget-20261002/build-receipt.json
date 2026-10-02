@@ -1,0 +1,30 @@
+{
+  "UTC": "2026-10-02T06:55:27.468561+00:00",
+  "result": "BUILD_PACKAGE_READY_NOT_APPLIED_NOT_PRODUCT_PASS",
+  "authorization": "whitelist-20261002-auth-nested-budget-build-v1",
+  "artifact": "/home/pavel/step036-receipts/private/s5-auth-nested-budget-build-20261002/wdtt-server-auth-budget-go1.26.8",
+  "artifact_sha256": "a42fa90e0b7459b128e445e473078f31b6c180d8da00310d332182c9dd210f1d",
+  "artifact_size_bytes": 13905729,
+  "architecture": "ELF64 little-endian AMD64",
+  "Go": "go1.26.8",
+  "CGO_ENABLED": "0",
+  "GOOS": "linux",
+  "GOARCH": "amd64",
+  "GOAMD64": "v1",
+  "build_recipe": "GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOAMD64=v1 /home/pavel/.local/bin/go1.26 build -buildvcs=false -o /home/pavel/step036-receipts/private/s5-auth-nested-budget-build-20261002/wdtt-server-auth-budget-go1.26.8 .",
+  "build_cwd": "/home/pavel/step036-receipts/private/s5-auth-nested-budget-source-20261002/node",
+  "ordinary_build_count": 1,
+  "source_inventory_sha256": "e9976eaf6d044759f50a53b68c34a2d1414f0597a9bf093a5c6bc17b45c22c60",
+  "reviewed_node_source_sha256": "301ebbe0ff4032b598b8c6706e8f5007ba7ee026465d456252340415162ff75d",
+  "Python_source_sha256": {
+    "auth_api.py": "d16bd8f4678200ab8068baa5e7fc3a6a219b970cce59da7811bc6aef0c76eef3",
+    "service_relay.py": "8c4667ba2eac7c8d34526578a0890945b95e11301278bdcba97dc08c708b69de"
+  },
+  "buildinfo_sha256": "992ee170e12481445a45ff4d1fbf2f85c70da3c7ac37f8bbfb138d1bef2e4892",
+  "go_mod_sha256": "bc822ed2c37a851aa072fae1b7eebf896dc4080341eea773afdfcb133b91e261",
+  "go_sum_sha256": "7a4f8f0e296f12386672024c52215c02839296e8636e7ce42cf53f62b436541c",
+  "tests": "previous accepted source tests reused, no rerun",
+  "runtime_apply": false,
+  "donor_push": false,
+  "canonical_publication": "pending root verification; artifact source identity bound to full source inventory, no invented canonical commit"
+}

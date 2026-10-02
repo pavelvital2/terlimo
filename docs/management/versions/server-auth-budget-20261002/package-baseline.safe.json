@@ -1,0 +1,267 @@
+{
+  "utc": "2026-10-02T06:54:31.089862+00:00",
+  "units": {
+    "api": {
+      "MainPID": "224063",
+      "StandardOutput": "append",
+      "StandardError": "append",
+      "Requires": "system.slice terlimo-test-a-pg.service sysinit.target -.mount",
+      "RequiredBy": "",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-api.service",
+      "DropInPaths": "",
+      "unit_sha256": "3219d7dfe2c400cbda6c324e53f96bba7c92a2f5258715f480269f4f263411c4",
+      "starttime": "42422312",
+      "exe": "/usr/bin/python3.12",
+      "exe_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+      "netns": "net:[4026531840]",
+      "diagnostic_flags": {},
+      "phase_flags": {
+        "TERLIMO_AUTH_API_PHASE_PROBE": "ABSENT",
+        "TERLIMO_SERVICE_RELAY_PHASE_PROBE": "ABSENT"
+      },
+      "pythonpath": "/home/pavel/terlimo-test-a-live",
+      "log_level": "INFO",
+      "tracer_pids": {
+        "224063": "0",
+        "224074": "0"
+      },
+      "tcp_listen_ports": [
+        18092,
+        18093
+      ],
+      "stable_env_sha256": "89dbfe5f765e985eb73694ec039f1b901c33cd4533d2e3916e88d5837ae9c17b"
+    },
+    "relay": {
+      "MainPID": "141671",
+      "StandardOutput": "append",
+      "StandardError": "append",
+      "Requires": "system.slice sysinit.target -.mount",
+      "RequiredBy": "terlimo-test-a-node.service",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-relay.service",
+      "DropInPaths": "",
+      "unit_sha256": "06a56305663d24300c1d7d3a282bfb4b1bbc0dee6fae16b6d507ee181e6ac749",
+      "starttime": "41602005",
+      "exe": "/usr/bin/python3.12",
+      "exe_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+      "netns": "net:[4026531840]",
+      "diagnostic_flags": {},
+      "phase_flags": {
+        "TERLIMO_AUTH_API_PHASE_PROBE": "ABSENT",
+        "TERLIMO_SERVICE_RELAY_PHASE_PROBE": "ABSENT"
+      },
+      "pythonpath": "/home/pavel/terlimo-test-a-live",
+      "log_level": "INFO",
+      "tracer_pids": {
+        "141671": "0",
+        "237429": "0"
+      },
+      "stable_env_sha256": "c68b84d3374278d7956d9197cfbe90a3574f2394ecd973c643cfe509a90a1f8b"
+    },
+    "node": {
+      "MainPID": "141673",
+      "StandardOutput": "append",
+      "StandardError": "append",
+      "Requires": "system.slice terlimo-test-a-net.service terlimo-test-a-relay.service sysinit.target",
+      "RequiredBy": "",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-node.service",
+      "DropInPaths": "",
+      "unit_sha256": "dbb8140d594a626a927bf6d24699a9eca97478ba63e5894dde5b972b6ad2fb11",
+      "starttime": "41602041",
+      "exe": "/home/pavel/step036-device-stage/pkg/bin/wdtt-server-s5-usage-59bf41c",
+      "exe_sha256": "bebec6980ed3a41242cd7ac0455839bf4dd2c2297c8875df00ae781f0b8bb1ff",
+      "netns": "net:[4026532254]",
+      "diagnostic_flags": {},
+      "phase_flags": {
+        "TERLIMO_AUTH_API_PHASE_PROBE": "ABSENT",
+        "TERLIMO_SERVICE_RELAY_PHASE_PROBE": "ABSENT"
+      },
+      "pythonpath": "ABSENT",
+      "log_level": "ABSENT",
+      "tracer_pids": {
+        "141673": "0",
+        "141678": "0",
+        "141679": "0",
+        "141680": "0",
+        "141681": "0",
+        "141682": "0",
+        "141683": "0",
+        "141684": "0",
+        "141697": "0",
+        "141700": "0",
+        "141804": "0"
+      },
+      "udp_ports_present": [
+        56002,
+        57500
+      ],
+      "named_netns_matches": true,
+      "stable_env_sha256": "d63fb3d7518ac966dd3e5d23d48904ed5d47aab8c67f6eb013dad8e49efcbeb7"
+    },
+    "worker": {
+      "MainPID": "3976236",
+      "StandardOutput": "append",
+      "StandardError": "append",
+      "Requires": "-.mount system.slice sysinit.target terlimo-test-a-pg.service",
+      "RequiredBy": "",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-worker.service",
+      "DropInPaths": "",
+      "unit_sha256": "da9da38ff21d12635ee87dbb71ae315337f1a5c778cfe604b8ee5ec1f2b30c6d",
+      "starttime": "38223594",
+      "exe": "/usr/bin/python3.12",
+      "exe_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+      "netns": "net:[4026531840]",
+      "diagnostic_flags": {},
+      "phase_flags": {
+        "TERLIMO_AUTH_API_PHASE_PROBE": "ABSENT",
+        "TERLIMO_SERVICE_RELAY_PHASE_PROBE": "ABSENT"
+      },
+      "pythonpath": "/home/pavel/terlimo-test-a-live",
+      "log_level": "INFO",
+      "tracer_pids": {
+        "3976236": "0"
+      }
+    },
+    "pg": {
+      "MainPID": "1031",
+      "StandardOutput": "journal",
+      "StandardError": "inherit",
+      "Requires": "system.slice sysinit.target",
+      "RequiredBy": "terlimo-test-a-api.service terlimo-test-a-worker.service",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-pg.service",
+      "DropInPaths": "",
+      "unit_sha256": "aa21572e22175a1db5191c1e3a500aa31d483a79b4fd0d9fd1937baa45e06bc0",
+      "starttime": "567",
+      "exe": "/home/pavel/projects/terlimo-backend/.venv/lib/python3.12/site-packages/pgserver/pginstall/bin/postgres",
+      "exe_sha256": "ae05b2a1b0685f2c69b8b9eb3765b1429a5c173c64b248f7f157de2af9db768d",
+      "netns": "net:[4026531840]",
+      "diagnostic_flags": {},
+      "phase_flags": {
+        "TERLIMO_AUTH_API_PHASE_PROBE": "ABSENT",
+        "TERLIMO_SERVICE_RELAY_PHASE_PROBE": "ABSENT"
+      },
+      "pythonpath": "ABSENT",
+      "log_level": "ABSENT",
+      "tracer_pids": {
+        "1031": "0"
+      }
+    },
+    "evidence": {
+      "MainPID": "2537357",
+      "StandardOutput": "append",
+      "StandardError": "append",
+      "Requires": "sysinit.target system.slice -.mount",
+      "RequiredBy": "",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-evidence.service",
+      "DropInPaths": "",
+      "unit_sha256": "d1d8bdd906c0950e1517857d6ddcf18aa6e210a46680c12a0a9a7d0ac5ef2419",
+      "starttime": "24299547",
+      "exe": "/usr/bin/python3.12",
+      "exe_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+      "netns": "net:[4026531840]",
+      "diagnostic_flags": {},
+      "phase_flags": {
+        "TERLIMO_AUTH_API_PHASE_PROBE": "ABSENT",
+        "TERLIMO_SERVICE_RELAY_PHASE_PROBE": "ABSENT"
+      },
+      "pythonpath": "/home/pavel/terlimo-test-a-live",
+      "log_level": "INFO",
+      "tracer_pids": {
+        "2537357": "0"
+      }
+    },
+    "mgmt": {
+      "MainPID": "2537359",
+      "StandardOutput": "append",
+      "StandardError": "append",
+      "Requires": "system.slice sysinit.target -.mount",
+      "RequiredBy": "",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-mgmt.service",
+      "DropInPaths": "",
+      "unit_sha256": "617b57ffa0bd4d8f46a7d5bfd00c57df90281ad05423ba580ecd875e3791fa98",
+      "starttime": "24299560",
+      "exe": "/usr/bin/python3.12",
+      "exe_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+      "netns": "net:[4026531840]",
+      "diagnostic_flags": {},
+      "phase_flags": {
+        "TERLIMO_AUTH_API_PHASE_PROBE": "ABSENT",
+        "TERLIMO_SERVICE_RELAY_PHASE_PROBE": "ABSENT"
+      },
+      "pythonpath": "/home/pavel/terlimo-test-a-live",
+      "log_level": "INFO",
+      "tracer_pids": {
+        "2537359": "0",
+        "2794916": "0"
+      }
+    },
+    "net": {
+      "MainPID": "0",
+      "StandardOutput": "journal",
+      "StandardError": "inherit",
+      "Requires": "system.slice sysinit.target",
+      "RequiredBy": "terlimo-test-a-node.service",
+      "ActiveState": "active",
+      "SubState": "exited",
+      "FragmentPath": "/etc/systemd/system/terlimo-test-a-net.service",
+      "DropInPaths": "",
+      "unit_sha256": "5c2c38fbc31ff0fcc94463d395bac6990ab0ff5078f6d42abe4a97e7837f0e21"
+    }
+  },
+  "config_hashes": {
+    "/home/pavel/step036-device-stage/test_a_node_run.sh": "bdd371af1fb782a0ed2c7bb3244b42340cf53d450edda95558356a7dfecff11b",
+    "/home/pavel/step036-device-stage/test_a_relay_launch.py": "87f723d7ba3db4d5cbeda444bd302161e386c76d8305768783921d6e10706c01",
+    "/home/pavel/step036-receipts/private/test_a_api.env": "0c4bdf2f07c0e0a9190c120a2016133552079f271bc71da5ecb4f915546e5010",
+    "/home/pavel/step036-receipts/relay-env-1651152.bin": "46d5ecabb2a93aab19ba26ed439733b03d60a90a1306a5bd27ac1e9a35cc2a98"
+  },
+  "relay_socket": {
+    "mode": "0o600",
+    "uid": 1000,
+    "gid": 1000,
+    "is_socket": true
+  },
+  "source_hashes": {
+    "auth_api.py": "383ffff577a9fce802b43e7d7593237e924bd2634aeeb22e6531470d940f3ca2",
+    "auth_api_phase.py": "6598ad43f5c0f17d6f4057168be3e39d0ccef5ed12250dec23b0ae5414eaba08",
+    "service_relay.py": "6f6ca3081b0c2dbf1de97b0434516ad6fa109fe29b595a33d4c94f96fd41f83d",
+    "pop.py": "54d38342e02e73f98f00e5a6eb882354f36ac01af11e5b0ec5b3b78e4a7ec7fe",
+    "mobile_catalog.py": "7bec1ebd5b38f214871b70bcbeee36d62808e644a09774d8441c84fbff3419cc"
+  },
+  "full_passport_sha256": "179d776ff2388b255c65ef5edeff4edc86a0f4634bdbc15277ac9c5cdca861c3",
+  "apply_targets": {
+    "auth_api.py": {
+      "path": "/home/pavel/terlimo-test-a-live/terlimo_backend/auth_api.py",
+      "uid": 1000,
+      "gid": 1000,
+      "mode": "0o644",
+      "sha256": "383ffff577a9fce802b43e7d7593237e924bd2634aeeb22e6531470d940f3ca2"
+    },
+    "service_relay.py": {
+      "path": "/home/pavel/terlimo-test-a-live/terlimo_backend/service_relay.py",
+      "uid": 1000,
+      "gid": 1000,
+      "mode": "0o644",
+      "sha256": "6f6ca3081b0c2dbf1de97b0434516ad6fa109fe29b595a33d4c94f96fd41f83d"
+    },
+    "node": {
+      "path": "/home/pavel/step036-device-stage/pkg/bin/wdtt-server-s5-usage-59bf41c",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o755",
+      "sha256": "bebec6980ed3a41242cd7ac0455839bf4dd2c2297c8875df00ae781f0b8bb1ff"
+    }
+  }
+}
