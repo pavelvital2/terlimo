@@ -37,10 +37,11 @@ internal object NodeSelection {
             selectedNodeId = when {
                 switching -> state.selectedNodeId
                 catalog.selectedNodeId.isNotEmpty() -> catalog.selectedNodeId
-                // Native has no saved selection yet after a browse-only choice.
-                // Keep that preference only if the verified list permits this ID;
-                // explicit Connect still uses the unchanged native admission path.
-                else -> BrowseCatalogCodec.selectedId(state)
+                // Native may have no saved choice across repeated metadata snapshots.
+                // Read only the current display preference, never stale credentials
+                // hidden by a fresh browse answer. Native admission is unchanged.
+                else -> (if (state.displayMode == CatalogDisplayMode.BROWSE)
+                    BrowseCatalogCodec.selectedId(state) else state.selectedNodeId)
                     .takeIf { id -> catalog.nodes.any { it.id == id } }.orEmpty()
             },
             pendingNodeId = if (switching) state.pendingNodeId else pending,

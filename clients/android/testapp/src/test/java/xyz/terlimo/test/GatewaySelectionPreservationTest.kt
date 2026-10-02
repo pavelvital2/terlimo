@@ -62,4 +62,32 @@ class GatewaySelectionPreservationTest {
         assertEquals(a.id, refreshed.selectedNodeId) // metadata cannot switch a running VPN
         assertTrue(BrowseCatalogCodec.verifiedNodes(refreshed).isEmpty())
     }
+
+    @Test fun secondCredentialSnapshotRetainsCurrentDisplayChoice() {
+        val browse = ViewState(displayMode = CatalogDisplayMode.BROWSE,
+            browseLoaded = true, browseNodes = listOf(a, b), browseSelectedId = a.id)
+        val first = NodeSelection.applyCatalog(browse, NodeCatalog(listOf(a, b), "", "1"), null)
+        val second = NodeSelection.applyCatalog(first, NodeCatalog(listOf(b, a), "", "2"), null)
+        assertEquals(a.id, second.selectedNodeId)
+        assertEquals(a.id, NodeSelection.connectableNodeId(second.nodes, second.selectedNodeId))
+    }
+
+    @Test fun secondCredentialRemovalClearsChoiceWithoutMatchingSameName() {
+        val browse = ViewState(displayMode = CatalogDisplayMode.BROWSE,
+            browseLoaded = true, browseNodes = listOf(a, b), browseSelectedId = a.id)
+        val first = NodeSelection.applyCatalog(browse, NodeCatalog(listOf(a, b), "", "1"), null)
+        val removed = NodeSelection.applyCatalog(first, NodeCatalog(listOf(b), "", "2"), null)
+        assertEquals("", removed.selectedNodeId)
+        assertNull(NodeSelection.connectableNodeId(removed.nodes, removed.selectedNodeId))
+    }
+
+    @Test fun freshBrowseRemovalCannotResurrectStaleCredentialChoice() {
+        val credential = ViewState(nodes = listOf(a, b), selectedNodeId = a.id)
+        val removed = BrowseCatalogCodec.apply(credential, BrowseCatalog(listOf(b)))
+        assertEquals("", BrowseCatalogCodec.selectedId(removed))
+        val verified = NodeSelection.applyCatalog(removed, NodeCatalog(listOf(a, b), "", "2"), null)
+        assertEquals("", verified.selectedNodeId)
+        val browseAgain = BrowseCatalogCodec.apply(removed, BrowseCatalog(listOf(a, b)))
+        assertEquals("", BrowseCatalogCodec.selectedId(browseAgain))
+    }
 }

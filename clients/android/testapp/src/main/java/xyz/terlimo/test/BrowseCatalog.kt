@@ -71,8 +71,11 @@ internal object BrowseCatalogCodec {
         browseNodes = browse.nodes,
         // A preference is metadata, never admission. Match stable IDs only and
         // drop removed rows; Connected keeps its current gateway across projections.
-        browseSelectedId = (if (state.phase == "Connected") state.selectedNodeId
-            else state.browseSelectedId.ifEmpty { state.selectedNodeId })
+        browseSelectedId = (when {
+            state.phase == "Connected" -> state.selectedNodeId
+            state.displayMode == CatalogDisplayMode.BROWSE -> state.browseSelectedId
+            else -> state.selectedNodeId
+        })
             .takeIf { id -> id.isNotEmpty() && browse.nodes.any { it.id == id } }.orEmpty(),
         browseLoaded = true,
         browseError = null,
