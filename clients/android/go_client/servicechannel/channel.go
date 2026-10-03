@@ -237,7 +237,10 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 	if separate {
 		limit = c.Catalog.ConnectTimeout
 	}
-	runCtx, cancel := context.WithTimeout(ctx, limit)
+	runCtx, cancel := ctx, context.CancelFunc(func() {})
+	if !separate {
+		runCtx, cancel = context.WithTimeout(ctx, limit)
+	}
 	defer func() { cancel() }()
 	establishment := c.Establishment
 	if establishment == nil {
@@ -281,6 +284,7 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 	reused = c.conn != nil
 	if c.conn == nil {
 		if separate {
+			runCtx, cancel = c.Catalog.timeoutContext(ctx, "connecting_server", limit)
 			if err := c.Catalog.emit(runCtx, "connecting_server"); err != nil {
 				return nil, err
 			}
@@ -383,7 +387,7 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 		// deadline/cancellation still bounds the fresh request budget.
 		cancel()
 		limit = requestLimit
-		runCtx, cancel = context.WithTimeout(ctx, limit)
+		runCtx, cancel = c.Catalog.timeoutContext(ctx, requestStage, limit)
 		if err := c.Catalog.emit(runCtx, requestStage); err != nil {
 			c.closeLocked()
 			return nil, err

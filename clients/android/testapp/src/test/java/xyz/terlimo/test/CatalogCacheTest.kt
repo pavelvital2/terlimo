@@ -53,6 +53,37 @@ class CatalogCacheTest {
         assertNull(stopped.pendingSwitchRevision)
     }
 
+    @Test fun recoveryTerminalResultsSurviveTeardownWithLastGoodCatalog() {
+        for (result in listOf("RECOVERY_NETWORK", "RECOVERY_CANCELLED", "RECOVERY_PERSIST",
+            "RECOVERY_SIGNATURE", "RECOVERY_STALE", "RECOVERY_SUCCESS")) {
+            val prior = ViewState(phase = "BootstrapConnecting", attempt = "recovery",
+                nodes = nodes, selectedNodeId = "b", catalogRevision = "12",
+                browseNodes = nodes, browseLoaded = true, browseSelectedId = "a",
+                browseError = "CATALOG_TIMEOUT", recoveryStatus = result,
+                pendingNodeId = "a", pendingSwitchId = "old", pendingSwitchRevision = "11")
+            for ((phase, error) in listOf("Idle" to null, "Error" to "CLEANUP_FAILED")) {
+                val stopped = SessionRetention.onStop(prior.copy(phase = "Stopping", attempt = null), phase, error)
+                assertEquals(result, stopped.recoveryStatus)
+                if (result == "RECOVERY_NETWORK") assertEquals(
+                    "Не удалось проверить новое подключение. Сохранённые настройки не изменены.",
+                    stopped.recoveryStatus?.let(RecoveryCodeUi::textForStatus))
+                assertEquals(nodes, stopped.nodes)
+                assertEquals("b", stopped.selectedNodeId)
+                assertEquals("12", stopped.catalogRevision)
+                assertEquals(nodes, stopped.browseNodes)
+                assertEquals("a", stopped.browseSelectedId)
+                assertTrue(stopped.browseLoaded)
+                assertEquals("CATALOG_TIMEOUT", stopped.browseError)
+                assertEquals(error, stopped.error)
+                assertEquals(phase, stopped.phase)
+                assertNull(stopped.attempt)
+                assertNull(stopped.pendingNodeId)
+                assertNull(stopped.pendingSwitchId)
+                assertNull(stopped.pendingSwitchRevision)
+            }
+        }
+    }
+
     @Test fun retainedConnectIsAllowedOnlyFromDisconnectedStateWithPresentSelection() {
         assertEquals("b", RetainedCatalogPolicy.connectableId("Idle", nodes, "b"))
         assertEquals("a", RetainedCatalogPolicy.connectableId("Error", nodes, "a"))

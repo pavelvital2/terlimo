@@ -17,6 +17,10 @@ type CatalogPolicy struct {
 	// Emit sends a correlated product event, not a diagnostic stderr line.
 	// Failure prevents I/O for a stage the host did not receive.
 	Emit func(context.Context, string) error
+	// TimeoutContext optionally supplies a caller-owned, pause-aware aggregate phase
+	// budget. Recovery uses it; ordinary catalog/request deadlines are unchanged.
+	// Release ends this call only, not the aggregate AUTH phase.
+	TimeoutContext func(context.Context, string, time.Duration) (context.Context, context.CancelFunc)
 }
 
 func (p *CatalogPolicy) request(class string) (string, time.Duration) {
@@ -47,4 +51,11 @@ func (p *CatalogPolicy) emit(ctx context.Context, stage string) error {
 		return p.Emit(ctx, stage)
 	}
 	return nil
+}
+
+func (p *CatalogPolicy) timeoutContext(ctx context.Context, stage string, limit time.Duration) (context.Context, context.CancelFunc) {
+	if p != nil && p.TimeoutContext != nil {
+		return p.TimeoutContext(ctx, stage, limit)
+	}
+	return context.WithTimeout(ctx, limit)
 }

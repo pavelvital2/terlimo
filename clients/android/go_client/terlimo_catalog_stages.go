@@ -13,8 +13,14 @@ import (
 // they are a candidate for device acceptance, not a latency guarantee.
 // Non-catalog operations and direct HTTPS keep their existing limits.
 func configureCatalogStages(transport accountaccess.Doer, bridge *managedBridge) {
-	doer, ok := transport.(*servicechannel.Doer)
-	if !ok || doer.Channel == nil || bridge == nil {
+	var doer *servicechannel.Doer
+	switch t := transport.(type) {
+	case *servicechannel.Doer:
+		doer = t
+	case *mobileRecoveryTransport:
+		doer = t.Doer
+	}
+	if doer == nil || doer.Channel == nil || bridge == nil {
 		return
 	}
 	doer.Channel.Catalog = &servicechannel.CatalogPolicy{
