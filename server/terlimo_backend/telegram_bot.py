@@ -1,10 +1,12 @@
-"""S3-A minimal product-bot runner for the one-time registration deep link.
+"""Existing product bot: registration deep link and public Recovery v1 code.
 
-Processes only `/start <one-time token>` updates, confirms through the existing
+Processes `/recovery` (public signed code, no DB) and `/start <one-time token>`,
+which confirms through the existing
 ``confirm_registration`` (no client-supplied identity is trusted), and replies with the server
 result. It is an optional process (never started by ``create_app``), configurable via
-TELEGRAM_REGISTRATION_BOT_{TOKEN,USERNAME,KEY}; without a token it cannot run and the backend
-stays fail-closed. The transport is injectable so local tests need no network.
+TELEGRAM_REGISTRATION_BOT_TOKEN; registration still requires USERNAME/KEY. Public
+recovery additionally needs RECOVERY_CODE_FILE and RECOVERY_VERIFY_KEY_B64.
+The transport is injectable so local tests need no Telegram network.
 
 Run on TEST (after the owner provides a product bot token/username):
     TELEGRAM_REGISTRATION_BOT_TOKEN=... TELEGRAM_REGISTRATION_BOT_USERNAME=... \
@@ -24,22 +26,25 @@ from aiohttp import ClientError, ClientSession, ClientTimeout
 
 from .auth_api import ApiError
 from .config import Settings, load_settings
-from .db import Database
-from .telegram_binding import confirm_registration, registration_enabled
+from .db import Database, DatabaseUnavailable
+from .recovery_code import PublicRecoveryCode, RecoveryUnavailable
+from .telegram_binding import confirm_registration
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org"
 START_COMMAND = "/start"
+RECOVERY_BUTTON = "Восстановить подключение"
+RECOVERY_MENU = {"keyboard": [[{"text": RECOVERY_BUTTON}]], "resize_keyboard": True}
 
 
 def bot_ready(settings: Settings) -> bool:
-    return registration_enabled(settings) and bool(settings.telegram_bot_token)
+    return bool(settings.telegram_bot_token)
 
 
 class TelegramTransport(Protocol):
     async def get_updates(self, offset: int, timeout: int) -> list[dict[str, Any]]: ...
-    async def send_message(self, chat_id: int, text: str) -> None: ...
+    async def send_message(self, chat_id: int, text: str, *, reply_markup: dict | None = None) -> None: ...
 
 
 class AiohttpTelegramTransport:
@@ -70,11 +75,14 @@ class AiohttpTelegramTransport:
             return []
         return list(payload.get("result") or [])
 
-    async def send_message(self, chat_id: int, text: str) -> None:
+    async def send_message(self, chat_id: int, text: str, *, reply_markup: dict | None = None) -> None:
         session = await self._client()
+        payload = {"chat_id": chat_id, "text": text}
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         async with session.post(
             f"{TELEGRAM_API}/bot{self._token}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
+            json=payload,
         ) as response:
             await response.read()
 
@@ -98,6 +106,19 @@ def _start_token(update: dict[str, Any]) -> tuple[int, str | None, str] | None:
     return telegram_id, username if isinstance(username, str) else None, token or ""
 
 
+def _recovery_chat(update: dict[str, Any], settings: Settings) -> int | None:
+    message = update.get("message") if isinstance(update, dict) else None
+    if not isinstance(message, dict):
+        return None
+    chat, text = message.get("chat"), message.get("text")
+    if not isinstance(chat, dict) or type(chat.get("id")) is not int or not isinstance(text, str):
+        return None
+    accepted = {"/recovery", RECOVERY_BUTTON}
+    if settings.telegram_bot_username:
+        accepted.add("/recovery@" + settings.telegram_bot_username.lstrip("@"))
+    return chat["id"] if text.strip() in accepted else None
+
+
 def _reply_text(result: dict[str, Any]) -> str:
     if result.get("trial_available"):
         return "Регистрация подтверждена. Доступен будущий пробный период 7 дней."
@@ -110,22 +131,32 @@ def _reply_text(result: dict[str, Any]) -> str:
 
 
 async def handle_update(
-    connection: asyncpg.Connection, settings: Settings, update: dict[str, Any]
+    connection: asyncpg.Connection | None, settings: Settings, update: dict[str, Any],
+    *, public_code: PublicRecoveryCode | None = None,
 ) -> dict[str, Any] | None:
+    chat_id = _recovery_chat(update, settings)
+    if chat_id is not None:
+        try:
+            code = (public_code or PublicRecoveryCode(settings)).get()
+            # Whole code only: no prefix/markup that users might accidentally paste.
+            return {"telegram_id": chat_id, "state": "recovery", "reply": code}
+        except RecoveryUnavailable:
+            return {"telegram_id": chat_id, "state": "recovery_unavailable",
+                    "reply": "Код восстановления сейчас недоступен. Попробуйте позже."}
     parsed = _start_token(update)
     if parsed is None:
         return None
     telegram_id, username, token = parsed
     if not token:
-        return {"telegram_id": telegram_id, "state": "missing_token", "reply": "Откройте ссылку регистрации заново."}
+        return {"telegram_id": telegram_id, "state": "missing_token", "reply": "Откройте ссылку регистрации заново.", "reply_markup": RECOVERY_MENU}
     try:
         result = await confirm_registration(
             connection, settings, token=token, telegram_id=telegram_id, telegram_username=username
         )
     except (ApiError, asyncpg.PostgresError, OSError) as error:  # bounded reply, no crash loop
         code = getattr(error, "code", type(error).__name__)
-        return {"telegram_id": telegram_id, "state": str(code), "reply": "Ссылка регистрации недействительна."}
-    return {"telegram_id": telegram_id, "state": "registered", "result": result, "reply": _reply_text(result)}
+        return {"telegram_id": telegram_id, "state": str(code), "reply": "Ссылка регистрации недействительна.", "reply_markup": RECOVERY_MENU}
+    return {"telegram_id": telegram_id, "state": "registered", "result": result, "reply": _reply_text(result), "reply_markup": RECOVERY_MENU}
 
 
 class RegistrationBotRunner:
@@ -142,22 +173,40 @@ class RegistrationBotRunner:
         self._transport = transport
         self._poll_timeout = poll_timeout
         self._offset = 0
+        self._public_code = PublicRecoveryCode(settings)
 
     async def handle_once(self) -> list[dict[str, Any]]:
         updates = await self._transport.get_updates(self._offset, self._poll_timeout)
         handled: list[dict[str, Any]] = []
-        async with self._database.acquire() as connection:
-            for update in updates:
-                update_id = update.get("update_id")
-                if type(update_id) is int:
-                    self._offset = max(self._offset, update_id + 1)
-                outcome = await handle_update(connection, self._settings, update)
-                if outcome is not None:
-                    handled.append(outcome)
+        for update in updates:
+            update_id = update.get("update_id")
+            if type(update_id) is int:
+                self._offset = max(self._offset, update_id + 1)
+            parsed = _start_token(update)
+            if _recovery_chat(update, self._settings) is not None or (parsed is not None and not parsed[2]):
+                outcome = await handle_update(None, self._settings, update, public_code=self._public_code)
+            elif parsed is not None:
+                try:
+                    if not self._settings.database_url or not await self._database.ensure_ready():
+                        raise DatabaseUnavailable("registration database unavailable")
+                    async with self._database.acquire() as connection:
+                        outcome = await handle_update(connection, self._settings, update)
+                except (DatabaseUnavailable, asyncpg.PostgresError, OSError):
+                    outcome = {"telegram_id": parsed[0], "state": "registration_unavailable",
+                               "reply": "Регистрация сейчас недоступна. Попробуйте позже.",
+                               "reply_markup": RECOVERY_MENU}
+            else:
+                outcome = None
+            if outcome is not None:
+                handled.append(outcome)
         for outcome in handled:
             if outcome.get("reply"):
                 try:
-                    await self._transport.send_message(outcome["telegram_id"], outcome["reply"])
+                    if outcome.get("reply_markup"):
+                        await self._transport.send_message(outcome["telegram_id"], outcome["reply"],
+                                                           reply_markup=outcome["reply_markup"])
+                    else:
+                        await self._transport.send_message(outcome["telegram_id"], outcome["reply"])
                 except (ClientError, OSError):
                     logger.warning("telegram reply failed")
         return handled
@@ -173,7 +222,7 @@ class RegistrationBotRunner:
 
 async def _amain(settings: Settings) -> None:
     database = Database(settings)
-    await database.connect()
+    # Lazy registration acquisition: recovery remains available while application DB is down.
     transport = AiohttpTelegramTransport(settings.telegram_bot_token)
     runner = RegistrationBotRunner(settings, database, transport)
     try:
@@ -184,11 +233,10 @@ async def _amain(settings: Settings) -> None:
 
 
 def main() -> None:
-    settings = load_settings()
+    settings = load_settings(require_database=False)
     if not bot_ready(settings):
         raise SystemExit(
-            "registration bot not configured: set TELEGRAM_REGISTRATION_BOT_TOKEN, "
-            "TELEGRAM_REGISTRATION_BOT_USERNAME and TELEGRAM_REGISTRATION_BOT_KEY"
+            "product bot not configured: set TELEGRAM_REGISTRATION_BOT_TOKEN"
         )
     logging.basicConfig(level=settings.log_level)
     try:

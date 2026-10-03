@@ -97,6 +97,7 @@ def service_path_allowed(method: str, path: str) -> bool:
         "/api/mobile/v1/registration/telegram/link": "POST",
         "/api/mobile/v1/trial/activate": "POST",
         "/api/mobile/v1/me": "GET",
+        "/api/mobile/v1/service-seed": "GET",
         "/api/mobile/v1/gateways": "GET",
         "/api/mobile/v1/usage": "GET",
         "/api/mobile/v1/plans": "GET",

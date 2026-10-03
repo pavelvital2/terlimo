@@ -29,6 +29,7 @@ from .onboarding_api import (
     OnboardingIntentService,
     register_onboarding_routes,
 )
+from .recovery_api import register_recovery_routes
 from .payments import register_payment_routes
 from .s5_payments import register_s5_payment_routes
 from .telegram_binding import register_telegram_registration_routes
@@ -125,6 +126,7 @@ def create_app(settings: Settings, database: Database) -> web.Application:
     register_s5_payment_routes(app, settings, database)
     register_announcement_routes(app, settings, database)
     register_device_routes(app, settings, database)
+    register_recovery_routes(app, settings, database)
     app[MAINTENANCE_TASK_KEY] = None
 
     async def _startup(_: web.Application) -> None:

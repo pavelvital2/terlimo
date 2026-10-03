@@ -199,7 +199,7 @@ func servicePathAllowed(method, path string) bool {
 		"/api/mobile/v1/onboarding/intents", "/api/mobile/v1/registration/telegram/link",
 		"/api/mobile/v1/trial/activate":
 		return method == "POST"
-	case "/api/mobile/v1/me", "/api/mobile/v1/gateways", "/api/mobile/v1/plans",
+	case "/api/mobile/v1/me", "/api/mobile/v1/service-seed", "/api/mobile/v1/gateways", "/api/mobile/v1/plans",
 		"/api/mobile/v1/usage", "/api/mobile/v1/devices", "/api/mobile/v1/announcements":
 		return method == "GET"
 	case "/api/mobile/v1/quotes", "/api/mobile/v1/payments":

@@ -162,6 +162,9 @@ class Settings:
     telegram_bot_key: str = ""
     telegram_bot_token: str = ""
     telegram_trial_channel_id: str = ""
+    # Public signed Recovery v1 file + trusted deployment Ed25519 verifier (no private key).
+    recovery_code_file: str = ""
+    recovery_verify_key_b64: str = ""
     registration_token_ttl_seconds: int = 600
     # S4 payment slice: server-authoritative prices/tariff and Platega provider configuration.
     payment_currency: str = "RUB"
@@ -206,6 +209,8 @@ def load_settings(require_database: bool = True) -> Settings:
     settings = Settings(
         database_url=database_url or "",
         environment=_env_str("TERLIMO_ENV", "test") or "test",
+        recovery_code_file=_env_str("RECOVERY_CODE_FILE", "") or "",
+        recovery_verify_key_b64=_env_str("RECOVERY_VERIFY_KEY_B64", "") or "",
         log_level=(_env_str("LOG_LEVEL", "INFO") or "INFO").upper(),
         api_host=_env_str("API_HOST", "127.0.0.1") or "127.0.0.1",
         api_port=_env_int("API_PORT", 18081, 1),

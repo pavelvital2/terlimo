@@ -85,6 +85,7 @@ func TestServicePathAllowlistExact(t *testing.T) {
 		{"POST", "/api/mobile/v1/registration/telegram/link"},
 		{"POST", "/api/mobile/v1/trial/activate"},
 		{"GET", "/api/mobile/v1/me"},
+		{"GET", "/api/mobile/v1/service-seed"},
 		{"GET", "/api/mobile/v1/gateways"},
 		{"GET", "/api/mobile/v1/operations/01234567-89ab-cdef-0123-456789abcdef"},
 	}
@@ -97,6 +98,10 @@ func TestServicePathAllowlistExact(t *testing.T) {
 		{"GET", "/api/mobile/v1/auth/challenge"},
 		{"GET", "/api/mobile/v1/trial/activate"},
 		{"POST", "/api/mobile/v1/me"},
+		{"POST", "/api/mobile/v1/service-seed"},
+		{"HEAD", "/api/mobile/v1/service-seed"},
+		{"GET", "/api/mobile/v1/service-seed/"},
+		{"GET", "/api/mobile/v1/service-seed/extra"},
 		{"GET", "/internal/onboarding/evidence"},
 		{"POST", "/api/mobile/v1/onboarding/intents/extra"},
 		{"GET", "/api/mobile/v1/operations/not-a-uuid"},
