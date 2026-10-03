@@ -181,18 +181,19 @@ type QuoteRequest struct {
 // expires_at are plain required strings in payment.json (only the request carries the
 // enums), so they are forwarded without an invented constraint.
 type QuoteResponse struct {
-	RequestID       string   `json:"request_id"`
-	ServerTime      string   `json:"server_time"`
-	SchemaVersion   string   `json:"schema_version"`
-	Status          string   `json:"status"`
-	QuoteID         string   `json:"quote_id"`
-	Amount          Money    `json:"amount"`
-	DurationCode    string   `json:"duration_code"`
-	DeviceLimit     int      `json:"device_limit"`
-	Method          string   `json:"method"`
-	ExpiresAt       string   `json:"expires_at"`
-	Product         *Product `json:"-"`
-	PaymentContract int      `json:"-"`
+	RequestID       string          `json:"request_id"`
+	ServerTime      string          `json:"server_time"`
+	SchemaVersion   string          `json:"schema_version"`
+	Status          string          `json:"status"`
+	QuoteID         string          `json:"quote_id"`
+	Amount          Money           `json:"amount"`
+	DurationCode    string          `json:"duration_code"`
+	DeviceLimit     int             `json:"device_limit"`
+	Method          string          `json:"method"`
+	ExpiresAt       string          `json:"expires_at"`
+	Product         *Product        `json:"-"`
+	Pricing         *PaymentPricing `json:"-"`
+	PaymentContract int             `json:"-"`
 }
 
 // UnmarshalJSON enforces the required response field presence.
@@ -231,6 +232,8 @@ type PaymentResponse struct {
 	CreditReviewReason          *string          `json:"-"`
 	CreditedProduct             *CreditedProduct `json:"-"`
 	PaymentContract             int              `json:"-"`
+	Pricing                     *PaymentPricing  `json:"-"`
+	ReferralDiscountState       string           `json:"-"`
 }
 
 // UnmarshalJSON enforces the required response field presence.
@@ -511,6 +514,11 @@ func (c *Client) CreatePayment(ctx context.Context, quoteID, idempotencyKey stri
 		envelope.expiredQuoteNoOrder = status == http.StatusConflict &&
 			envelope.Code == "QUOTE_EXPIRED" && finality.Retryable != nil && !*finality.Retryable &&
 			reason == "expired_quote_no_order"
+	}
+	if c.PaymentContract == 2 {
+		if proof, ok := decodeReferralCreateNoOrder(raw, status, quoteID, idempotencyKey); ok {
+			envelope.referralCreateNoOrder = &proof
+		}
 	}
 	return PaymentResponse{}, envelope, nil
 }

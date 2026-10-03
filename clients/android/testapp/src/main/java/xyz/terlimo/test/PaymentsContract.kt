@@ -37,6 +37,7 @@ internal data class PaymentQuote(
     val method: String,
     val expiresAt: String,
     val product: PaymentProduct? = null,
+    val pricing: PaymentPricing? = null,
 )
 
 internal data class PaymentStatusView(
@@ -49,6 +50,8 @@ internal data class PaymentStatusView(
     val creditState: String? = null,
     val creditReviewReason: String? = null,
     val creditedProduct: CreditedPaymentProduct? = null,
+    val pricing: PaymentPricing? = null,
+    val referralDiscountState: String? = null,
 )
 
 internal sealed class PaymentsEvent {
@@ -56,9 +59,12 @@ internal sealed class PaymentsEvent {
     data class Quote(val quote: PaymentQuote) : PaymentsEvent()
     /** `type` is the parsed wire type: exactly TYPE_PAYMENT_CREATE_RESULT or TYPE_PAYMENT_GET_RESULT. */
     data class Payment(val type: String, val payment: PaymentStatusView) : PaymentsEvent()
-    data class Failure(val type: String, val code: String, val reason: String? = null) : PaymentsEvent() {
+    data class Failure(val type: String, val code: String, val reason: String? = null,
+        val createResolution: PaymentCreateResolution? = null) : PaymentsEvent() {
         val expiredNoOrder: Boolean get() = type == PaymentsContract.TYPE_PAYMENT_CREATE_RESULT &&
             code == "QUOTE_EXPIRED" && reason == PaymentsContract.EXPIRED_NO_ORDER_REASON
+        val referralNoOrder: Boolean get() = type == PaymentsContract.TYPE_PAYMENT_CREATE_RESULT &&
+            createResolution?.validFor(code) == true && reason == createResolution.reason
     }
 }
 
@@ -89,6 +95,7 @@ internal object PaymentsContract {
         "NODE_UNAVAILABLE", "READBACK_FAILED", "PAYMENT_NOT_FOUND", "PAYMENT_STATE_INVALID",
         "QUOTE_EXPIRED", "METHOD_UNAVAILABLE", "CHECKOUT_POLICY_DENIED", "RATE_LIMITED",
         "SERVICE_UNAVAILABLE", "NOT_FOUND", "ACCESS_DENIED", "INTERNAL",
+        "REFERRAL_DISCOUNT_RESERVED", "REFERRAL_PRICE_UNSUPPORTED",
     )
 
     val DURATION_CODES: Set<String> = setOf("days:30", "months:3", "months:6")
@@ -103,6 +110,7 @@ internal object PaymentsContract {
         "owner_unbound", "owner_changed", "target_unavailable", "target_expired",
         "target_period_changed", "extra_slot_unavailable",
     )
+    val REFERRAL_DISCOUNT_STATES = setOf("reserved", "reconciling", "consumed")
 
     private val ENVELOPE = setOf("v", "attempt_id", "type", "state")
     private val PLANS_KEYS = ENVELOPE + setOf(
@@ -117,6 +125,7 @@ internal object PaymentsContract {
         "checkout_reference", "credited_entitlement_revision", "access_application_state",
     )
     private val ERROR_KEYS = ENVELOPE + setOf("code")
+    private val REFERRAL_NO_ORDER_KEYS = ERROR_KEYS + setOf("reason", "http_status", "retryable", "request_id", "create_resolution")
     private val MONEY_KEYS = setOf("amount_minor", "currency")
     private val PLAN_KEYS = setOf(
         "plan_id", "title", "duration_code", "base_device_limit", "amount", "methods",
@@ -152,14 +161,18 @@ internal object PaymentsContract {
             val keys = event.keys().asSequence().toSet()
             return when (state) {
                 "error" -> {
+                    if (event.has("create_resolution")) return parseReferralNoOrder(event, type, keys)
                     check(keys == ERROR_KEYS || keys == ERROR_KEYS + "reason") { "PAYMENTS_INVALID" }
                     val code = event.getString("code")
                     check(code in ERROR_CODES) { "PAYMENTS_INVALID" }
                     val reason = if (event.has("reason")) {
-                        check(type == TYPE_PAYMENT_CREATE_RESULT && code == "QUOTE_EXPIRED" &&
-                            event.get("reason") == EXPIRED_NO_ORDER_REASON && event.get("v") == 1 &&
-                            event.get("attempt_id") is String && event.getString("attempt_id").length in 1..128) { "PAYMENTS_INVALID" }
-                        EXPIRED_NO_ORDER_REASON
+                        val value = strictString(event, "reason")
+                        check(type == TYPE_PAYMENT_CREATE_RESULT && event.get("v") == 1 &&
+                            event.get("attempt_id") is String && event.getString("attempt_id").length in 1..128 &&
+                            ((code == "QUOTE_EXPIRED" && value == EXPIRED_NO_ORDER_REASON) ||
+                             (code == "REFERRAL_DISCOUNT_RESERVED" && value == "referral_discount_reserved") ||
+                             (code == "QUOTE_EXPIRED" && value == "referral_quote_changed"))) { "PAYMENTS_INVALID" }
+                        value
                     } else null
                     PaymentsEvent.Failure(type, code, reason)
                 }
@@ -176,6 +189,22 @@ internal object PaymentsContract {
         } catch (error: Exception) {
             throw IllegalStateException("PAYMENTS_INVALID", error)
         }
+    }
+
+    private fun parseReferralNoOrder(event: JSONObject, type: String, keys: Set<String>): PaymentsEvent.Failure {
+        check(keys == REFERRAL_NO_ORDER_KEYS && type == TYPE_PAYMENT_CREATE_RESULT && strictInt(event, "v") == 1 &&
+            strictInt(event, "http_status") == 409 && event.get("retryable") == false &&
+            strictString(event, "attempt_id").length in 1..128 && strictString(event, "request_id").matches(REQUEST_ID)) { "PAYMENTS_INVALID" }
+        val code = strictString(event, "code")
+        val reason = strictString(event, "reason")
+        val resolution = event.getJSONObject("create_resolution")
+        check(resolution.keys().asSequence().toSet() == setOf("kind", "quote_id", "request_idempotency_key", "reason")) {
+            "PAYMENTS_INVALID"
+        }
+        val proof = PaymentCreateResolution(strictString(resolution, "kind"), strictString(resolution, "quote_id"),
+            strictString(resolution, "request_idempotency_key"), strictString(resolution, "reason"))
+        check(proof.validFor(code) && proof.reason == reason) { "PAYMENTS_INVALID" }
+        return PaymentsEvent.Failure(type, code, reason, proof)
     }
 
     private fun parsePlans(event: JSONObject, keys: Set<String>): PaymentsEvent.Plans {
@@ -217,8 +246,8 @@ internal object PaymentsContract {
     }
 
     private fun parseQuote(event: JSONObject, keys: Set<String>): PaymentsEvent.Quote {
-        val v2 = keys == QUOTE_V2_KEYS
-        check(v2 || keys == QUOTE_KEYS) { "PAYMENTS_INVALID" }
+        val v2 = "product" in keys
+        check(keys == QUOTE_KEYS || keys == QUOTE_V2_KEYS || keys == QUOTE_V2_KEYS + "pricing") { "PAYMENTS_INVALID" }
         validateEnvelope(event, v2)
         val quoteId = if (v2) strictUuid(event, "quote_id") else event.getString("quote_id")
         val duration = if (v2) strictString(event, "duration_code") else event.getString("duration_code")
@@ -234,15 +263,18 @@ internal object PaymentsContract {
         check(!v2 || (amountMinor > 0 && currency == "RUB")) { "PAYMENTS_INVALID" }
         val product = if (v2) nullableProduct(event) else null
         check(product == null || product.deviceLimit == limit) { "PAYMENTS_INVALID" }
+        val pricing = if (event.has("pricing")) PaymentPricingCodec.parse(event.getJSONObject("pricing")) else null
+        check(pricing == null || pricing.validFor(amountMinor, currency, product)) { "PAYMENTS_INVALID" }
         return PaymentsEvent.Quote(PaymentQuote(
             quoteId = quoteId, amountMinor = amountMinor, currency = currency, durationCode = duration,
-            deviceLimit = limit, method = method, expiresAt = expiresAt, product = product,
+            deviceLimit = limit, method = method, expiresAt = expiresAt, product = product, pricing = pricing,
         ))
     }
 
     private fun parsePayment(type: String, event: JSONObject, keys: Set<String>): PaymentsEvent.Payment {
-        val v2 = keys == PAYMENT_V2_KEYS
-        check(v2 || keys == PAYMENT_KEYS) { "PAYMENTS_INVALID" }
+        val v2 = "product" in keys
+        val additiveKeys = keys - setOf("pricing", "referral_discount_state")
+        check(keys == PAYMENT_KEYS || (v2 && additiveKeys == PAYMENT_V2_KEYS)) { "PAYMENTS_INVALID" }
         validateEnvelope(event, v2)
         val paymentId = if (v2) strictUuid(event, "payment_id") else event.getString("payment_id")
         val status = if (v2) strictString(event, "payment_status") else event.getString("payment_status")
@@ -261,11 +293,17 @@ internal object PaymentsContract {
         val creditedProduct = if (v2 && !event.isNull("credited_product")) {
             parseCreditedProduct(event.getJSONObject("credited_product"))
         } else null
+        val pricing = if (event.has("pricing")) PaymentPricingCodec.parse(event.getJSONObject("pricing")) else null
+        check(pricing == null || pricing.validFor(pricing.payableAmountMinor, pricing.currency, product)) { "PAYMENTS_INVALID" }
+        val discountState = if (event.has("referral_discount_state")) strictString(event, "referral_discount_state").also {
+            check(pricing != null && it in REFERRAL_DISCOUNT_STATES) { "PAYMENTS_INVALID" }
+        } else null
+        check(creditedProduct == null || creditedProduct.pricing == pricing) { "PAYMENTS_INVALID" }
         return PaymentsEvent.Payment(type, PaymentStatusView(
             paymentId = paymentId, paymentStatus = status, checkoutReference = reference,
             creditedEntitlementRevision = credited, accessApplicationState = applicationState,
             product = product, creditState = creditState, creditReviewReason = reviewReason,
-            creditedProduct = creditedProduct,
+            creditedProduct = creditedProduct, pricing = pricing, referralDiscountState = discountState,
         ))
     }
 
@@ -342,13 +380,15 @@ internal object PaymentsContract {
     }
 
     private fun parseCreditedProduct(product: JSONObject): CreditedPaymentProduct {
-        check(product.keys().asSequence().toSet() == CREDITED_PRODUCT_KEYS) { "PAYMENTS_INVALID" }
+        val keys = product.keys().asSequence().toSet()
+        check(keys == CREDITED_PRODUCT_KEYS || keys == CREDITED_PRODUCT_KEYS + "pricing") { "PAYMENTS_INVALID" }
         val from = strictUtc(product, "valid_from")
         val until = if (product.isNull("valid_until")) null else strictUtc(product, "valid_until")
         val limit = strictInt(product, "device_limit")
         val currentLimit = strictInt(product, "current_device_limit")
         check(limit >= 2 && currentLimit >= 2) { "PAYMENTS_INVALID" }
-        return CreditedPaymentProduct(from, until, limit, currentLimit)
+        val pricing = if (product.has("pricing")) PaymentPricingCodec.parse(product.getJSONObject("pricing")) else null
+        return CreditedPaymentProduct(from, until, limit, currentLimit, pricing)
     }
 
     private fun validDuration(duration: String, v2: Boolean): Boolean =

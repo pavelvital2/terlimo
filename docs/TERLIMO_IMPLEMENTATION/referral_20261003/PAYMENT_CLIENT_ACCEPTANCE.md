@@ -1,0 +1,9 @@
+# Referral payment client — SOURCE acceptance
+
+Cumulative d9e0a780dadf412b948f7f56b9cf191a5fd944a8 over d4bd48e06faebc4dd70c39119730b8cc903bf581 integrated onto accepted server canonical7602e13c1e537d209c62a64b93333fd8ea5c0525.23 cumulative postimage hashes verified. Root accepted Go/native strict pricing and correlated no_order slice; independent host review identified P1, corrected in this candidate.
+
+Root read actual PurchaseResultAcceptance, SessionService call sites, captured/current journal equality before save, and same-boundary regressions. New CREATE uses captured installation/account/attempt/Q/K/no-payment intent and exact current record; only after successful save does UI remove historical O1 and load frozen current quote. Pending/paid/terminal use this path; terminal has no checkout ack. no_order uses original atomic journal proof, not displayed receipt. GET retains saved payment identity and cannot normalize arbitrary UI history. No new unresolved trace found in bounded correction.
+
+Android Kotlin/Java compile and38 affected JVM tests PASS, actual compile-tests.log hash verified and BUILD SUCCESSFUL read. Tests use actual service acceptance class after markCreate/persist and unknown_create, covering old expired/failed receipt, pending ack once, paid/terminal noopen, correlated no_order history once, failed persistence, foreign GET and capture/disk mismatch. Earlier Go12 and JVM98 evidence retained; those suites not repeated. No root test execution or native/APK/device runtime PASS claimed.
+
+Next: rebuild native and compatible TEST APK from accepted canonical, preserve existing package/signing/installation and deployment configuration; joint TEST runtime after server readiness. Real bot/site history/writer integration and provider cancellation finality remain release work.

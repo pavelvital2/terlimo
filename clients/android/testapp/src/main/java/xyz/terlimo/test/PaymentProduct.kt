@@ -28,4 +28,5 @@ internal data class CreditedPaymentProduct(
     val validUntil: String?,
     val deviceLimit: Int,
     val currentDeviceLimit: Int,
+    val pricing: PaymentPricing? = null,
 )

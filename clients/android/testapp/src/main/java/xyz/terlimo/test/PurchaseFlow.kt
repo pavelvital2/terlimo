@@ -65,6 +65,7 @@ internal data class PurchaseState(
      */
     val sending: Boolean = false,
     val error: String? = null,
+    val noOrderReason: String? = null,
 )
 
 internal object PurchaseFlow {
@@ -75,6 +76,7 @@ internal object PurchaseFlow {
     const val AWAITING_CONFIRMATION = "awaiting_confirmation"
     const val CONFIRMED = "confirmed"
     const val EXPIRED_NO_ORDER = "expired_no_order"
+    const val NO_ORDER = "no_order"
     const val UNAVAILABLE = "unavailable"
     const val ERROR = "error"
 
@@ -183,7 +185,7 @@ internal object PurchaseFlow {
             quoteBinding = null, quotePriceChanged = false, error = null, createAck = null, sending = false)
         val expectedAmount = initialOfferAmount(plan, selection)
         if (selection != PurchaseFlow.selection(base) || !quoteMatchesSelection(quote, plan, selection) ||
-            expectedAmount == null || (quote.product == null && quote.amountMinor != expectedAmount))
+            expectedAmount == null || (quote.product == null && quote.pricing == null && quote.amountMinor != expectedAmount))
             return failure(invalidateOffer(base), "PAYMENT_STATE_INVALID")
         return base.copy(phase = QUOTE_READY, quote = quote, quoteBinding = PurchaseQuoteBinding(quote, selection),
             quotePriceChanged = quote.amountMinor != expectedAmount, error = null, createAck = null, sending = false,
@@ -209,6 +211,7 @@ internal object PurchaseFlow {
     private fun quoteMatchesSelection(quote: PaymentQuote, plan: PaymentPlan, selected: PurchaseSelection): Boolean {
         if (quote.method != selected.method || quote.durationCode != selected.durationCode ||
             quote.currency != plan.currency || quote.amountMinor <= 0) return false
+        if (quote.pricing?.validFor(quote.amountMinor, quote.currency, quote.product) == false) return false
         val product = quote.product
         if (product == null) return selected.productKind == null && selected.renewExtraSlotIds.isEmpty()
         return product.kind == selected.productKind && product.planId == selected.planId &&
@@ -225,6 +228,26 @@ internal object PurchaseFlow {
         phase = EXPIRED_NO_ORDER, ownerAccountRef = owner,
         plansRevision = current?.plansRevision, plans = current?.plans.orEmpty(),
     )
+
+    /** A new offer is allowed only after the original no-order proof is committed to disk. */
+    fun noOrderState(current: PurchaseState?, owner: String, reason: String): PurchaseState {
+        require(reason in setOf("referral_discount_reserved", "referral_quote_changed"))
+        return PurchaseState(phase = NO_ORDER, ownerAccountRef = owner,
+            plansRevision = current?.plansRevision, plans = current?.plans.orEmpty(),
+            noOrderReason = reason)
+    }
+
+    /** The commercial quote and its referral price remain immutable through order/credit. */
+    internal fun matchesFrozenPayment(quote: PaymentQuote, payment: PaymentStatusView): Boolean =
+        quote.product == payment.product && quote.pricing == payment.pricing &&
+            (quote.pricing == null || quote.pricing.validFor(quote.amountMinor, quote.currency, quote.product)) &&
+            (payment.creditedProduct == null || payment.creditedProduct.pricing == payment.pricing)
+
+    /** Consumed is a durable server fact; a stale response cannot restore its reservation. */
+    internal fun matchesPaymentUpdate(before: PaymentStatusView, after: PaymentStatusView): Boolean =
+        before.paymentId == after.paymentId && before.product == after.product && before.pricing == after.pricing &&
+            (before.pricing == null || before.referralDiscountState == null || after.referralDiscountState != null) &&
+            (before.referralDiscountState != "consumed" || after.referralDiscountState == "consumed")
 
     fun quoteExpired(current: PurchaseState?, now: Instant): Boolean {
         val quote = current?.quote ?: return false
@@ -245,7 +268,7 @@ internal object PurchaseFlow {
             current.plans.firstOrNull { it.planId == plan.planId } != plan || method !in plan.methods ||
             binding.quote != quote || binding.selection != selected ||
             !quoteMatchesSelection(quote, plan, selected) ||
-            (quote.product == null && quote.amountMinor != plan.amountMinor) || quoteExpired(current, now)) return null
+            (quote.product == null && quote.pricing == null && quote.amountMinor != plan.amountMinor) || quoteExpired(current, now)) return null
         return quote
     }
 
@@ -263,6 +286,15 @@ internal object PurchaseFlow {
         (current ?: PurchaseState()).copy(sending = true)
 
     fun paymentResult(current: PurchaseState?, payment: PaymentStatusView): PurchaseState {
+        val base = current ?: PurchaseState()
+        // A later GET cannot replace the saved commercial terms while checking the same order.
+        val frozen = base.quote
+        val prior = base.payment
+        if ((frozen != null && !matchesFrozenPayment(frozen, payment)) ||
+            (prior != null && !matchesPaymentUpdate(prior, payment)) ||
+            (payment.creditedProduct != null && payment.creditedProduct.pricing != payment.pricing))
+            return failure(base, "PAYMENT_STATE_INVALID")
+        val reconciling = payment.referralDiscountState == "reconciling"
         val phase = when (payment.paymentStatus) {
             "paid" -> AWAITING_CONFIRMATION
             "created", "pending" -> AWAITING_PAYMENT
@@ -276,10 +308,9 @@ internal object PurchaseFlow {
             "created", "pending", "paid" -> null
             else -> "PAYMENT_STATUS_UNKNOWN"
         }
-        val base = current ?: PurchaseState()
         val sameReceipt = base.payment == payment
-        return base.copy(phase = if (sameReceipt && base.phase == CONFIRMED) CONFIRMED else phase,
-            payment = payment, error = error, sending = false,
+        return base.copy(phase = if (reconciling) AWAITING_PAYMENT else if (sameReceipt && base.phase == CONFIRMED) CONFIRMED else phase,
+            payment = payment, error = if (reconciling) null else error, sending = false,
             freshMeConfirmed = sameReceipt && base.freshMeConfirmed,
             confirmationPlansLoaded = sameReceipt && base.confirmationPlansLoaded)
     }
@@ -297,7 +328,10 @@ internal object PurchaseFlow {
      * but binding has not happened, so a fresh /me cannot confirm it. The client must not offer
      * another payment and must offer the mandatory Telegram registration instead (S5 §3.2C).
      */
-    fun blocksNewPurchase(state: PurchaseState?): Boolean = state?.recovery != null || paidAwaitingBinding(state)
+    fun blocksNewPurchase(state: PurchaseState?): Boolean = state?.recovery != null || paidAwaitingBinding(state) ||
+        state?.payment?.referralDiscountState in setOf("reserved", "reconciling") ||
+        (state?.payment?.pricing != null && state.payment.paymentStatus != "paid" &&
+            state.payment.referralDiscountState == null)
 
     fun paidAwaitingBinding(state: PurchaseState?): Boolean {
         val base = state ?: return false
@@ -307,7 +341,11 @@ internal object PurchaseFlow {
     /** A correlated payment_create result: the payment state plus the ack of the sent create. */
     fun paymentCreateResult(
         current: PurchaseState?, payment: PaymentStatusView, ack: PaymentCreateAck,
-    ): PurchaseState = paymentResult(current, payment).copy(createAck = ack)
+    ): PurchaseState {
+        val result = paymentResult(current, payment)
+        return if (result.payment == payment && ack.payment == payment && result.error != "PAYMENT_STATE_INVALID") result.copy(createAck = ack)
+        else result.copy(createAck = null)
+    }
 
     fun failure(current: PurchaseState?, code: String): PurchaseState {
         val base = current ?: PurchaseState()
@@ -329,7 +367,9 @@ internal object PurchaseFlow {
 
     /** A definitive terminal payment state ends the attempt; retry becomes a new key pair. */
     fun terminalPayment(payment: PaymentStatusView): Boolean =
-        payment.paymentStatus in setOf("failed", "expired", "refunded", "disputed")
+        payment.paymentStatus in setOf("failed", "expired", "refunded", "disputed") &&
+            payment.referralDiscountState !in setOf("reserved", "reconciling") &&
+            (payment.pricing == null || payment.referralDiscountState == "consumed")
 
     /**
      * Confirmation policy: a fresh accepted /me must show an active paid entitlement
@@ -341,6 +381,9 @@ internal object PurchaseFlow {
         if (base.phase != AWAITING_CONFIRMATION) return base
         val unconfirmed = base.copy(freshMeConfirmed = false)
         val payment = base.payment ?: return unconfirmed
+        if (payment.referralDiscountState in setOf("reserved", "reconciling") ||
+            (base.quote != null && !matchesFrozenPayment(base.quote, payment)) ||
+            (payment.creditedProduct != null && payment.creditedProduct.pricing != payment.pricing)) return unconfirmed
         if (payment.creditState == "needs_review" || payment.creditState == "unapplied") return unconfirmed
         val creditedRevision = payment.creditedEntitlementRevision ?: return unconfirmed
         val entitlement = projection.entitlement
@@ -359,7 +402,9 @@ internal object PurchaseFlow {
     private fun confirmIfReady(base: PurchaseState): PurchaseState {
         val payment = base.payment ?: return base
         if (base.phase != AWAITING_CONFIRMATION || payment.paymentStatus != "paid" ||
-            payment.creditState in setOf("needs_review", "unapplied") || !base.freshMeConfirmed) return base
+            payment.creditState in setOf("needs_review", "unapplied") || !base.freshMeConfirmed ||
+            payment.referralDiscountState in setOf("reserved", "reconciling") ||
+            (payment.creditedProduct != null && payment.creditedProduct.pricing != payment.pricing)) return base
         if (payment.creditState != null && !base.confirmationPlansLoaded) return base
         if (payment.product != null && (!base.confirmationPlansLoaded || payment.creditedProduct == null ||
                 payment.creditState != "applied")) return base

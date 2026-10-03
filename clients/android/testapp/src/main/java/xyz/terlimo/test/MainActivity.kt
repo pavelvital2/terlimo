@@ -1650,7 +1650,7 @@ class MainActivity : Activity() {
         purchasePayButton.isEnabled = displayedPurchaseQuote != null
 
         if (!offered || state.purchase?.phase in setOf(PurchaseFlow.ERROR, PurchaseFlow.UNAVAILABLE,
-                PurchaseFlow.EXPIRED_NO_ORDER)) {
+                PurchaseFlow.EXPIRED_NO_ORDER, PurchaseFlow.NO_ORDER)) {
             checkoutOpenPolicy.clearAwaiting()
         }
         val open = if (offered) checkoutOpenPolicy.autoOpenAfterPay(state.purchase?.createAck) else null

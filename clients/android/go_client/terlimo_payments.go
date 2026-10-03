@@ -88,6 +88,7 @@ var paymentResultCodeSet = map[string]bool{
 	"PAYMENT_STATE_INVALID": true, "QUOTE_EXPIRED": true, "METHOD_UNAVAILABLE": true,
 	"CHECKOUT_POLICY_DENIED": true, "RATE_LIMITED": true, "SERVICE_UNAVAILABLE": true,
 	"NOT_FOUND": true, "ACCESS_DENIED": true, "INTERNAL": true,
+	"REFERRAL_DISCOUNT_RESERVED": true, "REFERRAL_PRICE_UNSUPPORTED": true,
 }
 
 // paymentEventForAction maps one frozen host action to its frozen result event.
@@ -202,6 +203,9 @@ func (m *managedMobile) handleQuoteCreate(ctx context.Context, action bridgeMess
 		"method": quote.Method, "expires_at": quote.ExpiresAt}
 	if quote.PaymentContract == 2 {
 		message["product"] = paymentProductMessage(quote.Product)
+		if quote.Pricing != nil {
+			message["pricing"] = quote.Pricing
+		}
 	}
 	m.sendPaymentEvent(message)
 }
@@ -228,6 +232,10 @@ func (m *managedMobile) handlePaymentCreate(ctx context.Context, action bridgeMe
 		message := bridgeMessage{"type": event, "state": "error", "code": paymentAPIErrorCode(apiError, true)}
 		if apiError.ExpiredQuoteNoOrder() {
 			message["reason"] = "expired_quote_no_order"
+		}
+		if proof, valid := apiError.ReferralCreateNoOrder(); valid {
+			message["reason"], message["create_resolution"] = proof.Reason, proof
+			message["http_status"], message["retryable"], message["request_id"] = 409, false, apiError.RequestID
 		}
 		m.sendPaymentEvent(message)
 		return
@@ -275,6 +283,12 @@ func paymentResultMessage(event string, payment accountaccess.PaymentResponse) b
 		message["credit_state"] = payment.CreditState
 		message["credit_review_reason"] = payment.CreditReviewReason
 		message["credited_product"] = paymentCreditedProductMessage(payment.CreditedProduct)
+		if payment.Pricing != nil {
+			message["pricing"] = payment.Pricing
+		}
+		if payment.ReferralDiscountState != "" {
+			message["referral_discount_state"] = payment.ReferralDiscountState
+		}
 	}
 	return message
 }
@@ -329,8 +343,12 @@ func paymentCreditedProductMessage(product *accountaccess.CreditedProduct) any {
 	if product == nil {
 		return nil
 	}
-	return bridgeMessage{"valid_from": product.ValidFrom, "valid_until": product.ValidUntil,
+	message := bridgeMessage{"valid_from": product.ValidFrom, "valid_until": product.ValidUntil,
 		"device_limit": product.DeviceLimit, "current_device_limit": product.CurrentDeviceLimit}
+	if product.Pricing != nil {
+		message["pricing"] = product.Pricing
+	}
+	return message
 }
 
 // paymentAPIErrorCode maps one bounded server error envelope to the host vocabulary.

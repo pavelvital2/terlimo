@@ -10,7 +10,7 @@ internal object PurchaseNoOrderResolution {
         val after = PurchaseAttemptCodec.decode(resolved) ?: error("PURCHASE_STATE_INVALID")
         val proof = after.order ?: error("PURCHASE_STATE_INVALID")
         check(before.unresolved && before.order?.paymentEvent == null &&
-            proof.outcome == "expired_no_order" && proof.noCreateInstallationId == installationId &&
+            proof.outcome in setOf("expired_no_order", "referral_no_order") && proof.noCreateInstallationId == installationId &&
             before.copy(order = before.order?.copy(outcome = proof.outcome,
                 noCreateEvent = proof.noCreateEvent, noCreateInstallationId = installationId)) == after) {
             "PURCHASE_NO_CREATE_INVALID"

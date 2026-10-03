@@ -128,15 +128,20 @@ internal object PurchaseAttemptCodec {
                     if (saved.has("no_create")) setOf("no_create") else emptySet())
                 val account = bounded(saved, "account_ref", 256) ?: error("PURCHASE_STATE_INVALID")
                 val outcome = saved.getString("outcome")
-                check(outcome in setOf("unresolved", "terminal", "confirmed", "expired_no_order"))
+                check(outcome in setOf("unresolved", "terminal", "confirmed", "expired_no_order", "referral_no_order"))
                 val paymentEvent = if (saved.isNull("payment_event")) null else saved.getJSONObject("payment_event").toString()
                 val proof = if (saved.has("no_create")) saved.getJSONObject("no_create") else null
-                check((outcome == "expired_no_order") == (proof != null))
+                check((outcome in setOf("expired_no_order", "referral_no_order")) == (proof != null))
                 val noCreateEvent = proof?.let {
                     check(it.keys().asSequence().toSet() == setOf("installation_id", "event"))
                     check(it.getString("installation_id").matches(Regex("^[0-9a-f]{64}$")))
                     it.getJSONObject("event").toString().also { raw ->
-                        check((PaymentsContract.parse(JSONObject(raw)) as? PaymentsEvent.Failure)?.expiredNoOrder == true)
+                        val failure = PaymentsContract.parse(JSONObject(raw)) as? PaymentsEvent.Failure
+                            ?: error("PURCHASE_STATE_INVALID")
+                        val resolution = failure.createResolution
+                        check(if (outcome == "expired_no_order") failure.expiredNoOrder else
+                            failure.referralNoOrder && resolution != null && resolution.quoteId == quoteId &&
+                                resolution.requestIdempotencyKey == paymentKey)
                     }
                 }
                 val result = SavedPurchaseOrder(account, paymentEvent, outcome, noCreateEvent,
@@ -144,6 +149,7 @@ internal object PurchaseAttemptCodec {
                 check(proof == null || paymentEvent == null)
                 val payment = result.payment
                 check(quote != null && selection != null)
+                check(payment == null || PurchaseFlow.matchesFrozenPayment(quote, payment))
                 check(outcome != "terminal" || payment?.let(PurchaseFlow::terminalPayment) == true)
                 check(outcome != "confirmed" || (payment?.paymentStatus == "paid" && payment.creditState != "needs_review"))
                 result
@@ -319,12 +325,18 @@ internal class PurchaseAttempts(
     }
 
     @Synchronized
-    fun savePayment(accountRef: String?, event: String): PurchaseAttempt {
+    fun savePayment(accountRef: String?, event: String, expectedCreate: PurchaseAttempt? = null): PurchaseAttempt {
         val record = current() ?: error("PURCHASE_STATE_INVALID")
+        check(expectedCreate == null || record == expectedCreate) { "PURCHASE_CREATE_STALE" }
         val order = record.order ?: error("PURCHASE_STATE_INVALID")
         check(order.accountRef == accountRef && accountRef != null && order.noCreateEvent == null)
         val payment = (PaymentsContract.parse(JSONObject(event)) as PaymentsEvent.Payment).payment
-        check(order.payment == null || order.payment?.paymentId == payment.paymentId)
+        check(order.payment == null || PurchaseFlow.matchesPaymentUpdate(checkNotNull(order.payment), payment)) {
+            "PURCHASE_RECEIPT_MISMATCH"
+        }
+        check(PurchaseFlow.matchesFrozenPayment(checkNotNull(record.frozenQuote), payment)) {
+            "PURCHASE_RECEIPT_MISMATCH"
+        }
         val outcome = when {
             PurchaseFlow.terminalPayment(payment) -> "terminal"
             order.outcome == "confirmed" && order.payment == payment -> "confirmed"
@@ -341,7 +353,8 @@ internal class PurchaseAttempts(
             state.payment == order.payment && state.payment?.paymentStatus == "paid" && state.freshMeConfirmed &&
             state.payment.creditState !in setOf("needs_review", "unapplied") &&
             (state.payment.creditState == null || state.confirmationPlansLoaded) &&
-            (state.payment.product == null || state.confirmationPlansLoaded))
+            (state.payment.product == null || state.confirmationPlansLoaded) &&
+            state.payment.referralDiscountState !in setOf("reserved", "reconciling"))
         persist(record.copy(order = order.copy(outcome = "confirmed")))
     }
 
@@ -351,8 +364,20 @@ internal class PurchaseAttempts(
         flight: PurchaseFlight, activeAttempt: String, accountRef: String?, installationId: String,
         event: String,
     ): PurchaseAttempt {
+        check((PaymentsContract.parse(JSONObject(event)) as? PaymentsEvent.Failure)?.expiredNoOrder == true) {
+            "PURCHASE_NO_CREATE_INVALID"
+        }
+        return resolveNoOrder(flight, activeAttempt, accountRef, installationId, event)
+    }
+
+    /** Only create provenance plus the original Q/K and immutable disk intent can end unknown. */
+    @Synchronized
+    fun resolveNoOrder(
+        flight: PurchaseFlight, activeAttempt: String, accountRef: String?, installationId: String,
+        event: String,
+    ): PurchaseAttempt {
         val proof = PaymentsContract.parse(JSONObject(event)) as? PaymentsEvent.Failure
-        check(proof?.expiredNoOrder == true) { "PURCHASE_NO_CREATE_INVALID" }
+        check(proof != null && (proof.expiredNoOrder || proof.referralNoOrder)) { "PURCHASE_NO_CREATE_INVALID" }
         val captured = flight.paymentIntent ?: error("PURCHASE_NO_CREATE_UNCORRELATED")
         check(flight.kind == PurchaseFlightKind.PAYMENT && flight.attempt == activeAttempt &&
             JSONObject(event).getString("attempt_id") == activeAttempt &&
@@ -362,9 +387,14 @@ internal class PurchaseAttempts(
             flight.quoteId == captured.quoteId && flight.idempotencyKey == captured.paymentKey) {
             "PURCHASE_NO_CREATE_UNCORRELATED"
         }
+        proof.createResolution?.let { resolution ->
+            check(proof.referralNoOrder && resolution.quoteId == captured.quoteId &&
+                resolution.requestIdempotencyKey == captured.paymentKey) { "PURCHASE_NO_CREATE_UNCORRELATED" }
+        }
         val expected = store.read() ?: error("PURCHASE_STATE_INVALID")
         val current = PurchaseAttemptCodec.decode(expected) ?: error("PURCHASE_STATE_INVALID")
-        val resolved = captured.copy(order = captured.order.copy(outcome = "expired_no_order",
+        val resolved = captured.copy(order = captured.order.copy(
+            outcome = if (proof.expiredNoOrder) "expired_no_order" else "referral_no_order",
             noCreateEvent = event, noCreateInstallationId = installationId))
         // A duplicate may only be a no-op for this exact committed result, never for a later attempt.
         if (current == resolved) return current
@@ -381,6 +411,11 @@ internal class PurchaseAttempts(
             record.order?.outcome == "expired_no_order" ->
                 if (accountRef != null && record.order.accountRef == accountRef)
                     PurchaseFlow.expiredNoOrderState(null, accountRef) else null
+            record.order?.outcome == "referral_no_order" ->
+                if (accountRef != null && record.order.accountRef == accountRef) {
+                    val proof = PaymentsContract.parse(JSONObject(checkNotNull(record.order.noCreateEvent))) as PaymentsEvent.Failure
+                    PurchaseFlow.noOrderState(null, accountRef, checkNotNull(proof.createResolution).reason)
+                } else null
             !record.unresolved -> null
             record.legacyUncertain -> PurchaseState(recovery = "legacy_unknown", phase = PurchaseFlow.ERROR)
             accountRef == null -> PurchaseState(recovery = "verify_account", phase = PurchaseFlow.AWAITING_PAYMENT)

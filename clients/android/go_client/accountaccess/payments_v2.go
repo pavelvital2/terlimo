@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"wg-turn-client/wlwire"
 )
 
 var paymentUUIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -174,16 +176,23 @@ func (p *Product) UnmarshalJSON(raw []byte) error {
 // CreditedProduct is the actual credited period, distinct from the quoted Product.
 // A legacy payment may have no such snapshot; the client never synthesizes one.
 type CreditedProduct struct {
-	ValidFrom          string  `json:"valid_from"`
-	ValidUntil         *string `json:"valid_until"`
-	DeviceLimit        int     `json:"device_limit"`
-	CurrentDeviceLimit int     `json:"current_device_limit"`
+	ValidFrom          string          `json:"valid_from"`
+	ValidUntil         *string         `json:"valid_until"`
+	DeviceLimit        int             `json:"device_limit"`
+	CurrentDeviceLimit int             `json:"current_device_limit"`
+	Pricing            *PaymentPricing `json:"pricing,omitempty"`
 }
 
 func (p *CreditedProduct) UnmarshalJSON(raw []byte) error {
 	type plain CreditedProduct
 	var value plain
+	if err := wlwire.StrictJSON(raw, &value); err != nil {
+		return err
+	}
 	if err := unmarshalStrictRequired(raw, &value, "valid_from", "valid_until", "device_limit", "current_device_limit"); err != nil {
+		return err
+	}
+	if err := optionalPaymentFieldNonNull(raw, "pricing"); err != nil {
 		return err
 	}
 	if !validPaymentUTC(value.ValidFrom) || (value.ValidUntil != nil && !validPaymentUTC(*value.ValidUntil)) || value.DeviceLimit < 2 || value.CurrentDeviceLimit < 2 {
@@ -255,16 +264,27 @@ func DecodePlansV2Strict(raw []byte) (PlansResponse, error) {
 type quoteV1Fields QuoteResponse
 type quoteV2Wire struct {
 	quoteV1Fields
-	Product *Product `json:"product"`
+	Product *Product        `json:"product"`
+	Pricing *PaymentPricing `json:"pricing"`
 }
 
 func DecodeQuoteV2Strict(raw []byte) (QuoteResponse, error) {
 	var wire quoteV2Wire
+	if err := wlwire.StrictJSON(raw, &wire); err != nil {
+		return QuoteResponse{}, fmt.Errorf("quote v2 strict decode: %w", err)
+	}
 	if err := unmarshalStrictRequired(raw, &wire, "request_id", "server_time", "schema_version", "status", "quote_id", "amount", "duration_code", "device_limit", "method", "expires_at", "product"); err != nil {
 		return QuoteResponse{}, fmt.Errorf("quote v2 decode: %w", err)
 	}
 	response := QuoteResponse(wire.quoteV1Fields)
-	response.Product, response.PaymentContract = wire.Product, 2
+	response.Product, response.Pricing, response.PaymentContract = wire.Product, wire.Pricing, 2
+	if err := optionalPaymentFieldNonNull(raw, "pricing"); err != nil {
+		return QuoteResponse{}, err
+	}
+	if response.Pricing != nil && (!pricingMatchesProduct(response.Pricing, response.Product) ||
+		response.Amount.AmountMinor != response.Pricing.PayableAmountMinor || response.Amount.Currency != response.Pricing.Currency) {
+		return QuoteResponse{}, fmt.Errorf("quote referral pricing mismatch")
+	}
 	if !validServerEnvelope(response.RequestID, response.ServerTime, response.SchemaVersion, response.Status) || !validUUID(response.QuoteID) ||
 		response.Amount.AmountMinor <= 0 || response.Amount.Currency != "RUB" || response.DeviceLimit < 2 || !validDurationCodeV2(response.DurationCode) ||
 		!validPaymentMethod(response.Method) || !validPaymentUTC(response.ExpiresAt) || (response.Product != nil && response.DeviceLimit != response.Product.DeviceLimit) {
@@ -276,10 +296,12 @@ func DecodeQuoteV2Strict(raw []byte) (QuoteResponse, error) {
 type paymentV1Fields PaymentResponse
 type paymentV2Wire struct {
 	paymentV1Fields
-	Product            *Product         `json:"product"`
-	CreditState        string           `json:"credit_state"`
-	CreditReviewReason *string          `json:"credit_review_reason"`
-	CreditedProduct    *CreditedProduct `json:"credited_product"`
+	Product               *Product         `json:"product"`
+	CreditState           string           `json:"credit_state"`
+	CreditReviewReason    *string          `json:"credit_review_reason"`
+	CreditedProduct       *CreditedProduct `json:"credited_product"`
+	Pricing               *PaymentPricing  `json:"pricing"`
+	ReferralDiscountState *string          `json:"referral_discount_state"`
 }
 
 func validCreditReviewReason(value string) bool {
@@ -292,11 +314,39 @@ func validCreditReviewReason(value string) bool {
 
 func DecodePaymentV2Strict(raw []byte) (PaymentResponse, error) {
 	var wire paymentV2Wire
+	if err := wlwire.StrictJSON(raw, &wire); err != nil {
+		return PaymentResponse{}, fmt.Errorf("payment v2 strict decode: %w", err)
+	}
 	if err := unmarshalStrictRequired(raw, &wire, "request_id", "server_time", "schema_version", "status", "payment_id", "payment_status", "checkout_reference", "credited_entitlement_revision", "access_application_state", "product", "credit_state", "credit_review_reason", "credited_product"); err != nil {
 		return PaymentResponse{}, fmt.Errorf("payment v2 decode: %w", err)
 	}
 	response := PaymentResponse(wire.paymentV1Fields)
 	response.Product, response.CreditState, response.CreditReviewReason, response.CreditedProduct, response.PaymentContract = wire.Product, wire.CreditState, wire.CreditReviewReason, wire.CreditedProduct, 2
+	response.Pricing = wire.Pricing
+	if err := optionalPaymentFieldNonNull(raw, "pricing", "referral_discount_state"); err != nil {
+		return PaymentResponse{}, err
+	}
+	if wire.ReferralDiscountState != nil {
+		response.ReferralDiscountState = *wire.ReferralDiscountState
+		switch response.ReferralDiscountState {
+		case "reserved", "reconciling", "consumed":
+		default:
+			return PaymentResponse{}, fmt.Errorf("referral discount state invalid")
+		}
+		if response.Pricing == nil {
+			return PaymentResponse{}, fmt.Errorf("referral discount state without pricing")
+		}
+	}
+	if response.Pricing != nil && !pricingMatchesProduct(response.Pricing, response.Product) {
+		return PaymentResponse{}, fmt.Errorf("payment referral pricing mismatch")
+	}
+	if response.CreditedProduct != nil {
+		creditedPricing := response.CreditedProduct.Pricing
+		if (response.Pricing == nil) != (creditedPricing == nil) ||
+			(response.Pricing != nil && *response.Pricing != *creditedPricing) {
+			return PaymentResponse{}, fmt.Errorf("credited referral pricing mismatch")
+		}
+	}
 	if !validServerEnvelope(response.RequestID, response.ServerTime, response.SchemaVersion, response.Status) || !validUUID(response.PaymentID) {
 		return PaymentResponse{}, fmt.Errorf("payment v2 envelope invalid")
 	}

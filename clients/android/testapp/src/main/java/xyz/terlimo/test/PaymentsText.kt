@@ -52,7 +52,7 @@ internal object PaymentsText {
     fun quoteHint(state: PurchaseState?, methodSelected: Boolean, quoteVisible: Boolean,
         explicitNextPurchase: Boolean): String? {
         if (!methodSelected || PurchaseFlow.blocksNewPurchase(state) || quoteVisible ||
-            state?.phase == PurchaseFlow.EXPIRED_NO_ORDER ||
+            state?.phase in setOf(PurchaseFlow.EXPIRED_NO_ORDER, PurchaseFlow.NO_ORDER) ||
             (state?.phase == PurchaseFlow.CONFIRMED && !explicitNextPurchase) ||
             (state?.sending == true && state.quote != null)) return null
         return if (state?.sending == true) PRICE_WAIT_TEXT else PRICE_RETRY_TEXT
@@ -115,7 +115,12 @@ internal object PaymentsText {
                 "Базовые места: 2; продлить дополнительных: ${it.renewExtraSlotIds.size}"
             "\n$places · с $start до $end (местное время)"
         }.orEmpty()
-        return "$duration · ${priceLabel(quote.amountMinor, quote.currency)} · $method$expiry$details"
+        val pricing = quote.pricing?.let {
+            "\nСтоимость: ${priceLabel(it.baseAmountMinor, it.currency)}" +
+                "\nСкидка по коду: ${priceLabel(it.discountMinor, it.currency)}" +
+                "\nК оплате: ${priceLabel(it.payableAmountMinor, it.currency)}"
+        }.orEmpty()
+        return "$duration · ${priceLabel(quote.amountMinor, quote.currency)} · $method$expiry$details$pricing"
     }
 
     fun extraSlotLine(slot: PaymentExtraSlot, currency: String, zone: ZoneId): String {
@@ -139,7 +144,11 @@ internal object PaymentsText {
     private const val PAID_REVIEW_TEXT = "Оплата получена. Выдача доступа требует проверки. Повторная оплата не нужна."
 
 
-    fun paymentStatusText(payment: PaymentStatusView): String = when (payment.paymentStatus) {
+    const val REFERRAL_RECONCILING_TEXT = "Проверяем закрытие предыдущего счёта"
+
+    fun paymentStatusText(payment: PaymentStatusView): String =
+        if (payment.referralDiscountState == "reconciling") REFERRAL_RECONCILING_TEXT
+        else when (payment.paymentStatus) {
         "created" -> "Платёж создан. Ожидаем оплату."
         "pending" -> "Ожидаем оплату."
         "paid" -> if (reviewRequired(payment)) PAID_REVIEW_TEXT else "Оплата получена. Подтверждаем подписку по серверу…"
@@ -204,6 +213,8 @@ internal object PaymentsText {
         "BUSY" -> "Сервис покупки занят. Повторите позже."
         "TRANSPORT" -> "Нет связи с сервисом покупки. Повторите позже."
         "QUOTE_EXPIRED" -> "Предложение истекло. Оформите его заново."
+        "REFERRAL_DISCOUNT_RESERVED" -> "Скидка закреплена за предыдущим счётом. Проверьте его статус."
+        "REFERRAL_PRICE_UNSUPPORTED" -> "Сервис не подтвердил цену со скидкой для этого тарифа."
         "METHOD_UNAVAILABLE" -> "Этот способ оплаты сейчас недоступен."
         "PAYMENT_NOT_FOUND" -> "Платёж не найден. Проверьте статус позже."
         "PAYMENT_STATE_INVALID" -> "Сервер сообщил противоречивый статус платежа."
@@ -251,11 +262,15 @@ internal object PaymentsText {
         if (state == null || state.phase == PurchaseFlow.IDLE) {
             return if (offered) CHECK_AVAILABILITY_TEXT else PaymentsText.UNAVAILABLE_TEXT
         }
+        if (state.payment?.referralDiscountState == "reconciling") return REFERRAL_RECONCILING_TEXT
         if (reviewRequired(state.payment)) return PAID_REVIEW_TEXT
         // One outstanding purchase request: show waiting and let no other line imply progress.
         if (state.sending) return PURCHASE_SENDING_TEXT
         return when (state.phase) {
             PurchaseFlow.EXPIRED_NO_ORDER -> "Предложение истекло. Заказ не создан. Можно выбрать тариф заново."
+            PurchaseFlow.NO_ORDER -> (if (state.noOrderReason == "referral_discount_reserved")
+                "Скидка закреплена за предыдущим счётом. " else "") +
+                "Заказ по этому запросу не создан. Можно запросить новое предложение."
             PurchaseFlow.UNAVAILABLE -> PaymentsText.errorText(state.error)
             PurchaseFlow.ERROR -> {
                 val payment = state.payment

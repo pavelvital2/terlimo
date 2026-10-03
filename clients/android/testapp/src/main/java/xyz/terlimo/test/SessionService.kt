@@ -253,6 +253,7 @@ class SessionService : Service() {
     private val purchaseAttempts by lazy { PurchaseAttempts(InstallationPurchaseAttemptStore(storage)) }
     /** Local correlation of the explicitly sent payment_create with its result (no wire pairing). */
     private val paymentCreates = PaymentCreateTracker()
+    private val purchaseResults by lazy { PurchaseResultAcceptance(purchaseAttempts, paymentCreates) }
     private var purchaseVerifiedAccountRef: String? = null
     private var purchaseRequestAccountRef: String? = null
     /** Host-owned single-flight: at most one Quote/Payment request outstanding on the stream. */
@@ -2615,17 +2616,15 @@ class SessionService : Service() {
         }
         when (parsed) {
             is PaymentsEvent.Failure -> {
-                if (parsed.expiredNoOrder) {
+                if (parsed.expiredNoOrder || parsed.createResolution != null) {
                     paymentCreates.clear()
-                    val resolved = runCatching {
-                        check(view.purchase?.payment == null)
-                        purchaseAttempts.resolveExpiredNoOrder(holder, attempt, purchaseVerifiedAccountRef,
-                            storage.installationId(), event.toString())
-                    }.getOrNull()
-                    val result = if (resolved != null)
-                        PurchaseFlow.expiredNoOrderState(view.purchase, resolved.order!!.accountRef)
-                    else PurchaseFlow.failure(purchaseAttempts.recoveryState(purchaseVerifiedAccountRef)
-                        ?: view.purchase, "TRANSPORT")
+                    val result = runCatching {
+                        purchaseResults.noOrder(view.purchase, holder, attempt, purchaseVerifiedAccountRef,
+                            storage.installationId(), event)
+                    }.getOrElse {
+                        PurchaseFlow.failure(purchaseAttempts.recoveryState(purchaseVerifiedAccountRef)
+                            ?: view.purchase, "TRANSPORT")
+                    }
                     // UI unblocks only after the encrypted intent/history/result commit returns.
                     publishActive(attempt, view.copy(purchase = result))
                     if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
@@ -2658,8 +2657,10 @@ class SessionService : Service() {
                 if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
             }
             is PaymentsEvent.Payment -> {
-                val saved = try { purchaseAttempts.savePayment(purchaseVerifiedAccountRef, event.toString()) }
-                catch (_: Exception) {
+                val result = try {
+                    purchaseResults.payment(view.purchase, holder, attempt, purchaseVerifiedAccountRef,
+                        storage.installationId(), event)
+                } catch (_: Exception) {
                     paymentCreates.clear()
                     publishActive(attempt, view.copy(purchase = PurchaseFlow.failure(
                         purchaseAttempts.recoveryState(purchaseVerifiedAccountRef) ?: view.purchase,
@@ -2667,22 +2668,7 @@ class SessionService : Service() {
                     if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
                     return
                 }
-                // Only the payment_create_result of the explicitly sent operation may carry
-                // the correlated acknowledgement; a get result never sets or refreshes it.
-                val ack = paymentCreates.onCreateResult(parsed.type, parsed.payment)
-                val terminal = parsed.payment.paymentStatus == "paid" ||
-                    PurchaseFlow.terminalPayment(parsed.payment)
-                // A terminal status tears the attempt down: no create correlation survives.
-                if (terminal) paymentCreates.clear()
-                val result = when {
-                    terminal -> PurchaseFlow.paymentResult(view.purchase, parsed.payment)
-                        .copy(createAck = null)
-                    ack != null -> PurchaseFlow.paymentCreateResult(view.purchase, parsed.payment, ack)
-                    else -> PurchaseFlow.paymentGetResult(view.purchase, parsed.payment)
-                }
-                publishActive(attempt, view.copy(purchase = result.copy(
-                    ownerAccountRef = saved.order?.accountRef,
-                    recovery = if (saved.unresolved) "known_payment" else null)))
+                publishActive(attempt, view.copy(purchase = result))
                 when {
                     parsed.payment.paymentStatus == "paid" -> {
                         // Existing fresh-/me trigger (registration refresh command, no new

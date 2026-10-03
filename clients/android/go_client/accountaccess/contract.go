@@ -927,16 +927,17 @@ type ErrorResponse struct {
 	// Set only for correlated HTTP410 registration replay, never from arbitrary errors.
 	referralRegistrationExpiry *ReferralRegistration
 	// Set only by the authenticated POST /payments response validator. Never decoded from JSON.
-	expiredQuoteNoOrder bool
-	RequestID           string         `json:"request_id"`
-	ServerTime          string         `json:"server_time"`
-	SchemaVersion       string         `json:"schema_version"`
-	Status              string         `json:"status"`
-	Code                string         `json:"code"`
-	Retryable           bool           `json:"retryable"`
-	RetryAfterMS        *int           `json:"retry_after_ms"`
-	MessageKey          *string        `json:"message_key"`
-	Details             map[string]any `json:"details"`
+	expiredQuoteNoOrder   bool
+	referralCreateNoOrder *PaymentCreateResolution
+	RequestID             string         `json:"request_id"`
+	ServerTime            string         `json:"server_time"`
+	SchemaVersion         string         `json:"schema_version"`
+	Status                string         `json:"status"`
+	Code                  string         `json:"code"`
+	Retryable             bool           `json:"retryable"`
+	RetryAfterMS          *int           `json:"retry_after_ms"`
+	MessageKey            *string        `json:"message_key"`
+	Details               map[string]any `json:"details"`
 }
 
 // DecodeErrorStrict validates an error envelope.

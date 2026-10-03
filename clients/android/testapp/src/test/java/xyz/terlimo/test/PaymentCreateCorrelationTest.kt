@@ -112,7 +112,7 @@ class PaymentCreateCorrelationTest {
     }
 
     @Test
-    fun theExplicitChainIgnoresAnOldOrderAndOpensOnlyTheMatchedCreateAckOnce() {
+    fun pureProjectionCannotReplaceAnOldOrderWithoutDurableAcceptance() {
         val tracker = PaymentCreateTracker(seed = 1_000L)
         val policy = CheckoutOpenPolicy()
         val oldPending = payment("pay-old", "https://pay.example/s/old", "pending")
@@ -151,12 +151,12 @@ class PaymentCreateCorrelationTest {
         val ack = tracker.onCreateResult(create, fresh)
         assertNotNull(ack)
         assertEquals("q-2", ack!!.quoteId)
+        // The pure projection cannot authorize replacing a displayed receipt. The
+        // service acceptance boundary must first prove and durably accept the new intent.
         state = PurchaseFlow.paymentCreateResult(state, fresh, ack)
-        val open = policy.autoOpenAfterPay(state.createAck)
-        assertNotNull(open)
-        assertEquals("pay-new", open!!.paymentId)
-        assertEquals("https://pay.example/s/new", open.url)
+        assertNull(state.createAck)
         assertNull(policy.autoOpenAfterPay(state.createAck))
+        assertEquals("pay-old", state.payment?.paymentId)
 
         // A failure of the attempt drops the controlled correlation immediately.
         assertNull(PurchaseFlow.failure(state, "PROVIDER_UNAVAILABLE").createAck)
@@ -178,9 +178,14 @@ class PaymentCreateCorrelationTest {
         assertNull(PurchaseFlow.quoteExpiredState(acked).createAck)
         assertNull(PurchaseFlow.failure(acked, "TRANSPORT").createAck)
         assertNull(PurchaseFlow.plansFailure(acked, "TRANSPORT").createAck)
-        // A get result keeps the controlled correlation: it neither sets nor drops it.
-        assertNotNull(PurchaseFlow.paymentGetResult(
-            acked, payment("pay-2", "https://pay.example/s/2", "pending")).createAck)
+        // A GET for another order cannot replace the original receipt or retain a
+        // checkout acknowledgement after the receipt mismatch.
+        val foreign = PurchaseFlow.paymentGetResult(
+            acked, payment("pay-2", "https://pay.example/s/2", "pending"))
+        assertNull(foreign.createAck)
+        assertEquals(created, foreign.payment)
+        assertEquals("PAYMENT_STATE_INVALID", foreign.error)
+        assertNotNull(PurchaseFlow.paymentGetResult(acked, created).createAck)
     }
 
     @Test
@@ -409,7 +414,7 @@ class PaymentCreateCorrelationTest {
         assertTrue(sender.contains("val outcome = purchaseSender.send("))
         assertTrue(sender.contains("prepare = {"))
         assertTrue(sender.indexOf("purchaseSender.send(") < sender.indexOf("beginQuote("))
-        assertTrue(sender.indexOf("purchaseSender.send(") < sender.indexOf("beginPayment("))
+        assertTrue(sender.indexOf("purchaseSender.send(") < sender.indexOf("markCreate("))
         val capture = source("src/main/java/xyz/terlimo/test/PurchaseSender.kt")
         assertTrue(capture.contains("if (!flight.acquire(request)) return PurchaseSendOutcome.WAITING"))
         assertTrue(capture.indexOf("flight.acquire(request)") < capture.indexOf("prepare()"))
@@ -425,10 +430,15 @@ class PaymentCreateCorrelationTest {
 
         val handler = service.substringAfter("private fun handlePurchaseEvent(")
             .substringBefore("private fun armPurchaseConfirmationWindow(")
-        assertTrue(handler.contains("paymentCreates.onCreateResult(parsed.type, parsed.payment)"))
+        assertTrue(handler.contains("purchaseResults.payment(view.purchase, holder, attempt, purchaseVerifiedAccountRef,"))
+        assertTrue(handler.contains("purchaseResults.noOrder(view.purchase, holder, attempt, purchaseVerifiedAccountRef,"))
+        assertFalse(handler.contains("check(view.purchase?.payment == null)"))
+        val acceptance = source("src/main/java/xyz/terlimo/test/PurchaseResultAcceptance.kt")
+        assertTrue(acceptance.contains("creates.onCreateResult(parsed.type, parsed.payment)"))
+        assertTrue(acceptance.indexOf("attempts.savePayment(") < acceptance.indexOf("creates.onCreateResult("))
         assertTrue(handler.contains(
             "if (parsed.type == PaymentsContract.TYPE_PAYMENT_CREATE_RESULT) paymentCreates.clear()"))
-        assertTrue(handler.contains("if (terminal) paymentCreates.clear()"))
+        assertTrue(acceptance.contains("if (terminal) creates.clear()"))
         assertFalse(handler.contains("onCreateResult(PaymentsContract.TYPE_PAYMENT_GET_RESULT"))
         // The single-flight holder is released only by the matching parsed result/failure.
         assertTrue(handler.contains("purchaseFlight.releaseOn("))
@@ -438,7 +448,7 @@ class PaymentCreateCorrelationTest {
         assertTrue(payAction.contains("paymentCreates.clear()"))
 
         // Attempt teardown drops any pending create correlation and the outstanding flight.
-        val stop = service.substringAfter("private fun stopAttempt(").take(900)
+        val stop = service.substringAfter("private fun stopAttempt(").substringBefore("\n    private fun ")
         assertTrue(stop.contains("paymentCreates.clear()"))
         assertTrue(stop.contains("purchaseFlight.reset()"))
         // A queued duplicate tap re-checks the gate under the serial control path.
