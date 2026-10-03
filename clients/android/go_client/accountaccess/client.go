@@ -213,7 +213,11 @@ func (c *Client) GetUsage(ctx context.Context) (UsageResponse, *ErrorResponse, e
 // current installation (POST /registration/telegram/link, empty body). Installation comes
 // from the Bearer session; the client never sends an installation id or eligibility.
 func (c *Client) RequestRegistrationLink(ctx context.Context) (RegistrationLink, *ErrorResponse, error) {
-	raw, status, err := c.request(ctx, http.MethodPost, "/registration/telegram/link", map[string]any{}, "")
+	return c.requestRegistrationLink(ctx, map[string]any{})
+}
+
+func (c *Client) requestRegistrationLink(ctx context.Context, body any) (RegistrationLink, *ErrorResponse, error) {
+	raw, status, err := c.request(ctx, http.MethodPost, "/registration/telegram/link", body, "")
 	if err != nil {
 		return RegistrationLink{}, nil, err
 	}

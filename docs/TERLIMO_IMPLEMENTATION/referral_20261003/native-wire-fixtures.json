@@ -1,0 +1,101 @@
+{
+  "referralPending": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "candidate": {
+      "id": "12345678-1234-1234-1234-123456789abc",
+      "state": "pending",
+      "code": "Ab12"
+    }
+  },
+  "referralCleared": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "candidate": {
+      "state": "cleared"
+    }
+  },
+  "referralInfoFixture": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "referral": {
+      "account_ref": "12345678-1234-1234-1234-123456789abc",
+      "code": "Ab12",
+      "links": {
+        "telegram": "https://t.me/terlimo_vpn_wdtt_bot?start=ref_uAb12",
+        "web": "https://terlimo.xyz/?ref=uAb12"
+      },
+      "attribution": {
+        "state": "none",
+        "receipt_id": null,
+        "reason": null
+      },
+      "benefits": {
+        "trial_bonus_days": 3,
+        "discount": {
+          "currency": "RUB",
+          "amount_minor": 10000,
+          "state": "eligible"
+        }
+      },
+      "rewards": {
+        "waiting_days": 0,
+        "applied_days": 0
+      },
+      "terms_version": "referral-20261003-v1"
+    }
+  },
+  "referralRegistered": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-10-03T00:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "registration": {
+      "state": "registered"
+    }
+  },
+  "registrationWithReceipt": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-10-03T00:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "registration": {
+      "state": "registered",
+      "referral_attribution_receipt_id": "12345678-1234-1234-1234-123456789abc"
+    }
+  },
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/mobile/v1/referral/candidate",
+      "headers": {
+        "Idempotency-Key": "referral-key-0001"
+      },
+      "body": {
+        "code": "Ab12"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mobile/v1/referral/candidate",
+      "headers": {
+        "Idempotency-Key": "referral-key-0001"
+      },
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/mobile/v1/referral",
+      "body": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/mobile/v1/registration/telegram/link",
+      "body": {}
+    },
+    {
+      "method": "POST",
+      "path": "/api/mobile/v1/registration/telegram/link",
+      "body": {
+        "referral_candidate_id": "12345678-1234-1234-1234-123456789abc"
+      }
+    }
+  ]
+}

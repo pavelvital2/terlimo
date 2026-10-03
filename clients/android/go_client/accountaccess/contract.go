@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"golang.org/x/text/unicode/norm"
+	"wg-turn-client/wlwire"
 )
 
 const (
@@ -468,12 +469,13 @@ func DecodeMeStrict(raw []byte) (MeResponse, error) {
 // one-time token and the deep link are carried only long enough to open Telegram; they
 // are never persisted by the client.
 type RegistrationLink struct {
-	State       string
-	Token       string
-	BotUsername string
-	DeepLink    string
-	ExpiresAt   *string
-	ExpiresIn   int
+	ReferralAttributionReceiptID *string
+	State                        string
+	Token                        string
+	BotUsername                  string
+	DeepLink                     string
+	ExpiresAt                    *string
+	ExpiresIn                    int
 }
 
 // DecodeRegistrationLinkStrict validates the link response against the frozen subset.
@@ -484,20 +486,25 @@ func DecodeRegistrationLinkStrict(raw []byte) (RegistrationLink, error) {
 		SchemaVersion string `json:"schema_version"`
 		Status        string `json:"status"`
 		Registration  struct {
-			State       string  `json:"state"`
-			Token       *string `json:"token"`
-			BotUsername *string `json:"bot_username"`
-			DeepLink    *string `json:"deep_link"`
-			ExpiresAt   *string `json:"expires_at"`
-			ExpiresIn   *int    `json:"expires_in"`
+			ReferralAttributionReceiptID *string `json:"referral_attribution_receipt_id,omitempty"`
+			State                        string  `json:"state"`
+			Token                        *string `json:"token"`
+			BotUsername                  *string `json:"bot_username"`
+			DeepLink                     *string `json:"deep_link"`
+			ExpiresAt                    *string `json:"expires_at"`
+			ExpiresIn                    *int    `json:"expires_in"`
 		} `json:"registration"`
 	}
-	if err := decodeStrict(raw, &envelope); err != nil {
+	if err := wlwire.StrictJSON(raw, &envelope); err != nil {
 		return RegistrationLink{}, fmt.Errorf("registration link decode: %w", err)
 	}
 	if envelope.SchemaVersion != SchemaVersion || envelope.Status != "ok" ||
 		!requestIDPattern.MatchString(envelope.RequestID) || !ValidUtcTime(envelope.ServerTime) {
 		return RegistrationLink{}, fmt.Errorf("registration link envelope invalid")
+	}
+	receipt := envelope.Registration.ReferralAttributionReceiptID
+	if receipt != nil && (!validUUID(*receipt) || envelope.Registration.State != "registered") {
+		return RegistrationLink{}, fmt.Errorf("registration referral receipt invalid")
 	}
 	switch envelope.Registration.State {
 	case "pending":
@@ -521,7 +528,7 @@ func DecodeRegistrationLinkStrict(raw []byte) (RegistrationLink, error) {
 			DeepLink: *envelope.Registration.DeepLink, ExpiresAt: envelope.Registration.ExpiresAt,
 			ExpiresIn: *envelope.Registration.ExpiresIn}, nil
 	case "registered":
-		return RegistrationLink{State: "registered"}, nil
+		return RegistrationLink{State: "registered", ReferralAttributionReceiptID: receipt}, nil
 	default:
 		return RegistrationLink{}, fmt.Errorf("registration link state unknown")
 	}
