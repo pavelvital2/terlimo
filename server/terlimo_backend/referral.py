@@ -50,16 +50,54 @@ def digest(body):
 
 
 async def _initialize_account(connection, account_id, *, new_account=False):
-    # A new LOCAL identity can still be an existing legacy Telegram user. Only an
-    # operator's explicit per-Telegram history proof makes eligibility ready.
+    # Preserve account -> benefit lock order. No importer/network I/O here.
     account = await connection.fetchrow("SELECT * FROM accounts WHERE id=$1 FOR UPDATE", account_id)
+    if account is None or account["status"] != "verified" or account["telegram_id"] is None:
+        return
     await connection.execute(
         "INSERT INTO referral_benefits(account_id) VALUES($1) ON CONFLICT DO NOTHING", account_id
     )
+    benefit = await connection.fetchrow("SELECT * FROM referral_benefits WHERE account_id=$1", account_id)
+    if benefit['history_epoch_id'] is not None and benefit['history_state'] == 'ready':
+        return  # Never reclassify live post-cutover events as imported history.
     staged = await connection.fetchrow(
         "SELECT * FROM referral_history_staging WHERE telegram_id=$1", account["telegram_id"]
     )
+    epoch = None
+    absent = staged is None
     if staged is None:
+        epoch = await connection.fetchrow('SELECT * FROM referral_history_epochs WHERE active AND complete')
+        if epoch is None:
+            return
+        # Absence is proved only by full immutable membership plus explicit operator activation.
+        staged = dict(code=None, code_absent_verified=True, proven_new=True,
+                      referred_by_telegram_id=None, trial_used=False, first_main_paid=False,
+                      reward_dispositions={'trial':'not_earned','first_main_paid':'not_earned'},
+                      source_sha256=epoch['manifest_sha256'])
+        if account['referred_by_account_id'] is not None or account['referral_code'] is not None:
+            return  # Existing canonical ownership needs reconciliation, not an absence rewrite.
+    elif staged['epoch_id'] is not None:
+        epoch = await connection.fetchrow('SELECT * FROM referral_history_epochs WHERE id=$1 AND active AND complete', staged['epoch_id'])
+        if epoch is None:
+            return
+    trial_used = staged['trial_used'] or bool(await connection.fetchval(
+        "SELECT 1 FROM entitlements WHERE account_id=$1 AND kind='trial' LIMIT 1",account_id))
+    paid_used = staged['first_main_paid'] or bool(await connection.fetchval(
+        """SELECT 1 FROM payment_orders p LEFT JOIN account_bindings b ON b.id=p.binding_id
+           WHERE coalesce(p.checkout_owner_account_id,p.account_id,b.account_id)=$1
+             AND p.months IN (1,3,6) AND p.status='succeeded' LIMIT 1""",account_id))
+    paid_used = paid_used or bool(await connection.fetchval(
+        "SELECT 1 FROM entitlements WHERE account_id=$1 AND kind='paid' LIMIT 1",account_id))
+    # Used benefits stay blocked even if attribution/remote reward reconciliation
+    # keeps this member pending. Pending must never re-enable a legacy trial.
+    await connection.execute(
+        """UPDATE referral_benefits SET imported_trial_used=imported_trial_used OR $2,
+        imported_first_main_paid=imported_first_main_paid OR $3 WHERE account_id=$1""",
+        account_id,trial_used,paid_used)
+    dispositions = staged['reward_dispositions']
+    if isinstance(dispositions,str):
+        dispositions = json.loads(dispositions)
+    if dispositions is not None and 'unresolved' in dispositions.values():
         return
     inviter = None
     if staged["referred_by_telegram_id"] is not None:
@@ -68,58 +106,47 @@ async def _initialize_account(connection, account_id, *, new_account=False):
             staged["referred_by_telegram_id"],
         )
         if inviter is None:
-            return  # import parent mapping first; do not overwrite or invent owner
-    if inviter is not None:
-        for used, event in (
-            (staged["trial_used"], "trial"),
-            (staged["first_main_paid"], "first_main_paid"),
-        ):
-            if used and not await connection.fetchval(
-                "SELECT 1 FROM referral_rewards WHERE invitee_account_id=$1 AND inviter_account_id=$2 AND event_kind=$3 AND imported AND import_source_sha256=$4",
-                account_id,
-                inviter,
-                event,
-                staged["source_sha256"],
-            ):
-                return  # awarded legacy history must be reconciled before eligibility is ready
-    if staged["code"] is not None:
-        normalize_code(staged["code"])
-        if account["referral_code"] not in (None, staged["code"]):
-            raise ApiError("REFERRAL_HISTORY_PENDING", http=503)
-        if account["referred_by_account_id"] not in (None, inviter):
-            raise ApiError("REFERRAL_HISTORY_PENDING", http=503)
-        await connection.execute(
-            "UPDATE accounts SET referral_code=$2,referred_by_account_id=coalesce(referred_by_account_id,$3),referral_attributed_at=CASE WHEN referred_by_account_id IS NULL AND $3::uuid IS NOT NULL THEN now() ELSE referral_attributed_at END,referral_attribution_receipt_id=CASE WHEN $3::uuid IS NOT NULL THEN coalesce(referral_attribution_receipt_id,gen_random_uuid()) ELSE referral_attribution_receipt_id END,referral_terms_version=$4 WHERE id=$1",
-            account_id,
-            staged["code"],
-            inviter,
-            TERMS_VERSION,
-        )
-    elif staged["proven_new"]:
-        import asyncpg
-
-        for _ in range(8):
-            code = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
-            try:
-                async with connection.transaction():
-                    await connection.execute(
-                        "UPDATE accounts SET referral_code=$2 WHERE id=$1 AND referral_code IS NULL",
-                        account_id,
-                        code,
-                    )
-                break
-            except asyncpg.UniqueViolationError:
-                continue
-        else:
-            raise ApiError("SERVICE_UNAVAILABLE", http=503)
+            return
+    if account['referred_by_account_id'] not in (None,inviter):
+        raise ApiError('REFERRAL_HISTORY_PENDING',http=503)
+    for used,event in ((staged['trial_used'],'trial'),(staged['first_main_paid'],'first_main_paid')):
+        earned = dispositions[event] == 'earned' if dispositions is not None else used and inviter is not None
+        if earned and not await connection.fetchval(
+            "SELECT 1 FROM referral_rewards WHERE invitee_account_id=$1 AND inviter_account_id=$2 AND event_kind=$3 AND imported AND import_source_sha256=$4",
+            account_id,inviter,event,staged['source_sha256']):
+            return  # Includes ambiguous remote evidence: never enqueue a second extension.
+    if staged['code'] is not None:
+        normalize_code(staged['code'])
+        if account['referral_code'] not in (None,staged['code']):
+            raise ApiError('REFERRAL_HISTORY_PENDING',http=503)
+        code = staged['code']
+    elif staged['proven_new'] or staged['code_absent_verified']:
+        code = account['referral_code']
+        if code is None:
+            import asyncpg
+            for _ in range(8):
+                code = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+                if await connection.fetchval('SELECT 1 FROM referral_history_staging WHERE code=$1 AND telegram_id<>$2',code,account['telegram_id']):
+                    continue
+                try:
+                    async with connection.transaction():
+                        await connection.execute('UPDATE accounts SET referral_code=$2 WHERE id=$1 AND referral_code IS NULL',account_id,code)
+                    break
+                except asyncpg.UniqueViolationError:
+                    continue
+            else:
+                raise ApiError('SERVICE_UNAVAILABLE',http=503)
     else:
-        return  # incomplete legacy code proof stays pending
+        return
     await connection.execute(
-        "UPDATE referral_benefits SET history_state='ready',imported_trial_used=imported_trial_used OR $2,imported_first_main_paid=imported_first_main_paid OR $3 WHERE account_id=$1",
-        account_id,
-        staged["trial_used"],
-        staged["first_main_paid"],
-    )
+        "UPDATE accounts SET referral_code=$2,referred_by_account_id=coalesce(referred_by_account_id,$3),referral_attributed_at=CASE WHEN referred_by_account_id IS NULL AND $3::uuid IS NOT NULL THEN now() ELSE referral_attributed_at END,referral_attribution_receipt_id=CASE WHEN $3::uuid IS NOT NULL THEN coalesce(referral_attribution_receipt_id,gen_random_uuid()) ELSE referral_attribution_receipt_id END,referral_terms_version=$4 WHERE id=$1",
+        account_id,code,inviter,TERMS_VERSION)
+    await connection.execute(
+        """UPDATE referral_benefits SET history_state='ready',
+        imported_trial_used=imported_trial_used OR $2,imported_first_main_paid=imported_first_main_paid OR $3,
+        history_epoch_id=$4,history_proof=$5 WHERE account_id=$1""",
+        account_id,trial_used,paid_used,epoch['id'] if epoch else None,
+        ('absent' if absent else 'member') if epoch else None)
 
 
 async def initialize_account(connection, account_id, *, new_account=False):
@@ -357,13 +384,18 @@ async def referral_info(connection, context):
         or context.binding["status"] != "active"
     ):
         raise ApiError("ACCESS_DENIED", http=403)
-    account = await connection.fetchrow(
-        "SELECT a.*,b.history_state,b.imported_first_main_paid,b.reserved_order_id,b.consumed_order_id,b.reservation_state FROM accounts a LEFT JOIN referral_benefits b ON b.account_id=a.id WHERE a.id=$1 AND a.status='verified' AND a.telegram_id IS NOT NULL AND EXISTS(SELECT 1 FROM account_bindings own WHERE own.account_id=a.id AND own.installation_id=$2 AND own.status='active')",
-        context.account_id,
-        context.installation_id,
-    )
+    projection_sql = "SELECT a.*,b.history_state,b.imported_first_main_paid,b.reserved_order_id,b.consumed_order_id,b.reservation_state FROM accounts a LEFT JOIN referral_benefits b ON b.account_id=a.id WHERE a.id=$1 AND a.status='verified' AND a.telegram_id IS NOT NULL AND EXISTS(SELECT 1 FROM account_bindings own WHERE own.account_id=a.id AND own.installation_id=$2 AND own.status='active')"
+    account = await connection.fetchrow(projection_sql, context.account_id, context.installation_id)
     if account is None:
         raise ApiError("ACCESS_DENIED", http=403)
+    if account["history_state"] in (None, "history_pending") or account["referral_code"] is None:
+        # Existing registered users need no re-registration after protected coverage
+        # activation. Authorization must precede any initializer mutation; reread
+        # the same authoritative owner projection after its transaction commits.
+        await initialize_account(connection, context.account_id)
+        account = await connection.fetchrow(projection_sql, context.account_id, context.installation_id)
+        if account is None:
+            raise ApiError("ACCESS_DENIED", http=403)
     if account["history_state"] in (None, "history_pending") or account["referral_code"] is None:
         raise ApiError("REFERRAL_HISTORY_PENDING", http=503, retryable=True)
     receipt = await connection.fetchval(

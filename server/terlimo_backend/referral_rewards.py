@@ -38,6 +38,7 @@ async def enqueue_reward(connection, *, account_id: Any, event_kind: str,
         FROM accounts a JOIN referral_benefits b ON b.account_id=a.id
         WHERE a.id=$1 AND a.referred_by_account_id IS NOT NULL AND b.history_state='ready'
           AND EXISTS(SELECT 1 FROM entitlements e WHERE e.id=$3 AND e.account_id=a.id AND e.status='active')
+          AND ($2<>'trial' OR NOT b.imported_trial_used)
           AND ($2<>'first_main_paid' OR (NOT b.imported_first_main_paid
             AND b.first_paid_order_id IS NOT NULL AND b.first_paid_order_id=$4
             AND EXISTS(SELECT 1 FROM payment_orders source WHERE source.id=$4
@@ -197,7 +198,43 @@ async def sweep_rewards(connection, settings, *, limit: int = 100) -> int:
     return applied
 
 
-async def import_reward_receipts(connection, entries, source_sha256: str) -> int:
+def validate_import_evidence(entry):
+    """Protected legacy receipt, including intermediate states that must NOT be replayed."""
+    import re
+    from datetime import datetime
+    fields = {'source_id','invitee_telegram_id','inviter_telegram_id','event_kind','days','state','evidence'}
+    if not isinstance(entry,dict) or set(entry) != fields:
+        raise ValueError('invalid reward evidence shape')
+    if (not isinstance(entry['source_id'],str) or not 1 <= len(entry['source_id']) <= 256
+        or type(entry['days']) is not int or entry['days'] <= 0
+        or entry['event_kind'] not in ('trial','first_main_paid')
+        or entry['state'] not in ('WAITING','APPLIED','PENDING_REMOTE','REMOTE_APPLIED')
+        or any(type(entry[k]) is not int or not 0 < entry[k] < 2**63 for k in ('invitee_telegram_id','inviter_telegram_id'))
+        or entry['invitee_telegram_id'] == entry['inviter_telegram_id']):
+        raise ValueError('invalid reward evidence')
+    proof = entry['evidence']
+    if not isinstance(proof,dict) or set(proof) != {'source_reference','source_sha256','target'}:
+        raise ValueError('invalid source evidence')
+    if (not isinstance(proof['source_reference'],str) or not 1 <= len(proof['source_reference']) <= 256
+        or not isinstance(proof['source_sha256'],str) or not re.fullmatch('[0-9a-f]{64}',proof['source_sha256'])):
+        raise ValueError('invalid source evidence')
+    target = proof['target']
+    if entry['state'] == 'WAITING':
+        if target is not None:
+            raise ValueError('WAITING cannot discard an existing remote target')
+    else:
+        if not isinstance(target,dict) or set(target) != {'reference','sha256','base_ends_at','target_ends_at'}:
+            raise ValueError('missing target evidence')
+        if (not isinstance(target['reference'],str) or not 1 <= len(target['reference']) <= 256
+            or not isinstance(target['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',target['sha256'])):
+            raise ValueError('invalid target evidence')
+        base = datetime.fromisoformat(target['base_ends_at'])
+        end = datetime.fromisoformat(target['target_ends_at'])
+        if base.tzinfo is None or end.tzinfo is None or end-base != timedelta(days=entry['days']):
+            raise ValueError('invalid target period')
+
+
+async def import_reward_receipts(connection, entries, source_sha256: str, *, require_evidence=False) -> int:
     """Operator-only protected history import; never an API/absence based award.
 
     Input provenance is the pinned SHA of the reviewed staging source. Ownership is
@@ -210,6 +247,19 @@ async def import_reward_receipts(connection, entries, source_sha256: str) -> int
     count = 0
     async with connection.transaction():
         for entry in entries:
+            evidence = entry.get('evidence') if isinstance(entry,dict) else None
+            if require_evidence or evidence is not None:
+                validate_import_evidence(entry)
+                if entry['state'] in ('PENDING_REMOTE','REMOTE_APPLIED'):
+                    # Preserved in the immutable coverage manifest; no runnable reward.
+                    if await connection.fetchval('''SELECT 1 FROM referral_rewards r JOIN accounts a
+                        ON a.id=r.invitee_account_id WHERE a.telegram_id=$1 AND r.event_kind=$2''',
+                        entry['invitee_telegram_id'],entry['event_kind']):
+                        raise ValueError('ambiguous receipt conflicts with canonical reward')
+                    continue
+            if not isinstance(entry,dict):
+                raise ValueError('invalid reward history receipt')
+            entry = {k:v for k,v in entry.items() if k != 'evidence'}
             if not isinstance(entry,dict) or set(entry) != {'source_id','invitee_telegram_id','inviter_telegram_id','event_kind','days','state'}:
                 raise ValueError('invalid reward history receipt')
             if (not isinstance(entry['source_id'],str) or not entry['source_id']
@@ -230,13 +280,18 @@ async def import_reward_receipts(connection, entries, source_sha256: str) -> int
                     and existing['import_source_sha256']==source_sha256 and existing['inviter_account_id']==inviter
                     and existing['days']==entry['days']):
                     raise ValueError('reward history receipt conflict')
+                stored_evidence = existing['import_evidence']
+                if isinstance(stored_evidence,str):
+                    stored_evidence = json.loads(stored_evidence)
+                if stored_evidence != evidence:
+                    raise ValueError('reward evidence conflict')
                 # A WAITING import legitimately progresses through the existing worker;
                 # re-import never resets its APPLYING/APPLIED state or extends twice.
                 if entry['state']=='APPLIED' and existing['state']!='APPLIED':
                     raise ValueError('reward history receipt conflict')
                 continue
             await connection.execute("""INSERT INTO referral_rewards(invitee_account_id,inviter_account_id,event_kind,
-                source_entitlement_id,days,state,imported,legacy_source_id,import_source_sha256)
-                VALUES($1,$2,$3,NULL,$4,$5,true,$6,$7)""",invitee,inviter,entry['event_kind'],entry['days'],entry['state'],entry['source_id'],source_sha256)
+                source_entitlement_id,days,state,imported,legacy_source_id,import_source_sha256,import_evidence)
+                VALUES($1,$2,$3,NULL,$4,$5,true,$6,$7,$8::jsonb)""",invitee,inviter,entry['event_kind'],entry['days'],entry['state'],entry['source_id'],source_sha256,json.dumps(evidence) if evidence is not None else None)
             count += 1
     return count
