@@ -62,6 +62,7 @@ internal data class ViewState(val phase: String = "Idle", val attempt: String? =
 
 class SessionService : Service() {
     private val recoveryCommitGate = RecoveryCommitGate()
+    private val updateConnectionGate = AppUpdateConnectionGate()
     @Volatile private var recoveryCommitted = false
 
     private lateinit var retention: ConnectionRetentionController
@@ -1264,6 +1265,9 @@ class SessionService : Service() {
             rollbackRuntimeEpoch = 0
             gate.start(attempt)
             recoveryCommitGate.begin(attempt, storage.installationId())
+            // Existing owner classification excludes job-only refresh. Physical recovery is
+            // not a new user connection; repeated /me in this attempt is deduplicated below.
+            updateConnectionGate.begin(attempt, !catalogGate.isJobOnly(attempt) && recoveryGeneration == null)
             publish(view.copy(attempt = attempt))
             // S3-B: a tap without a live attempt starts this bounded service-only attempt and
             // arms a finite window for the fresh confirmed /me before activation is sent.
@@ -1474,6 +1478,10 @@ class SessionService : Service() {
                     } else {
                         val updated = AccountAccessPolicy.apply(view.accountAccess, incoming, SystemClock.elapsedRealtime())
                         if (updated != null) {
+                            // First strictly accepted fresh /me proves the user service connection.
+                            // Only enqueue advisory work; catalogue/rights processing never awaits it.
+                            if (gate.active == attempt && updateConnectionGate.accepted(attempt))
+                                AppUpdateCoordinator.serviceConnected(applicationContext, attempt)
                             val registration = updated.projection.registration
                             val trial = updated.projection.trial
                             // S5 grant discipline: a paid purchase is confirmed only through
@@ -1766,6 +1774,9 @@ class SessionService : Service() {
                     handlePurchaseEvent(event, attempt)
                 "sign" -> sign(event, attempt)
                 "recovery_result" -> {
+                    if (recoveryCommitted && event.optString("code") == "RECOVERY_SUCCESS" && gate.active == attempt &&
+                        updateConnectionGate.accepted(attempt))
+                        AppUpdateCoordinator.serviceConnected(applicationContext, attempt)
                     val resultCode = event.optString("code")
                     publishActive(attempt, view.copy(recoveryStatus =
                         if (recoveryCommitted) "RECOVERY_SUCCESS"

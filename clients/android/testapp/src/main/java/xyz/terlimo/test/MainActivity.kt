@@ -20,6 +20,7 @@ import android.widget.*
 
 /** Product UI; no admin/deploy controls or secret diagnostics. */
 class MainActivity : Activity() {
+    private lateinit var appUpdateUi: AppUpdateUi
     override fun attachBaseContext(newBase: android.content.Context) {
         // §26.1: resolve the stored per-user theme before any view is created.
         super.attachBaseContext(AppTheme.wrap(newBase))
@@ -113,6 +114,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
+        appUpdateUi = AppUpdateUi(this)
         SessionService.restorePurchaseHint(installationStore)
         // §26.5: restore the persisted schedule and reconcile BEFORE building the Settings UI,
         // so the radio group shows the real stored mode. Idempotent: a recreation never
@@ -487,6 +489,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 48)
             addView(TextView(this@MainActivity).apply { text = "Настройки"; textSize = 24f })
+            addView(appUpdateUi.panel())
             addView(Button(this@MainActivity).apply {
                 text = "Восстановить подключение"
                 setOnClickListener { openRecoveryEditor() }
@@ -1164,6 +1167,7 @@ class MainActivity : Activity() {
     }
     override fun onStart() {
         super.onStart()
+        appUpdateUi.start()
         statusTickStarted = true
         SessionService.listeners.add(listener)
         // render() is the single arm point: an already accepted hour arms now, and a later
@@ -1174,6 +1178,7 @@ class MainActivity : Activity() {
         statusTickStarted = false
         main.removeCallbacks(statusTick)
         SessionService.listeners.remove(listener)
+        appUpdateUi.stop()
         super.onStop()
     }
 
@@ -1184,6 +1189,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         AppForeground.isForeground = true
+        appUpdateUi.resume()
         // Official v20 return path: exactly one pending manual CAPTCHA window is shown again.
         ManlCaptchaWebViewManager.checkAndShowPendingCaptcha(this)
         // §26.4: refresh the battery warning on every return from the system settings so a

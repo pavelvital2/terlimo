@@ -2,7 +2,16 @@ import java.io.File
 
 plugins { id("com.android.application") }
 
+// All three trusted deployment inputs must be supplied by the release publisher.
+// Empty defaults disable only updating; no TEST origin is silently a production source.
+fun updateLiteral(name: String): String {
+    val value = providers.gradleProperty(name).orNull.orEmpty()
+    require(value.none { it.code < 32 }) { "Invalid update deployment property" }
+    return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
 android {
+    buildFeatures { buildConfig = true }
     namespace = "xyz.terlimo.test"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
@@ -10,6 +19,9 @@ android {
         applicationId = "xyz.terlimo.test"
         minSdk = 28
         targetSdk = 35
+        buildConfigField("String", "UPDATE_MANIFEST_URL", updateLiteral("terlimoUpdateManifestUrl"))
+        buildConfigField("String", "UPDATE_CHANNEL", updateLiteral("terlimoUpdateChannel"))
+        buildConfigField("String", "UPDATE_PATH_PREFIX", updateLiteral("terlimoUpdatePathPrefix"))
         versionCode = 14
         versionName = "0.14-routing"
         ndk { abiFilters += "arm64-v8a" }
