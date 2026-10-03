@@ -1278,10 +1278,28 @@ func dialProbeTransport(ctx context.Context, node wlbs.Node) (net.Conn, func(), 
 // same live connection. It performs no VPN auth, config, selection, persistence
 // or HTTP exit probe. On an echo failure the error is returned with the setup
 // duration for diagnostics and no RTT.
-func (c *managedController) runNodeProbe(ctx context.Context, id string) (managedProbeMeasurement, error) {
+func (c *managedController) runNodeProbe(ctx context.Context, id string) (measurement managedProbeMeasurement, resultErr error) {
 	started := time.Now()
-	cat := c.store.Snapshot()
-	node, err := managedProbeNode(cat, c.saved.Pending != nil, c.link.SubscriptionRef, id, time.Now())
+	c.mu.Lock()
+	pending := c.saved.Pending != nil
+	c.mu.Unlock()
+	var node wlbs.Node
+	var err error
+	if c.mobileMode() {
+		lease, admissionErr := c.admitMobileProbe(ctx, id, pending)
+		if admissionErr != nil {
+			return managedProbeMeasurement{}, admissionErr
+		}
+		defer lease.close()
+		defer func() {
+			if err := lease.check(); err != nil {
+				measurement, resultErr = managedProbeMeasurement{}, err
+			}
+		}()
+		node, ctx = lease.node, lease.ctx
+	} else {
+		node, err = managedProbeNode(c.store.Snapshot(), pending, c.link.SubscriptionRef, id, time.Now())
+	}
 	if err != nil {
 		return managedProbeMeasurement{}, err
 	}
@@ -2095,7 +2113,28 @@ func (c *managedController) vpn(parent context.Context, parentCancel context.Can
 					default:
 					}
 				}()
+				var mobileLease *mobileProbeLease
+				if c.mobileMode() {
+					c.mu.Lock()
+					pending := c.saved.Pending != nil
+					c.mu.Unlock()
+					var err error
+					mobileLease, err = c.admitMobileProbe(probeCtx, request.NodeID, pending)
+					if err != nil {
+						if c.probeResultIsFresh(epoch) && ctx.Err() == nil {
+							_ = c.bridge.send(echoProbeID(connectedProbeResult(request.NodeID, 0, err), request))
+						}
+						return
+					}
+					defer mobileLease.close()
+					probeCtx = mobileLease.ctx
+				}
 				rtt, err := echo(probeCtx, disp)
+				if mobileLease != nil {
+					if stale := mobileLease.check(); stale != nil {
+						rtt, err = 0, stale
+					}
+				}
 				if errors.Is(err, errEchoChannelDirty) {
 					// Fail closed: an earlier ping is still unanswered, so a
 					// live pong could be the old answer and must not settle a

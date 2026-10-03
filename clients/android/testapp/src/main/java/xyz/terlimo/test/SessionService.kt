@@ -303,6 +303,7 @@ class SessionService : Service() {
     private lateinit var leaseAlarms: RetentionAlarmScheduler
     private val expiry = Runnable {
         if (!stopping.get() && LeaseExpiryPolicy.due(expiresElapsed, SystemClock.elapsedRealtime())) {
+            publish(retireProbes(view))
             if (sleepPaused) {
                 // No native transport exists while sleeping. Keep the blocked TUN;
                 // waking must refresh/admit a new grant before any traffic resumes.
@@ -931,7 +932,7 @@ class SessionService : Service() {
                 val running = view.pings[id] as? NodePingState.Running
                 val tap = if (stopping.get()) ProbeGate.Tap.IGNORE else ProbeGate.single(
                     phase = view.phase,
-                    nodeKnown = view.nodes.any { it.id == id },
+                    nodeKnown = id in PingAllGate.catalogIds(view),
                     targetRunning = running != null,
                     pingAllActive = view.pingAll.active,
                     anyRunning = view.pings.values.any { it is NodePingState.Running },
@@ -958,7 +959,7 @@ class SessionService : Service() {
                 }
             }
             "probe_all" -> {
-                val probeable = view.nodes.map { it.id }.filter { probeSettings[it] != null }
+                val probeable = PingAllGate.catalogIds(view)
                 val anyRunning = view.pings.values.any { it is NodePingState.Running }
                 val decision = if (stopping.get()) ProbeGate.AllTap.IGNORE else ProbeGate.all(
                     phase = view.phase,
@@ -1759,7 +1760,7 @@ class SessionService : Service() {
                         // probe/admission/sync and never starts intent/hour/VPN. A malformed
                         // browse answer fails the attempt through the existing host-failure path.
                         val updatedBrowse = BrowseCatalogCodec.apply(view, BrowseCatalogCodec.parse(event)).copy(catalogStage = null)
-                        val refreshPlan = catalogGate.commit(attempt) { publishActive(attempt, updatedBrowse) }
+                        val refreshPlan = catalogGate.commit(attempt) { publishActive(attempt, retireProbes(updatedBrowse)) }
                         if (refreshPlan.stopCycle) stopAttempt(null, "schedule_cancelled")
                         completeCatalogRefresh(refreshPlan.completions)
                         if (refreshPlan.publish) {
@@ -1779,7 +1780,7 @@ class SessionService : Service() {
                     // that only served a canceled periodic request publishes nothing.
                     val refreshPlan = catalogGate.commit(attempt) {
                         // A fresh verified catalogue invalidates any in-flight "Пинг всех" run.
-                        publishActive(attempt, updated.copy(pingAll = PingAllGate.reset()))
+                        publishActive(attempt, retireProbes(updated))
                         runCatching { persistCatalogCache(updated) }
                     }
                     if (!refreshPlan.publish) {
@@ -1874,9 +1875,9 @@ class SessionService : Service() {
                             if (!PingAllGate.isLateAfterCancel(view.pings, id)) {
                                 publishActive(attempt, view.copy(pings = view.pings + (id to ping)))
                             }
-                        } else if (view.phase !in setOf("CatalogReady", "Connected")) {
+                        } else if (ping is NodePingState.Cancelled || view.phase !in setOf("CatalogReady", "Connected")) {
                             // The queue must not survive a phase change: stop it.
-                            publishActive(attempt, view.copy(pingAll = PingAllGate.cancel(all)))
+                            publishActive(attempt, retireProbes(view))
                         } else if (id != all.expectedId) {
                             // Late/foreign result: never advance or corrupt the run.
                         } else {
@@ -2567,6 +2568,15 @@ class SessionService : Service() {
             }
         }
     }
+    /** Retire attribution as well as the visible queue before accepting a new catalog. */
+    private fun retireProbes(state: ViewState): ViewState {
+        // No pipe I/O under catalogGate's commit lock or during teardown. Native
+        // invalidates the mobile pair context; teardown cancels the child itself.
+        val retired = PingAllGate.retirePings(view.pings, probeFrames)
+        return state.copy(pings = retired.filterKeys { id -> state.nodes.any { it.id == id } },
+            pingAll = PingAllGate.reset())
+    }
+
     private fun publishActive(attempt: String, state: ViewState) {
         gate.ifActive(attempt) { if (!stopping.get()) publish(state) }
     }
@@ -2812,6 +2822,7 @@ class SessionService : Service() {
         val child = native
         android.util.Log.w("WDTT/Teardown", "stage=clear_native site=sleep child=" + (child != null))
         native = null
+        publish(retireProbes(view))
         activeRuntimeEpoch = 0
         gate.cancel()
         readinessProbe?.close(); readinessProbe = null
@@ -2904,6 +2915,7 @@ class SessionService : Service() {
         main.postDelayed(recoveryExpiry, PhysicalNetworkRecovery.WINDOW_MS)
         val child = native
         native = null
+        publish(retireProbes(view))
         activeRuntimeEpoch = 0
         gate.cancel()
         readinessProbe?.close()
@@ -3049,6 +3061,7 @@ class SessionService : Service() {
         val child = native
         android.util.Log.w("WDTT/Teardown", "stage=clear_native site=hold child=" + (child != null))
         native = null
+        publish(retireProbes(view))
         activeRuntimeEpoch = 0
         gate.cancel()
         readinessProbe?.close()
@@ -3303,6 +3316,7 @@ class SessionService : Service() {
         sleepPaused = false
         sleepResumeRequested = false
         retiringActors.incrementAndGet()
+        publish(retireProbes(view))
         activeRuntimeEpoch = 0
         gate.cancel()
         connectDeadline.clear()

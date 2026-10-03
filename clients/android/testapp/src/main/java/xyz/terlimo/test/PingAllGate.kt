@@ -23,7 +23,19 @@ internal data class PingAllState(
 internal data class PingAllStep(val state: PingAllState, val startId: String?, val ignore: Boolean)
 
 internal object PingAllGate {
-    /** Begins a run over [nodeIds] (already filtered to probeable, snapshot order). */
+    // Readiness assets describe VPN exit checks, not eligibility for native DTLS RTT.
+    // Native rechecks exact-ID admission and freshness before touching the transport.
+    fun catalogIds(state: ViewState): List<String> =
+        if (state.displayMode == CatalogDisplayMode.CREDENTIAL &&
+            state.phase in setOf("CatalogReady", "Connected")) state.nodes.map { it.id }
+        else emptyList()
+
+    fun retirePings(pings: Map<String, NodePingState>, frames: ProbeFrameHandler): Map<String, NodePingState> {
+        pings.forEach { (id, state) -> if (state is NodePingState.Running) frames.cancel(id) }
+        return cancelPings(pings)
+    }
+
+    /** Begins a run over [nodeIds] (from the usable credential catalog, snapshot order). */
     fun start(current: PingAllState, nodeIds: List<String>): PingAllStep {
         val queue = nodeIds.distinct()
         if (queue.isEmpty()) return PingAllStep(current.copy(active = false, sorted = false), null, true)

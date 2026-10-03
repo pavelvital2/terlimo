@@ -54,6 +54,8 @@ type managedMobile struct {
 	catalogOps      catalogOperations
 
 	mu            sync.Mutex
+	probeSnapshot *mobileProbeSnapshot
+	probeSerial   uint64
 	me            *accountaccess.MeResponse
 	latestMe      *accountaccess.MeResponse
 	catalog       *accountaccess.CatalogResponse
@@ -231,6 +233,7 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 		},
 		OnError: func(code string) {
 			// Fixed, secret-free diagnostic on stderr; never a terminal bridge event.
+			m.retireProbeAdmission()
 			fmt.Fprintln(os.Stderr, "accountaccess:", code)
 		},
 		OnStage: func(token string, elapsedMS, utcMS int64) {
@@ -531,6 +534,7 @@ func (m *managedMobile) awaitOnboardingRefresh(ctx context.Context) error {
 // the hour is active for this installation. It does not link an account: account_ref
 // may stay null (installation hour), so the pre-hour management bearer is never reused.
 func (m *managedMobile) refreshSessionAfterActivation() {
+	m.retireProbeAdmission()
 	if m.session != nil {
 		m.session.Refresh()
 	}
@@ -543,6 +547,7 @@ func (m *managedMobile) run(ctx context.Context, bridge *managedBridge) {
 	m.runCtx = ctx
 	m.mu.Unlock()
 	defer m.stopTimer()
+	defer m.retireProbeAdmission()
 	if m.runner != nil {
 		// §11/§29: coalesce manual refresh at bridge receipt (before any blocking
 		// dispatcher handler); the Runner fence keeps single-flight semantics.
@@ -814,6 +819,8 @@ func (m *managedMobile) verifiedSignal() <-chan struct{} {
 // and a later snapshot can still be admitted.
 func (m *managedMobile) onCurrentMe(me accountaccess.MeResponse) {
 	m.mu.Lock()
+	// A new subject/right response must not leave the previous pair probe-usable.
+	m.retireProbeAdmissionLocked()
 	m.latestMe = &me
 	m.mu.Unlock()
 }
@@ -875,6 +882,11 @@ func (m *managedMobile) synchronize(ctx context.Context, refresh bool) error {
 // removed selected gateway is stopped and cleared explicitly; a projection dependency
 // error never admits and never falls back to the legacy path.
 func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accountaccess.CatalogResponse) {
+	m.mu.Lock()
+	m.retireProbeAdmissionLocked()
+	probeSerial := m.probeSerial
+	probeCandidate := m.probeCandidateLocked(me, catalog)
+	m.mu.Unlock()
 	publishCtx := m.catalogPublicationContext()
 	if err := publishCtx.Err(); err != nil {
 		m.mu.Lock()
@@ -892,12 +904,20 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 	selection := m.controller.selectionID()
 	if selection != "" && !catalogHasGateway(catalog, selection) {
 		decision := accountaccess.DecideAdmission(me, catalog, selection, m.now())
-		m.handleAdmission(decision)
+		// This callback already retired the old pair before capturing probeSerial.
+		// Removing its selected node stops that runtime, not admission of the new
+		// pair's remaining nodes. Never recapture/reset the token: an external
+		// retirement must still prevent this candidate from being accepted.
+		m.handleAdmissionWithProbeRetirement(decision, decision.Reason != "SELECTED_NODE_REMOVED")
 		m.controller.clearSelection()
 		m.releasePending()
 	}
 
 	err := m.applyVerified(&me, &catalog, m.proofNode())
+	if err == nil {
+		// Only the successfully projected/store-committed pair may authorize a probe.
+		m.acceptProbeAdmission(probeSerial, probeCandidate)
+	}
 	if err == nil {
 		// Publish every verified snapshot, including an unchanged selection. The
 		// attempt context fences cancellation; this does not change the VPN phase.
@@ -913,6 +933,9 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 		m.ready = true
 	} else {
 		// Verified rights may arrive later; a failed projection is never terminal.
+		if m.probeSerial == probeSerial {
+			m.retireProbeAdmissionLocked()
+		}
 		m.projectionErr = err
 	}
 	m.mu.Unlock()
@@ -927,6 +950,7 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 // pairing are never touched, no revision exists and no selection is announced. A
 // repeated identical list is emitted once; a renewed validity re-emits the list.
 func (m *managedMobile) onBrowse(browse accountaccess.BrowseCatalogResponse) {
+	m.retireProbeAdmission()
 	publishCtx := m.catalogPublicationContext()
 	if publishCtx.Err() != nil {
 		return
@@ -1064,10 +1088,17 @@ func (m *managedMobile) prepareSwitchTarget(ctx context.Context, target wlbs.Nod
 // synchronous selection gate. StopDataPlane stops the real child; an admitted decision
 // arms the proven-deadline timer so the stop does not depend on a wake or an HTTP reply.
 func (m *managedMobile) handleAdmission(decision accountaccess.AdmissionDecision) {
+	m.handleAdmissionWithProbeRetirement(decision, true)
+}
+
+func (m *managedMobile) handleAdmissionWithProbeRetirement(decision accountaccess.AdmissionDecision, retireProbe bool) {
 	m.mu.Lock()
 	copied := decision
 	m.decision = &copied
 	if decision.StopDataPlane {
+		if retireProbe {
+			m.retireProbeAdmissionLocked()
+		}
 		m.stopTimerLocked()
 	}
 	deadline := time.Time{}
@@ -1137,7 +1168,10 @@ func (m *managedMobile) armDeadline(deadline time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.stopTimerLocked()
-	m.timer = newDeadlineTimer(delay, func() { m.controller.stopMobileDataPlane() })
+	m.timer = newDeadlineTimer(delay, func() {
+		m.retireProbeAdmission()
+		m.controller.stopMobileDataPlane()
+	})
 }
 
 func (m *managedMobile) stopTimer() {
