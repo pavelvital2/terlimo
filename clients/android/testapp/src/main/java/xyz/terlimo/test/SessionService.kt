@@ -1466,6 +1466,12 @@ class SessionService : Service() {
                                     error = null,
                                 ),
                                 purchase = nextPurchase))
+                            // Compare the saved subject even on the first cold /me. An
+                            // incompatible account stays cleared if the catalog read fails.
+                            mobileSelectionSource?.let {
+                                storage.reconcileMobileSelection(view.copy(
+                                    displayMode = CatalogDisplayMode.CREDENTIAL, accountAccess = updated), it)
+                            }
                             when (val registrationAction = loginGate.onVerifiedRights(attempt) { it.eligible(view) }) {
                                 is RegistrationVerified.Send -> sendRegistrationAction(attempt, registrationAction.action)
                                 RegistrationVerified.Refused -> {
@@ -1766,7 +1772,7 @@ class SessionService : Service() {
                         val updatedBrowse = BrowseCatalogCodec.apply(view, BrowseCatalogCodec.parse(event)).copy(catalogStage = null)
                         val refreshPlan = catalogGate.commit(attempt) {
                             publishActive(attempt, retireProbes(updatedBrowse))
-                            if (mobileSelectionSource != null) storage.clearMobileSelection()
+                            mobileSelectionSource?.let { storage.reconcileMobileSelection(updatedBrowse, it) }
                         }
                         if (refreshPlan.stopCycle) stopAttempt(null, "schedule_cancelled")
                         completeCatalogRefresh(refreshPlan.completions)

@@ -6,6 +6,19 @@ import org.json.JSONObject
 internal object MobileSelectionPreference {
     private const val KEY = "mobile_selection"
 
+    // A metadata refresh is not a denial. Keep the scoped preference dormant;
+    // only a confirmed mismatch/removal can clear it before credential admission.
+    fun reconcile(saved: JSONObject, state: ViewState, installation: String,
+        source: MobileBootstrapSeed): JSONObject {
+        val preference = forStart(saved, installation, source)?.takeUnless { value ->
+            val account = state.accountAccess?.takeIf { it.current }
+            (account != null && value.optString("account_ref") != (account.projection.account.accountRef ?: "")) ||
+                (state.displayMode == CatalogDisplayMode.BROWSE && state.browseLoaded &&
+                    state.browseNodes.none { it.id == value.optString("node_id") })
+        }
+        return merge(saved, preference)
+    }
+
     fun fromCatalog(state: ViewState, installation: String, source: MobileBootstrapSeed?): JSONObject? {
         if (source == null || state.displayMode != CatalogDisplayMode.CREDENTIAL ||
             state.accountAccess?.current != true) return null

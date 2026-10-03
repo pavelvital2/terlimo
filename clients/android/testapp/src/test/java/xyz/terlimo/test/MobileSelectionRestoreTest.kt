@@ -43,6 +43,66 @@ class MobileSelectionRestoreTest {
     }
 
 
+    @Test fun startupBrowsePreservesOnlyScopedPreferenceUntilCredentialResult() {
+        val source = MobileBootstrapSeed("https://unused.invalid", "test", null)
+        val account = AccountAccessPolicy.apply(null, AccountAccessParser.parse(JSONObject(eventJson())), 0)!!
+        val nodes = listOf(NodeLabel("B", "B"), NodeLabel("A", "A"))
+        val confirmed = ViewState(phase = "CatalogReady", nodes = nodes, selectedNodeId = "A", accountAccess = account)
+        val saved = MobileSelectionPreference.merge(JSONObject().put("payment_journal", "unchanged")
+            .put("catalog_cache", CatalogCacheCodec.encode(RetainedCatalog(nodes, "A", "old"))),
+            MobileSelectionPreference.fromCatalog(confirmed, "installation", source))
+        // The actual host sequence: encrypted JSON read -> start preference -> fresh
+        // account -> browse callback/AtomicFile merge -> credential callback/merge.
+        val start = MobileSelectionPreference.forStart(JSONObject(saved.toString()), "installation", source)!!
+        val cold = confirmed.copy(phase = "Registering") // existing retained UI cache
+        val browse = BrowseCatalogCodec.apply(cold, BrowseCatalog(nodes))
+        val afterBrowse = MobileSelectionPreference.reconcile(JSONObject(saved.toString()), browse, "installation", source)
+        assertEquals("A", MobileSelectionPreference.forStart(afterBrowse, "installation", source)!!.getString("node_id"))
+        assertEquals("A", browse.selectedNodeId) // retained display preference only
+        assertEquals("A", browse.browseSelectedId)
+        assertTrue(BrowseCatalogCodec.verifiedNodes(browse).isEmpty())
+        assertEquals("Registering", browse.phase)
+        assertNull(MobileSelectionPreference.fromCatalog(browse, "installation", source))
+        val accepted = NodeSelection.applyCatalog(browse, NodeCatalog(nodes, start.getString("node_id"), "fresh"), null, true)
+        val restored = MobileSelectionPreference.merge(afterBrowse,
+            MobileSelectionPreference.fromCatalog(accepted, "installation", source))
+        assertEquals("A", MobileSelectionPreference.forStart(JSONObject(restored.toString()), "installation", source)!!.getString("node_id"))
+        val changedAccount = AccountAccessPolicy.apply(null,
+            AccountAccessParser.parse(JSONObject(eventJson().replace("acc-1", "acc-2"))), 0)!!
+        // A subject change clears at /me even if the following catalog read fails;
+        // switching back to the old subject cannot revive it on restart.
+        val changedBeforeCatalog = MobileSelectionPreference.reconcile(saved,
+            cold.copy(accountAccess = changedAccount), "installation", source)
+        assertNull(MobileSelectionPreference.forStart(MobileSelectionPreference.reconcile(
+            changedBeforeCatalog, cold, "installation", source), "installation", source))
+        for ((installation, domain) in listOf("other" to source,
+            "installation" to source.copy(baseUrl = "https://other.invalid"),
+            "installation" to source.copy(environment = "production"))) {
+            val cleared = MobileSelectionPreference.reconcile(saved, browse, installation, domain)
+            assertNull(MobileSelectionPreference.forStart(cleared, "installation", source))
+        }
+        // An unverified/transient account snapshot neither admits nor erases A.
+        assertNotNull(MobileSelectionPreference.forStart(MobileSelectionPreference.reconcile(saved,
+            cold.copy(accountAccess = account.copy(current = false)), "installation", source), "installation", source))
+        assertNull(MobileSelectionPreference.forStart(MobileSelectionPreference.reconcile(
+            JSONObject().put("catalog_cache", saved.getString("catalog_cache")), browse, "installation", source),
+            "installation", source)) // no migration from old unscoped cache
+        for (invalid in listOf(
+            browse.copy(accountAccess = changedAccount),
+            BrowseCatalogCodec.apply(cold, BrowseCatalog(nodes.take(1))),
+        )) {
+            val cleared = MobileSelectionPreference.reconcile(saved, invalid, "installation", source)
+            val healthy = MobileSelectionPreference.reconcile(cleared, browse, "installation", source)
+            assertNull(MobileSelectionPreference.forStart(JSONObject(healthy.toString()), "installation", source))
+            assertEquals("unchanged", healthy.getString("payment_journal"))
+        }
+        val empty = NodeSelection.applyCatalog(accepted, NodeCatalog(nodes, "", "next"), null, true)
+        val cleared = MobileSelectionPreference.merge(restored,
+            MobileSelectionPreference.fromCatalog(empty, "installation", source))
+        assertNull(MobileSelectionPreference.forStart(
+            MobileSelectionPreference.reconcile(cleared, browse, "installation", source), "installation", source))
+    }
+
     @Test fun acknowledgedPreferenceSurvivesRestartAndNativeClearIsFinal() {
         val source = MobileBootstrapSeed("https://unused.invalid", "test", null)
         val account = AccountAccessPolicy.apply(null, AccountAccessParser.parse(JSONObject(eventJson())), 0)!!

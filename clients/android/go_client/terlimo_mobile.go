@@ -823,6 +823,15 @@ func (m *managedMobile) onCurrentMe(me accountaccess.MeResponse) {
 	m.retireProbeAdmissionLocked()
 	m.latestMe = &me
 	m.mu.Unlock()
+	// A confirmed different subject retires the dormant preference even if the
+	// following metadata request fails. No rights are inferred from this check.
+	if c := m.controller; c != nil {
+		c.mu.Lock()
+		if p := c.start.MobileSelection; p != nil && !m.selectionScopeMatches(p, me) {
+			c.start.MobileSelection = nil
+		}
+		c.mu.Unlock()
+	}
 }
 
 // This chooses the explicit Connect preparation path only. The refreshed
@@ -961,7 +970,7 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 	}
 }
 
-// onBrowse publishes display-only metadata and retires the credential preference.
+// onBrowse publishes display-only metadata without admitting a saved preference.
 // The credential store, lastGood and explicit pairing are not replaced by browse;
 // no credential revision/selection is announced. A
 // repeated identical list is emitted once; a renewed validity re-emits the list.
@@ -971,11 +980,9 @@ func (m *managedMobile) onBrowse(browse accountaccess.BrowseCatalogResponse) {
 	if publishCtx.Err() != nil {
 		return
 	}
-	// A fresh browse answer cannot keep a credential selection pending for revival.
-	m.controller.mu.Lock()
-	m.controller.start.MobileSelection = nil
-	m.controller.saved.SelectedNodeID = ""
-	m.controller.mu.Unlock()
+	// Startup intentionally requests browse first. Only an actual membership or
+	// subject mismatch clears the preference before the later credential pair.
+	m.reconcileBrowseSelection(browse)
 	message := browseCatalogMessage(browse)
 	raw, err := json.Marshal(message["nodes"])
 	if err != nil {

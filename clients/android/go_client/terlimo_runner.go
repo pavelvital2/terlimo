@@ -101,6 +101,7 @@ func (c *managedController) clearSelection() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.saved.SelectedNodeID = ""
+	c.start.MobileSelection = nil
 }
 
 // armPendingExplicitGateway records the after-consent gateway an explicit_connect

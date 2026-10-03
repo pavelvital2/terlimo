@@ -203,8 +203,8 @@ internal class InstallationStore(context: Context) {
         writeLocked(MobileSelectionPreference.merge(readLocked(), mobileSelection).put("catalog_cache", encoded))
     }
 
-    fun clearMobileSelection() = synchronized(LOCK) {
-        writeLocked(MobileSelectionPreference.merge(readLocked(), null))
+    fun reconcileMobileSelection(state: ViewState, source: MobileBootstrapSeed) = synchronized(LOCK) {
+        writeLocked(MobileSelectionPreference.reconcile(readLocked(), state, installationId(), source))
     }
 
     private fun encryptionKey() = store.getKey(encryptionAlias, null) as? SecretKey ?: error("KEY_UNAVAILABLE")
