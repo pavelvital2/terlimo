@@ -5,6 +5,17 @@
 package xyz.terlimo.test;
 
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.UserManager;
+import android.provider.Settings;
+import java.util.UUID;
 import android.content.Intent;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -42,16 +53,19 @@ import java.util.concurrent.TimeoutException;
  * WireGuard Go backend with non-intrusive automatic restore semantics.
  *
  * <p>It is derived from the exact GoBackend bundled by tunnel 1.0.20260102.
- * The only intentional behavioural differences are that an UP never invokes
- * {@link android.net.VpnService#prepare(Context)} and that {@link VpnService}
- * reports {@link VpnService#onRevoke()} to the owner. Android's establish()
+ * An UP never invokes {@link android.net.VpnService#prepare(Context)} and
+ * {@link VpnService} reports revocation to the owner. Its system-origin entry
+ * delegates Always-on bootstrap to the existing SessionService writer; ordinary
+ * app starts remain marked and do not bootstrap. Android's establish()
  * atomically returns {@code null} when this app is no longer prepared, so an
  * automatic resume cannot take the VPN slot from another application.</p>
  */
 public final class SafeGoBackend implements Backend {
     private static final int DNS_RESOLUTION_RETRIES = 10;
     private static final String TAG = "WDTT/SafeGoBackend";
-    private static CompletableFuture<VpnService> vpnService = new CompletableFuture<>();
+    private static volatile VpnService liveService;
+    private static final String APP_ORIGIN = "xyz.terlimo.test.APP_VPN_START";
+    private static volatile CompletableFuture<VpnService> vpnService = new CompletableFuture<>();
 
     private final Context context;
     @Nullable private android.net.Network physicalNetwork;
@@ -302,7 +316,7 @@ public final class SafeGoBackend implements Backend {
             currentConfig = null;
             NativeBridge.turnOff(handleToClose);
             try {
-                vpnService.get(0, TimeUnit.NANOSECONDS).stopSelf();
+                vpnService.get(0, TimeUnit.NANOSECONDS).stopIfAppOwned();
             } catch (final TimeoutException ignored) {
                 // Service may already be stopping after an external revoke.
             }
@@ -313,7 +327,7 @@ public final class SafeGoBackend implements Backend {
     private VpnService requireVpnService() throws BackendException {
         if (!vpnService.isDone()) {
             Log.d(TAG, "Requesting to start VpnService");
-            context.startService(new Intent(context, VpnService.class));
+            context.startService(new Intent(context, VpnService.class).putExtra(APP_ORIGIN, true));
         }
         try {
             return vpnService.get(2, TimeUnit.SECONDS);
@@ -392,9 +406,107 @@ public final class SafeGoBackend implements Backend {
         }
     }
 
+    /** API 28 can confirm only an observed system entry; otherwise status is unknown. */
+    @Nullable public static Boolean alwaysOnMode() {
+        final VpnService service = liveService;
+        return service == null || (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !service.systemEntry)
+                ? null : service.systemMode();
+    }
+    @Nullable public static Boolean lockdownMode() {
+        final VpnService service = liveService;
+        return service == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ? null : service.isLockdownEnabled();
+    }
+    public static boolean isSystemStartCurrent(final String token) {
+        final VpnService service = liveService;
+        return service != null && service.generation.equals(token) && service.startGate.isOpen() && service.systemMode();
+    }
+    public static void refreshSystemNotification(final String text) {
+        final VpnService service = liveService;
+        if (service == null) return;
+        service.main.post(() -> {
+            if (liveService != service || !service.startGate.isOpen()) return;
+            if (service.systemMode()) service.foreground(text);
+            else if (service.foregroundStarted) {
+                service.stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE);
+                service.foregroundStarted = false;
+                if (service.owner == null || service.owner.currentTunnel == null) service.stopSelf();
+            }
+        });
+    }
+    public static void systemAttemptFinished(final String token, final String message) {
+        final VpnService service = liveService;
+        if (service != null && service.generation.equals(token)) service.main.post(() -> {
+            if (liveService == service && service.startGate.isOpen() && service.systemMode())
+                service.foreground(message);
+        });
+    }
+
     /** Android service paired with this backend. */
     public static class VpnService extends android.net.VpnService {
         @Nullable private SafeGoBackend owner;
+        private final String generation = UUID.randomUUID().toString();
+        private final AlwaysOnStartGate startGate = new AlwaysOnStartGate();
+        private final Handler main = new Handler(Looper.getMainLooper());
+        private boolean systemEntry;
+        private boolean foregroundStarted;
+        private boolean unlockRegistered;
+        private final BroadcastReceiver unlock = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (Intent.ACTION_USER_UNLOCKED.equals(intent.getAction()) && liveService == VpnService.this && startGate.isOpen())
+                    handleSystemStart(false);
+            }
+        };
+
+        private boolean systemMode() {
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ? isAlwaysOn() : systemEntry;
+        }
+        private void foreground(final String text) {
+            foregroundStarted = true;
+            getSystemService(NotificationManager.class).createNotificationChannel(
+                new NotificationChannel("terlimo-always-on", "TERLIMO: постоянный VPN", NotificationManager.IMPORTANCE_LOW));
+            final PendingIntent settings = PendingIntent.getActivity(this, 2603,
+                new Intent(Settings.ACTION_VPN_SETTINGS), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            startForeground(2603, new Notification.Builder(this, "terlimo-always-on")
+                .setSmallIcon(android.R.drawable.stat_sys_warning).setContentTitle("TERLIMO · постоянный VPN")
+                .setContentText(text).setContentIntent(settings).setOnlyAlertOnce(true).setOngoing(true)
+                .addAction(new Notification.Action.Builder(null, "Настройки VPN", settings).build()).build());
+        }
+        @Override public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
+            final boolean appOrigin = intent != null && intent.getBooleanExtra(APP_ORIGIN, false);
+            if (!appOrigin) systemEntry = true;
+            handleSystemStart(appOrigin);
+            // Only OS-owned VPN service is restartable; SessionService stays NOT_STICKY.
+            return systemMode() && startGate.isOpen() ? START_STICKY : START_NOT_STICKY;
+        }
+        private void handleSystemStart(boolean appOrigin) {
+            final boolean system = systemMode();
+            if (system && !foregroundStarted) foreground("Управляется Android; подключение после разблокировки");
+            final boolean unlocked = getSystemService(UserManager.class).isUserUnlocked();
+            final AlwaysOnStartGate.Decision decision = startGate.start(appOrigin, system, unlocked,
+                android.net.VpnService.prepare(this) == null);
+            if (decision == AlwaysOnStartGate.Decision.WAIT_UNLOCK && !unlockRegistered) {
+                if (Build.VERSION.SDK_INT >= 33) registerReceiver(unlock, new IntentFilter(Intent.ACTION_USER_UNLOCKED), Context.RECEIVER_NOT_EXPORTED);
+                else registerReceiver(unlock, new IntentFilter(Intent.ACTION_USER_UNLOCKED));
+                unlockRegistered = true;
+                // Close the unlock/register race without polling or reading CE while locked.
+                if (getSystemService(UserManager.class).isUserUnlocked()) handleSystemStart(false);
+            } else if (decision == AlwaysOnStartGate.Decision.START) {
+                if (unlockRegistered) { unregisterReceiver(unlock); unlockRegistered = false; }
+                foreground("Восстанавливаем последнее подключение");
+                try {
+                    startForegroundService(new Intent(this, SessionService.class)
+                        .setAction(SessionService.ACTION_SYSTEM_ALWAYS_ON).putExtra(SessionService.EXTRA_SYSTEM_GENERATION, generation));
+                } catch (RuntimeException error) {
+                    foreground("Не удалось начать подключение. Откройте приложение или настройки VPN.");
+                }
+            } else if (decision == AlwaysOnStartGate.Decision.REFUSE) {
+                if (system) foreground("Требуется разрешение VPN в системных настройках");
+                else stopSelf();
+            }
+        }
+        private void stopIfAppOwned() {
+            if (!systemMode()) stopSelf();
+        }
 
         public android.net.VpnService.Builder getBuilder() {
             return new Builder();
@@ -402,12 +514,15 @@ public final class SafeGoBackend implements Backend {
 
         @Override
         public void onCreate() {
-            vpnService.complete(this);
             super.onCreate();
+            liveService = this;
+            vpnService.complete(this);
         }
 
         @Override
         public void onRevoke() {
+            startGate.close();
+            SessionService.onSystemVpnStopped(generation);
             final SafeGoBackend currentOwner = owner;
             if (currentOwner != null) currentOwner.notifySystemRevoked();
             super.onRevoke();
@@ -415,9 +530,13 @@ public final class SafeGoBackend implements Backend {
 
         @Override
         public void onDestroy() {
+            startGate.close();
+            if (unlockRegistered) { unregisterReceiver(unlock); unlockRegistered = false; }
+            main.removeCallbacksAndMessages(null);
+            SessionService.onSystemVpnStopped(generation);
             final SafeGoBackend currentOwner = owner;
             if (currentOwner != null) currentOwner.handleServiceDestroyed();
-            resetVpnServiceFuture();
+            if (liveService == this) { liveService = null; resetVpnServiceFuture(); }
             super.onDestroy();
         }
 

@@ -6,8 +6,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- §26.5: only re-schedules the persisted catalog refresh job. No boot receiver, no VPN
-         autostart and no automatic Connect. -->
+    <!-- §26.5 refresh scheduling only. Always-on is started by Android VpnService, not a boot receiver. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Required by the owner-visible per installed/system/uninstalled app routing UI. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -38,9 +37,10 @@
         <service android:name=".CatalogRefreshJobService" android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
         <service android:name="com.wireguard.android.backend.GoBackend$VpnService" tools:node="remove" />
-        <service android:name=".SafeGoBackend$VpnService" android:exported="false" android:permission="android.permission.BIND_VPN_SERVICE">
+        <service android:name=".SafeGoBackend$VpnService" android:exported="false" android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="specialUse">
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
-            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="System managed always-on VPN connection" />
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="true" />
         </service>
     </application>
 </manifest>

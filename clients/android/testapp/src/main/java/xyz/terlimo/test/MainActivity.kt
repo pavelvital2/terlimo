@@ -111,6 +111,9 @@ class MainActivity : Activity() {
         }
     }
 
+    private lateinit var alwaysOnStatus: TextView
+    private var lastRenderedSystemMode: Boolean? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(AppTheme.platformTheme())
         super.onCreate(savedInstanceState)
@@ -312,7 +315,9 @@ class MainActivity : Activity() {
                     "pendChoice" to (pendingChoiceId != null).toString(),
                     "pendNode" to (projected.pendingNodeId != null).toString(),
                     "attempt" to (!projected.attempt.isNullOrEmpty()).toString())
-                if (state.recoveryStatus == "RECOVERY_RUNNING") {
+                if (AlwaysOnUi.managed()) {
+                    openSystemVpnSettings()
+                } else if (state.recoveryStatus == "RECOVERY_RUNNING") {
                     cancelAutoConnectLaunch()
                     selectedForConsent = null
                     startService(Intent(this, SessionService::class.java).setAction("cancel"))
@@ -442,6 +447,7 @@ class MainActivity : Activity() {
             text = "Отменить / отключить"
             visibility = View.GONE
             setOnClickListener {
+                if (AlwaysOnUi.managed()) { openSystemVpnSettings(); return@setOnClickListener }
                 cancelAutoConnectLaunch()
                 selectedForConsent = null
                 startService(Intent(this@MainActivity, SessionService::class.java).setAction("cancel"))
@@ -500,17 +506,17 @@ class MainActivity : Activity() {
                 minHeight = dp(48)
                 setOnClickListener { startActivity(Intent(this@MainActivity, RetentionSettingsActivity::class.java)) }
             })
-            // §26.3: entry point only. Always-on itself is chosen by the user on the standard
-            // Android VPN screen; the app never enables it and starts nothing after a reboot.
+            // §26.3: Android owns enable/disable; this app only reports its current mode.
             addView(TextView(this@MainActivity).apply {
                 text = "VPN после перезагрузки телефона"
                 textSize = 18f
                 setPadding(0, dp(20), 0, 0)
             })
-            addView(TextView(this@MainActivity).apply {
-                text = "Настройте постоянное VPN-подключение в системных настройках Android."
+            alwaysOnStatus = TextView(this@MainActivity).apply {
+                text = AlwaysOnUi.status()
                 textSize = 14f
-            })
+            }
+            addView(alwaysOnStatus)
             addView(Button(this@MainActivity).apply {
                 text = "Настроить"
                 minHeight = dp(48)
@@ -1196,6 +1202,8 @@ class MainActivity : Activity() {
         // §26.4: refresh the battery warning on every return from the system settings so a
         // lifted restriction disappears immediately.
         if (::batteryMessage.isInitialized) renderBatteryOptimization()
+        if (::alwaysOnStatus.isInitialized) alwaysOnStatus.text = AlwaysOnUi.status()
+        SessionService.refreshSystemMode()
         if (SessionService.view.registration?.state == "pending") {
             startForegroundService(Intent(this, SessionService::class.java).setAction("telegram_refresh"))
         }
@@ -1296,17 +1304,20 @@ class MainActivity : Activity() {
     }
 
     private fun render(passed: ViewState) {
+        if (::alwaysOnStatus.isInitialized) alwaysOnStatus.text = AlwaysOnUi.status()
         // Live view, or the durable retained catalog when the Service is not running
         // (fresh process). Display-only; the Service is started by the Connect action.
         val state = projectedState()
         // A traffic-only change updates just the header metrics: never a full screen rebuild.
         val previous = lastRenderedState
-        if (previous != null && previous.copy(traffic = state.traffic) == state) {
+        val systemManaged = AlwaysOnUi.managed()
+        if (previous != null && lastRenderedSystemMode == systemManaged && previous.copy(traffic = state.traffic) == state) {
             orbitHeader.setTraffic(state.traffic)
             lastRenderedState = state
             return
         }
         lastRenderedState = state
+        lastRenderedSystemMode = systemManaged
         val selectable = state.phase in setOf("CatalogReady", "Connected", "SwitchingServer", "KillSwitch")
         if (!selectable) consentDenied = false
         if (!selectable) {
@@ -1363,7 +1374,7 @@ class MainActivity : Activity() {
         if (nodes.selectedItemPosition != target) nodes.setSelection(target, false)
         catalogView.render(state, state.pings)
         renderAnnouncements(state)
-        orbitHeader.render(state, pending != null)
+        orbitHeader.render(state, pending != null, systemManaged)
         activateHourButton.visibility = if (PreAdmissionConnect.eligible(state) && PreAdmissionConnect.connectable(state, pending != null))
             View.VISIBLE else View.GONE
         registerTelegramButton.visibility = if (RegistrationUi.registerVisible(state)) View.VISIBLE else View.GONE

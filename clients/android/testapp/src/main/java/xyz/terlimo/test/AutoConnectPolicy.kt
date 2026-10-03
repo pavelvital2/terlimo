@@ -149,6 +149,9 @@ internal class AutoConnectController {
         if (!rt.enabled) { if (isArmedFor(rt.generation)) { consume() }; return listOf(AutoConnectEffect.None) }
         if (!isArmedFor(rt.generation) || rt.dataConnected) return listOf(AutoConnectEffect.None)
         val want = target ?: return listOf(AutoConnectEffect.None)
+        if (plannedAccount != rt.accountRef) {
+            consume(); return listOf(AutoConnectEffect.Message(AutoConnectCode.ACCOUNT), AutoConnectEffect.Consume)
+        }
         if (!rt.entitlementUsable) {
             consume(); return listOf(AutoConnectEffect.Message(AutoConnectCode.RIGHTS), AutoConnectEffect.Consume)
         }
@@ -175,6 +178,9 @@ internal class AutoConnectController {
     fun onSelectOpportunity(rt: AutoConnectRuntime, consentGranted: Boolean): List<AutoConnectEffect> {
         if (!rt.enabled) { if (isArmedFor(rt.generation)) { consume() }; return listOf(AutoConnectEffect.None) }
         if (!isArmedFor(rt.generation) || stage != Stage.SELECT_READY) return listOf(AutoConnectEffect.None)
+        if (plannedAccount != rt.accountRef) {
+            consume(); return listOf(AutoConnectEffect.Message(AutoConnectCode.ACCOUNT), AutoConnectEffect.Consume)
+        }
         if (!rt.entitlementUsable) {
             consume(); return listOf(AutoConnectEffect.Message(AutoConnectCode.RIGHTS), AutoConnectEffect.Consume)
         }
@@ -207,6 +213,7 @@ internal class AutoConnectController {
 
 /** Stable error codes rendered by [UserStatusText]; never arbitrary Russian text. */
 internal object AutoConnectCode {
+    const val ACCOUNT = "AUTOCONNECT_ACCOUNT_CHANGED"
     const val NO_LAST = "AUTOCONNECT_NO_LAST"
     const val REMOVED = "AUTOCONNECT_REMOVED"
     const val RIGHTS = "AUTOCONNECT_RIGHTS"

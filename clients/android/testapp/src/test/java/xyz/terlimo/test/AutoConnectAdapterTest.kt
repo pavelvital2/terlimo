@@ -14,6 +14,9 @@ class AutoConnectAdapterTest {
     private class FakePorts : AutoConnectPorts {
         var activeGenerations = 5L
         var pref = true
+        var systemOrigin = false
+        var systemCurrent = true
+        var storedAccount = "acc-1"
         var defer = false
         val queue = java.util.ArrayDeque<() -> Unit>()
         fun drain() { while (queue.isNotEmpty()) queue.removeFirst().invoke() }
@@ -44,7 +47,8 @@ class AutoConnectAdapterTest {
         private var deadlineEnd = Long.MAX_VALUE
 
         override fun activeGeneration(): Long = activeGenerations
-        override fun prefEnabled(generation: Long): Boolean = pref && generation == activeGenerations
+        override fun prefEnabled(generation: Long): Boolean = generation == activeGenerations &&
+            AutoConnectOriginPolicy.allowed(systemOrigin, systemCurrent, pref, true)
         override fun gateActive(): String? = gate
         override fun stopping(): Boolean = stopping
         override fun phase(): String = phase
@@ -55,7 +59,7 @@ class AutoConnectAdapterTest {
         override fun entitlementUsable(): Boolean = entitlement
         override fun vpnConsentGranted(): Boolean = consent
         override fun dataIntentActive(): Boolean = dataIntent || deadlineEnd != Long.MAX_VALUE
-        override fun lastNodeId(accountRef: String): String? = last
+        override fun lastNodeId(accountRef: String): String? = last.takeIf { accountRef == storedAccount }
         override fun beginAttempt() {
             began += (gate ?: "new")
             gate = gate ?: "A"
@@ -237,5 +241,62 @@ class AutoConnectAdapterTest {
         a.onCatalog("A")
         assertEquals(listOf("node-1"), p.selectedSent)
         assertEquals(listOf("node-1"), p.chosen)
+    }
+    @Test fun systemStartWithUserPreferenceOffWaitsForFreshAccountAndSelectsOnce() {
+        val ports = FakePorts().apply {
+            systemOrigin = true; pref = false; account = null; phase = "BootstrapConnecting"
+        }
+        val a = adapter(ports)
+        a.onLaunch(5L); a.onLaunch(5L)
+        assertEquals(listOf("new"), ports.began)
+        assertTrue(ports.selectedSent.isEmpty())
+        ports.account = "acc-1"
+        a.onAccount("A", 5L)
+        ports.phase = "CatalogReady"; ports.selected = "node-1"
+        a.onCatalog("A"); a.onCatalog("A")
+        assertEquals(listOf("node-1"), ports.selectedSent)
+    }
+
+    @Test fun systemRevokedOrCancelledQueuedSelectNeverReachesNative() {
+        for (revoke in listOf(true, false)) {
+            val ports = FakePorts().apply {
+                systemOrigin = true; pref = false; gate = "A"; selected = "node-1"; defer = true
+            }
+            val a = adapter(ports)
+            a.onLaunch(5L); a.onCatalog("A")
+            if (revoke) ports.systemCurrent = false else a.cancel()
+            ports.drain()
+            assertTrue(ports.selectedSent.isEmpty())
+            assertTrue(ports.chosen.isEmpty())
+        }
+    }
+
+    @Test fun systemMissingForeignOrRemovedLastNodeDoesNotFallback() {
+        for (kind in listOf("missing", "foreign", "removed", "rights")) {
+            val ports = FakePorts().apply {
+                systemOrigin = true; pref = false; gate = "A"; selected = "node-1"
+                when (kind) {
+                    "missing" -> last = null
+                    "foreign" -> account = "other-account"
+                    "removed" -> nodes = emptyList()
+                    "rights" -> entitlement = false
+                }
+            }
+            val a = adapter(ports)
+            a.onLaunch(5L); a.onCatalog("A"); ports.drain()
+            assertTrue(kind, ports.selectedSent.isEmpty())
+            assertTrue(kind, ports.chosen.isEmpty())
+            assertTrue(kind, ports.errors.isNotEmpty())
+        }
+    }
+
+    @Test fun changedAccountAfterPlanningCannotBeAdoptedBySelect() {
+        val ports = FakePorts().apply { gate = "A"; selected = "other" }
+        val a = adapter(ports)
+        a.onLaunch(5L)
+        ports.account = "other-account"
+        a.onCatalog("A")
+        assertTrue(ports.errors.contains(AutoConnectCode.ACCOUNT))
+        assertTrue(ports.selectedSent.isEmpty()); assertTrue(ports.chosen.isEmpty())
     }
 }

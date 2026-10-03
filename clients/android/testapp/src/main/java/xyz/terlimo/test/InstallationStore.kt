@@ -19,11 +19,19 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** One key per installation, outside subscription state. Never replaced after loss. */
 internal class InstallationStore(context: Context) {
+    init { withUnlockedStorage(context.getSystemService(android.os.UserManager::class.java).isUserUnlocked) { Unit } }
+
     private val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val marker = AtomicFile(File(context.noBackupFilesDir, "installation.marker"))
     private val stateFile = AtomicFile(File(context.noBackupFilesDir, "private-state.aes"))
     private val signingAlias = "terlimo.test.installation.p256.v1"
     private val encryptionAlias = "terlimo.test.storage.aes.v1"
+
+    /** System start must not create a replacement or first installation identity. */
+    fun requireExistingIdentity() = synchronized(LOCK) {
+        check(marker.baseFile.exists() && stateFile.baseFile.exists() &&
+            store.containsAlias(signingAlias) && store.containsAlias(encryptionAlias)) { "ALWAYS_ON_SETUP_REQUIRED" }
+    }
 
     fun ensureIdentity() = synchronized(LOCK) {
         if (marker.baseFile.exists() || stateFile.baseFile.exists()) {
