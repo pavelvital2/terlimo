@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 
 internal data class ViewState(val phase: String = "Idle", val attempt: String? = null,
     val nodes: List<NodeLabel> = emptyList(), val error: String? = null,
+    val recoveryStatus: String? = null,
     val catalogStage: CatalogStage? = null,
     val summary: CatalogSummary? = null, val selectedNodeId: String = "", val pendingNodeId: String? = null,
     val pings: Map<String, NodePingState> = emptyMap(), val pingAll: PingAllState = PingAllState(),
@@ -60,6 +61,9 @@ internal data class ViewState(val phase: String = "Idle", val attempt: String? =
     val devices: DevicesUi? = null)
 
 class SessionService : Service() {
+    private val recoveryCommitGate = RecoveryCommitGate()
+    @Volatile private var recoveryCommitted = false
+
     private lateinit var retention: ConnectionRetentionController
     private var sleepPaused = false
     private var sleepResumeRequested = false
@@ -659,6 +663,8 @@ class SessionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Foreground intent wins even while its actor item waits behind a queued persist.
+        if (gate.active != null) recoveryCommitGate.advanceForeground()
         // Navigation-only commands (cancel a common ping / request announcements) must never
         // promote an empty foreground instance: with no attempt, native child or prior
         // promotion there is no work to own, so the intent is answered and released here.
@@ -690,6 +696,28 @@ class SessionService : Service() {
                 AutoConnectPrefs.invalidate(this)
                 runCatching { storage.clearLastConnectedNode() }
                 if (gate.active == null && !stopping.get()) submitControl { begin(link) }
+            }
+            "recovery_apply" -> {
+                val code = intent.getStringExtra("recovery_code").orEmpty()
+                intent.removeExtra("recovery_code")
+                submitControl {
+                    if (view.recoveryStatus == "RECOVERY_RUNNING") return@submitControl
+                    val reason = RecoveryCodeUi.unavailableReason(true, activeVpnConfig != null,
+                        serviceActive = gate.active != null || native != null || view.phase !in setOf("Idle", "Error"))
+                    when {
+                        reason != null -> publish(view.copy(recoveryStatus = reason))
+                        RecoveryCodeUi.normalizeCode(code) == null -> {
+                            publish(view.copy(recoveryStatus = "RECOVERY_INVALID"))
+                            stopAttempt(null, "recovery_invalid")
+                        }
+                        else -> {
+                            autoConnect.cancel()
+                            recoveryCommitted = false
+                            publish(view.copy(recoveryStatus = "RECOVERY_RUNNING"))
+                            begin("", recoveryCode = code.trim())
+                        }
+                    }
+                }
             }
             "resume" -> submitControl {
                 // Cold Activity bootstrap and auto-connect can both request this writer.
@@ -1159,7 +1187,7 @@ class SessionService : Service() {
     }
 
     private fun begin(link: String, requiredNetwork: Network? = null, recoveryGeneration: Long? = null,
-        catalogRequestId: String? = null) {
+        catalogRequestId: String? = null, recoveryCode: String? = null) {
         var startedAttempt: String? = null
         purchaseVerifiedAccountRef = null
         try {
@@ -1189,7 +1217,11 @@ class SessionService : Service() {
             }.getOrNull()
             val saved = storage.read()
             activeLink = link.ifEmpty { saved.optString("link") }
-            val mobileBootstrap = MobileBootstrapGate.forLink(activeLink, MobileBootstrapSeed.parse(mobileSeed))
+            val packagedMobile = MobileBootstrapSeed.parse(mobileSeed)
+            val mobileBootstrap = if (recoveryCode != null) packagedMobile
+                else MobileBootstrapGate.forLink(activeLink, packagedMobile)
+            if (recoveryCode != null) check(activeLink.isEmpty() && mobileBootstrap?.recoveryVerifyKeyB64 != null &&
+                mobileBootstrap.serviceSeed != null) { "RECOVERY_UNAVAILABLE" }
             val mobileBaseUrl = mobileBootstrap?.baseUrl
             mobileSelectionSource = mobileBootstrap
             // A linkless attempt is admitted only by the trusted packaged mobile seed: it is
@@ -1231,6 +1263,7 @@ class SessionService : Service() {
             activeRuntimeEpoch = 0
             rollbackRuntimeEpoch = 0
             gate.start(attempt)
+            recoveryCommitGate.begin(attempt, storage.installationId())
             publish(view.copy(attempt = attempt))
             // S3-B: a tap without a live attempt starts this bounded service-only attempt and
             // arms a finite window for the fresh confirmed /me before activation is sent.
@@ -1299,7 +1332,10 @@ class SessionService : Service() {
                         .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), callback)
                 }
             }
-            publishActive(attempt, ViewState("BootstrapConnecting",
+            if (recoveryCode != null) publishActive(attempt, view.copy(phase = "BootstrapConnecting",
+                accountAccess = view.accountAccess?.copy(current = false), error = null,
+                recoveryStatus = "RECOVERY_RUNNING"))
+            else publishActive(attempt, ViewState("BootstrapConnecting",
                 summary = if (activeLink == saved.optString("link")) view.summary else null,
                 selectedNodeId = view.selectedNodeId,
                 // The display-only browse list and the host-local preference survive the
@@ -1318,7 +1354,12 @@ class SessionService : Service() {
                     receiveBridge(event, attempt)
                 }, { code -> if (gate.active == attempt) handleAttemptTerminal(attempt, code) },
                 { completion -> android.util.Log.w(ChildCompletionDiagnostics.TAG, ChildCompletionDiagnostics.line(completion)) },
-                { code -> mirrorNativeStderr(attempt, code) })
+                { code -> mirrorNativeStderr(attempt, code) },
+                beforeSend = { message ->
+                    if (RecoveryCommitGate.foregroundCommand(message.optString("type"))) {
+                        message.put("seed_update_epoch", recoveryCommitGate.advanceForeground().toString())
+                    }
+                })
             native = child
             CaptchaWebViewManager.onTunnelStart(applicationContext)
             val start = JSONObject().put("type", "start").put("link", activeLink)
@@ -1334,6 +1375,8 @@ class SessionService : Service() {
                 start.put("mobile_base_url", mobileBootstrap.baseUrl)
                 start.put("mobile_environment", mobileBootstrap.environment)
                 mobileBootstrap.serviceSeed?.let { start.put("service_seed", it) }
+                mobileBootstrap.recoveryVerifyKeyB64?.let { start.put("recovery_verify_key_b64", it) }
+                recoveryCode?.let { start.put("recovery_code", it) }
                 storage.readAccountAccessState("accountaccess_receipt_v1")?.let {
                     start.put("accountaccess_state_b64", it)
                 }
@@ -1349,13 +1392,19 @@ class SessionService : Service() {
             if (gate.active != attempt || stopping.get()) return
             // Arm before any child start: native can accept a catalogue immediately, and a later
             // arm would resurrect a deadline that the accepted catalogue already disarmed.
-            val catalogAction = mobileCatalog.onAttemptStart(attempt, mobileBaseUrl != null)
-            if (mobileBaseUrl != null) {
-                val cycle = java.util.UUID.randomUUID().toString()
-                catalogCycle = cycle; start.put("catalog_cycle", cycle)
-                catalogTimer.beginStages(attempt, cycle)
-                publishActive(attempt, view.copy(catalogStage = CatalogStage.CONNECTING))
-            } else catalogTimer.apply(attempt, catalogAction)
+            if (recoveryCode == null) {
+                val catalogAction = mobileCatalog.onAttemptStart(attempt, mobileBaseUrl != null)
+                if (mobileBaseUrl != null) {
+                    val cycle = java.util.UUID.randomUUID().toString()
+                    catalogCycle = cycle; start.put("catalog_cycle", cycle)
+                    catalogTimer.beginStages(attempt, cycle)
+                    publishActive(attempt, view.copy(catalogStage = CatalogStage.CONNECTING))
+                } else catalogTimer.apply(attempt, catalogAction)
+            } else {
+                // Recovery ends at authenticated service /me; it never awaits a catalogue.
+                catalogCycle = null
+                catalogTimer.clear()
+            }
             if (catalogRequestId == null) {
                 child.start(start)
             } else if (!catalogGate.dispatch(attempt, catalogRequestId) { child.start(start); true }) {
@@ -1716,6 +1765,15 @@ class SessionService : Service() {
                 "plans_list_result", "quote_create_result", "payment_create_result", "payment_get_result" ->
                     handlePurchaseEvent(event, attempt)
                 "sign" -> sign(event, attempt)
+                "recovery_result" -> {
+                    val resultCode = event.optString("code")
+                    publishActive(attempt, view.copy(recoveryStatus =
+                        if (recoveryCommitted) "RECOVERY_SUCCESS"
+                        else if (resultCode in setOf("RECOVERY_SUCCESS", "RECOVERY_UNAVAILABLE", "RECOVERY_INVALID",
+                            "RECOVERY_SIGNATURE", "RECOVERY_ENVIRONMENT", "RECOVERY_STALE", "RECOVERY_NETWORK",
+                            "RECOVERY_PERSIST", "RECOVERY_CANCELLED")) resultCode else "RECOVERY_NETWORK"))
+                    stopAttempt(null, "recovery_complete")
+                }
                 "persist" -> {
                     val bytes = SigningPolicy.decode(event.getString("state_b64"))
                     check(bytes.size <= 180_000)
@@ -1723,6 +1781,30 @@ class SessionService : Service() {
                     val namespace = event.optString("namespace")
                     if (namespace.isEmpty()) {
                         storage.writeSubscriptionState(activeLink, event.getString("state_b64"))
+                    } else if (namespace == "service_seed_v1") {
+                        var failure = "RECOVERY_CANCELLED"
+                        val optional = event.has("optional_seed_epoch")
+                        val optionalEpoch = event.optString("optional_seed_epoch").toLongOrNull()
+                        val persist = {
+                            if (gate.active != attempt || stopping.get() ||
+                                (optional && (event.optLong("deadline_unix_ms", 0L) <= System.currentTimeMillis()))) false
+                            else {
+                                runCatching {
+                                    storage.writeAccountAccessState(namespace, event.getString("state_b64"))
+                                    if (view.recoveryStatus == "RECOVERY_RUNNING") recoveryCommitted = true
+                                    true
+                                }.getOrElse { failure = "RECOVERY_PERSIST"; false }
+                            }
+                        }
+                        val accepted = if (optional) {
+                            optionalEpoch != null && recoveryCommitGate.writeOptionalIfCurrent(
+                                attempt, storage.installationId(), optionalEpoch, persist)
+                        } else recoveryCommitGate.writeIfCurrent(attempt, storage.installationId(), persist)
+                        if (!accepted) {
+                            send(JSONObject().put("type", "persist_result").put("request_id", event.getString("request_id"))
+                                .put("error", failure))
+                            return
+                        }
                     } else {
                         storage.writeAccountAccessState(namespace, event.getString("state_b64"))
                     }
@@ -3302,6 +3384,12 @@ class SessionService : Service() {
     }
 
     private fun stopAttempt(code: String?, caller: String = "unspecified") {
+        // Same lock as the actual namespace write: cancellation cannot race a late commit.
+        recoveryCommitGate.cancel()
+        if (view.recoveryStatus == "RECOVERY_RUNNING") publish(view.copy(recoveryStatus =
+            if (recoveryCommitted) "RECOVERY_SUCCESS"
+            else if (caller == "user_cancel") "RECOVERY_CANCELLED"
+            else if (code == "RECOVERY_UNAVAILABLE") code else "RECOVERY_NETWORK"))
         android.util.Log.w("WDTT/Teardown", "stage=stop_enter child=" + (native != null) + " caller=" + caller)
         trialGate.reset()
         purchaseGate.reset()

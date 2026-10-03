@@ -5,14 +5,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.CAMERA" />
     <!-- §26.5: only re-schedules the persisted catalog refresh job. No boot receiver, no VPN
          autostart and no automatic Connect. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Required by the owner-visible per installed/system/uninstalled app routing UI. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
-    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application android:label="TERLIMO TEST" android:theme="@android:style/Theme.Material.NoActionBar"
         android:allowBackup="false" android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false"
@@ -22,20 +20,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="whitelists" android:host="subscription" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
         </activity>
-        <activity android:name=".QrCaptureActivity" android:exported="false"
-            android:screenOrientation="fullSensor" android:stateNotNeeded="true" />
         <activity android:name=".RetentionSettingsActivity" android:exported="false" />
         <receiver android:name=".RetentionAlarmReceiver" android:exported="false" />
         <activity android:name=".RoutingSettingsActivity" android:exported="false" />

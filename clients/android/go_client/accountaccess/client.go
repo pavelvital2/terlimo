@@ -123,7 +123,11 @@ func (c *Client) requestWithQuery(ctx context.Context, method, path string, body
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if withBearer && c.Tokens != nil {
-		bearer, err := c.Tokens.Bearer(ctx)
+		bearer, pinned := ctx.Value(existingBearerKey{}).(string)
+		var err error
+		if !pinned {
+			bearer, err = c.Tokens.Bearer(ctx)
+		}
 		if err != nil {
 			return nil, 0, err
 		}
@@ -154,6 +158,14 @@ func (c *Client) requestWithQuery(ctx context.Context, method, path string, body
 		return nil, resp.StatusCode, fmt.Errorf("response too large")
 	}
 	return raw, resp.StatusCode, nil
+}
+
+type existingBearerKey struct{}
+
+// WithExistingBearer pins a previously captured current bearer for a best-effort
+// read. It uses this Client/Doer and never invokes TokenSource to reauthenticate.
+func WithExistingBearer(ctx context.Context, bearer string) context.Context {
+	return context.WithValue(ctx, existingBearerKey{}, bearer)
 }
 
 // GetMe fetches and strictly decodes GET /me.

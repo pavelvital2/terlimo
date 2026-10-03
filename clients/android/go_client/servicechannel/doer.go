@@ -96,10 +96,11 @@ var serviceOperationID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9
 // configured origin and only for the fixed mobile API allowlist; no redirect,
 // arbitrary host, proxy or unknown header is carried.
 type Doer struct {
-	Base    *url.URL
-	Seeds   *Store
-	Channel *Channel
-	Observe func(string)
+	priority optionalPriority
+	Base     *url.URL
+	Seeds    *Store
+	Channel  *Channel
+	Observe  func(string)
 }
 
 func (d *Doer) stage(name string) {
@@ -145,6 +146,11 @@ func loopbackHost(host string) bool {
 func (d *Doer) Do(req *http.Request) (*http.Response, error) {
 	if d == nil || req == nil || req.URL == nil || d.Base == nil || d.Seeds == nil || d.Channel == nil {
 		return nil, ErrRequestRejected
+	}
+	releasePriority := d.enterRequest(req.Context())
+	defer releasePriority()
+	if err := req.Context().Err(); err != nil {
+		return nil, err
 	}
 	dispatched := false
 	defer func() {
@@ -343,7 +349,7 @@ func pathAllowed(method, path string) bool {
 		"/api/mobile/v1/trial/activate", "/api/mobile/v1/quotes", "/api/mobile/v1/payments":
 		return method == http.MethodPost
 	case "/api/mobile/v1/me", "/api/mobile/v1/gateways", "/api/mobile/v1/plans", "/api/mobile/v1/usage",
-		"/api/mobile/v1/announcements", "/api/mobile/v1/devices":
+		"/api/mobile/v1/announcements", "/api/mobile/v1/devices", "/api/mobile/v1/service-seed":
 		return method == http.MethodGet
 	}
 	// §18–19 device deletion: exactly one bounded opaque device id segment and DELETE only.

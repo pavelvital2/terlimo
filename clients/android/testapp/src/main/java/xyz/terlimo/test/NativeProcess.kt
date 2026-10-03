@@ -43,6 +43,7 @@ internal class NativeProcess(
     private val onCompletion: (ChildCompletion) -> Unit,
     /** Mirrored, already-allowlisted fixed stderr code; display/diagnostic only. */
     private val onStderrCode: (String) -> Unit = {},
+    private val beforeSend: (JSONObject) -> Unit = {},
     private val spawn: (String) -> NativeChild =
         { path -> ProcessNativeChild(ProcessBuilder(path, "--android-bridge").start()) }
 ) {
@@ -103,6 +104,7 @@ internal class NativeProcess(
     }
     @Synchronized fun send(message: JSONObject) {
         if (closing) return
+        beforeSend(message)
         message.put("v", 1).put("attempt_id", attempt)
         val bytes = message.toString().toByteArray()
         require(bytes.size <= MAX_LINE) { "BRIDGE_TOO_LARGE" }
@@ -116,6 +118,7 @@ internal class NativeProcess(
      */
     @Synchronized fun trySend(message: JSONObject): Boolean {
         if (closing) return false
+        beforeSend(message)
         message.put("v", 1).put("attempt_id", attempt)
         val bytes = message.toString().toByteArray()
         if (bytes.size > MAX_LINE) return false

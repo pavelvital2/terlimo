@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +59,9 @@ type Channel struct {
 	// Establishment is the isolated handshake seam (see handshake.go). A nil seam
 	// fails closed instead of falling back to any other transport.
 	Establishment Establishment
+	// Ordinary signed updates are durable for the next natural establishment;
+	// the existing connection keeps its original endpoint identity until then.
+	PreserveConnectionSeed bool
 	// Timeout can shorten the default combined exchangeLimit. Catalog requests
 	// with an explicit policy use its separate budgets instead. A shorter caller
 	// deadline always wins in both modes.
@@ -215,6 +217,16 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Optional service-seed reads never cause a new handshake, evict a live connection,
+	// or bypass its ordinary request/idle limits.
+	if optionalRequest(ctx) && (c.conn == nil || c.requests >= maxSessionRequests ||
+		time.Since(c.lastReply) >= maxSessionIdle || (!c.PreserveConnectionSeed &&
+		(!sameEndpoint(c.seed, seed) || c.seed.Environment != seed.Environment))) {
+		return nil, ErrTransportFailed
+	}
 	limit := exchangeLimit
 	if c != nil && c.Timeout > 0 && c.Timeout < limit {
 		limit = c.Timeout
@@ -256,7 +268,7 @@ func (c *Channel) Exchange(ctx context.Context, seed Seed, id wlwire.ID, payload
 			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "REUSE_STALE_REQ",
 				Reused: true, Requests: c.requests, IdleMS: idleMS, Port: localUDPPort(c.conn)})
 			c.closeLocked()
-		case !reflect.DeepEqual(c.seed, seed):
+		case !c.PreserveConnectionSeed && (!sameEndpoint(c.seed, seed) || c.seed.Environment != seed.Environment):
 			c.traceEvent(TraceEvent{Session: c.session, Exchange: xid, Class: class, Event: "REUSE_STALE_SEED",
 				Reused: true, Requests: c.requests, IdleMS: idleMS, Port: localUDPPort(c.conn)})
 			c.closeLocked()

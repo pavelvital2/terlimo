@@ -86,8 +86,9 @@ class S5PurchaseSourceTest {
         assertTrue(eventHandler.contains("refresh_telegram_registration"))
         assertTrue(eventHandler.contains("armPurchaseConfirmationWindow(attempt)"))
         // The redirect/incoming-intent path never touches the purchase flow.
-        val incoming = activity.substringAfter("private fun handleIncomingIntent(")
-            .substringBefore("private fun acceptImportInput(")
+        val incoming = activity.substringAfter("override fun onNewIntent(")
+            .substringBefore("override fun onSaveInstanceState(")
+        assertFalse(activity.contains("handleIncomingIntent"))
         assertFalse(incoming.contains("purchase"))
         assertFalse(incoming.contains("payment"))
     }

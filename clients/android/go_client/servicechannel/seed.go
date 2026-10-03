@@ -38,6 +38,9 @@ type Seed struct {
 	ServiceClassifier string   `json:"service_classifier"`
 	VKHashes          []string `json:"vk_hashes"`
 	StreamID          int      `json:"stream_id"`
+	// recoveryProof is attached only by trusted Recovery v1 verification. It never
+	// enters the durable/public JSON and does not grant SourceUser endpoint rights.
+	recoveryProof *recoveryProof
 }
 
 // Source names the origin of one seed update. The slots stay separate so a user

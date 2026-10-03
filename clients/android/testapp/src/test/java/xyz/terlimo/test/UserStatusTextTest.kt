@@ -13,7 +13,7 @@ class UserStatusTextTest {
         assertTrue(text.startsWith("CATALOG_TIMEOUT\n"))
         assertFalse(text.contains("HOST_ERROR"))
         assertFalse(text.contains("не изменены"))
-        assertTrue(text.contains("Не удаляйте сохранённую подписку"))
+        assertTrue(text.contains("сохранённые данные не удаляйте"))
     }
     @Test fun phasesKeepExistingLabelsAndConnectedEvidence() {
         assertEquals("Регистрация установки", UserStatusText.phase("Registering"))
@@ -34,11 +34,24 @@ class UserStatusTextTest {
     @Test fun pendingAndUnknownResumeTheSavedOperationWithoutReplacingIdentity() {
         for (code in listOf("OPERATION_PENDING", "OPERATION_UNKNOWN")) {
             val text = UserStatusText.error(code).orEmpty()
-            assertTrue(text.contains("Откройте сохранённую подписку"))
+            assertTrue(text.contains("Повторите подключение"))
             assertTrue(text.contains("ту же операцию"))
             assertTrue(text.contains("Не удаляйте"))
-            assertTrue(text.contains("не импортируйте"))
+            assertFalse(text.contains("импорт"))
             assertTrue(text.contains("не создавайте новый ключ"))
+        }
+    }
+
+    @Test fun connectionErrorsOfferCurrentActionsInsteadOfLegacyImport() {
+        for (code in listOf("HOST_ERROR", "IMPORT_REQUIRED", "DIFFERENT_SUBSCRIPTION", "CATALOG_EXPIRED",
+            "CATALOG_TIMEOUT", "BAD_MESSAGE", "CATALOG_INVALID", "OPERATION_PENDING", "OPERATION_UNKNOWN",
+            "LEASE_CONFLICT", "APPROVAL_REQUIRED", "LEASE_EXPIRED", "TRANSPORT_TIMEOUT", "TRANSPORT_FAILED",
+            "EOF", "AUTH_REQUIRED", "BACKEND_UNAVAILABLE", "SESSION_NOT_READY", "VPN_STOPPED")) {
+            val text = UserStatusText.error(code).orEmpty().lowercase()
+            assertFalse("legacy import instruction: $code", text.contains("импорт"))
+            assertFalse("legacy subscription action: $code", text.contains("сохранённую подписку"))
+            assertFalse("legacy profile instruction: $code", text.contains("профиль"))
+            assertFalse("legacy link instruction: $code", text.contains("подписанную ссылку"))
         }
     }
 

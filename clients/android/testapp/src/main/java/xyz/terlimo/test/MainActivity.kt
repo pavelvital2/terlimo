@@ -4,7 +4,6 @@ import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.res.ColorStateList
-import android.content.ClipboardManager
 import android.content.Intent
 import android.widget.CheckBox
 import android.content.pm.PackageManager
@@ -16,10 +15,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
-import android.text.InputType
 import android.view.View
 import android.widget.*
-import com.google.zxing.integration.android.IntentIntegrator
 
 /** Product UI; no admin/deploy controls or secret diagnostics. */
 class MainActivity : Activity() {
@@ -28,18 +25,15 @@ class MainActivity : Activity() {
         super.attachBaseContext(AppTheme.wrap(newBase))
     }
 
-    private lateinit var link: EditText
     private lateinit var status: TextView
     private lateinit var nodes: Spinner
-    private lateinit var importButton: Button
     private lateinit var connectButton: Button
     private lateinit var activateHourButton: Button
     private lateinit var registerTelegramButton: Button
     private lateinit var loginTelegramButton: Button
     private lateinit var trialButton: Button
-    private lateinit var resumeButton: Button
+    private lateinit var recoveryErrorButton: Button
     private lateinit var captchaButton: Button
-    private lateinit var refreshButton: Button
     private lateinit var subscription: TextView
     private lateinit var subscriptionTerm: TextView
     private lateinit var subscriptionDevices: TextView
@@ -80,7 +74,6 @@ class MainActivity : Activity() {
     private var selectedForConsent: String? = null
     private var preAdmissionConsentRequest = false
     private var consentDenied = false
-    private var externalIntentConsumed = false
     /** §26.2 launch token: one auto-connect per user open; consumed by Disconnect/Off/denial. */
     /** §26.2 unified launch token: arm -> (optional consent) -> send, recreation-stable. */
     private val autoConnectLaunch = AutoConnectLaunchToken()
@@ -145,12 +138,11 @@ class MainActivity : Activity() {
             permissionPrefs.edit().putBoolean(NotificationPermission.ASKED_KEY, true).apply()
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NotificationPermission.REQUEST_CODE)
         }
-        externalIntentConsumed = savedInstanceState?.getBoolean(STATE_EXTERNAL_INTENT_CONSUMED) == true
         // §26.2 launch token: a fresh Activity (savedInstanceState == null) arms one token;
         // recreation and consent returns restore the consumed/pending status and never revive it.
         // §26.2: a genuine cold user launch arms one token; recreation, a consent return or
-        // an import/deeplink launch never does. The pending consent generation survives
-        // recreation exactly like the existing import/checkout markers.
+        // an external deep-link launch never does. The pending consent generation survives
+        // recreation exactly like the existing checkout markers.
         autoConnectLaunch.restore(
             savedInstanceState?.getLong(STATE_AUTOCONNECT_GENERATION, 0L) ?: 0L,
             savedInstanceState?.getBoolean(STATE_AUTOCONNECT_CONSENT_PENDING, false) == true,
@@ -176,7 +168,7 @@ class MainActivity : Activity() {
             visibility = View.GONE
             addView(TextView(this@MainActivity).apply { text = "Помощь"; textSize = 24f })
             addView(TextView(this@MainActivity).apply {
-                text = "Диагностика проверяет VPN, интернет, DNS и доступность соединения. Отчёт не содержит ключей и ссылки подписки."
+                text = "Диагностика проверяет VPN, интернет, DNS и доступность соединения. Отчёт не содержит ключей и кода восстановления."
                 setPadding(0, 12, 0, 16)
             })
             // §27/07.6: runtime version, short instructions and the confirmed public
@@ -227,108 +219,6 @@ class MainActivity : Activity() {
             addView(announcementsList)
         }
         subscriptionPanel.addView(TextView(this).apply { text = "Подписка TERLIMO"; textSize = 24f })
-        link = EditText(this).apply {
-            hint = "Подписанная ссылка whitelists://"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
-            isSaveEnabled = false
-            maxLines = 4
-        }
-        subscriptionPanel.addView(link)
-        subscriptionPanel.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(Button(this@MainActivity).apply {
-                text = "Вставить"
-                setOnClickListener {
-                    val clipboard = getSystemService(ClipboardManager::class.java)
-                    val value = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
-                        ?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString().orEmpty()
-                    acceptImportInput(value)
-                }
-            })
-            addView(Button(this@MainActivity).apply {
-                text = "Сканировать QR"
-                setOnClickListener {
-                    IntentIntegrator(this@MainActivity)
-                        .setCaptureActivity(QrCaptureActivity::class.java)
-                        .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-                        .setPrompt("Наведите камеру на QR подписки TERLIMO")
-                        .setBeepEnabled(false)
-                        .initiateScan()
-                }
-            })
-            addView(Button(this@MainActivity).apply {
-                text = "QR из файла"
-                setOnClickListener {
-                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "image/*"
-                    }, REQUEST_QR_IMAGE)
-                }
-            })
-        })
-        subscriptionPanel.addView(Button(this).apply {
-            text = "Открыть файл подписки"
-            setOnClickListener {
-                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/plain", "application/octet-stream"))
-                }, REQUEST_SUBSCRIPTION_FILE)
-            }
-        })
-        importButton = Button(this).apply {
-            text = "Импортировать и получить каталог"
-            setOnClickListener {
-                acceptImportInput(link.text.toString())
-            }
-        }
-        subscriptionPanel.addView(importButton)
-        resumeButton = Button(this).apply {
-            text = "Открыть сохранённую подписку"
-            setOnClickListener { startForegroundService(Intent(this@MainActivity, SessionService::class.java).setAction("resume")) }
-        }
-        subscriptionPanel.addView(resumeButton)
-        subscriptionPanel.addView(Button(this).apply {
-            text = "Заменить подписку"
-            contentDescription = "Удалить текущую подписку и подготовить импорт новой"
-            setOnClickListener {
-                val expectedState = SessionService.view
-                if (expectedState.phase !in setOf("Idle", "Error")) {
-                    status.text = "Сначала завершите текущее действие"
-                    return@setOnClickListener
-                }
-                android.app.AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Заменить подписку?")
-                    .setMessage("Текущая подписка, каталог и выбор сервера будут удалены. Ключ этой установки и настройки маршрутизации сохранятся.")
-                    .setNegativeButton("Отмена", null)
-                    .setPositiveButton("Удалить и заменить") { _, _ ->
-                        runCatching {
-                            check(SessionService.replaceSubscriptionIfUnchanged(expectedState) {
-                                InstallationStore(this@MainActivity).replaceSubscription()
-                            }) { "ACTION_IN_PROGRESS" }
-                            pendingChoiceId = null
-                            selectedForConsent = null
-                            link.text.clear()
-                            render(SessionService.view)
-                            status.text = "Текущая подписка удалена. Откройте файл или вставьте новую подписанную ссылку."
-                        }.onFailure {
-                            status.text = if (it.message == "IMPORT_REQUIRED") "Сохранённая подписка не найдена"
-                            else if (it.message == "ACTION_IN_PROGRESS") "Состояние изменилось. Повторите замену после завершения действия"
-                            else "Не удалось заменить подписку"
-                        }
-                    }.show()
-            }
-        })
-        refreshButton = Button(this).apply {
-            text = "Обновить сохранённую подписку"
-            visibility = View.GONE // catalog app bar owns the visible refresh action
-            setOnClickListener { startForegroundService(Intent(this@MainActivity, SessionService::class.java).setAction("refresh")) }
-        }
-        subscriptionPanel.addView(refreshButton)
-        subscriptionPanel.addView(TextView(this).apply {
-            text = "Обновление вручную доступно после отключения. Во время VPN разрешение продлевается автоматически. После ошибки продолжайте сохранённую подписку — не удаляйте профиль."
-        })
         subscription = TextView(this).apply { setPadding(0, 16, 0, 16); visibility = View.VISIBLE }
         subscriptionPanel.addView(subscription)
         subscriptionTerm = TextView(this).apply { setPadding(0, 0, 0, 8); visibility = View.GONE }
@@ -420,7 +310,11 @@ class MainActivity : Activity() {
                     "pendChoice" to (pendingChoiceId != null).toString(),
                     "pendNode" to (projected.pendingNodeId != null).toString(),
                     "attempt" to (!projected.attempt.isNullOrEmpty()).toString())
-                if (PreAdmissionConnect.connectable(state, pendingChoiceId != null)) {
+                if (state.recoveryStatus == "RECOVERY_RUNNING") {
+                    cancelAutoConnectLaunch()
+                    selectedForConsent = null
+                    startService(Intent(this, SessionService::class.java).setAction("cancel"))
+                } else if (PreAdmissionConnect.connectable(state, pendingChoiceId != null)) {
                     PowerDiagnostics.line("onPower.branch", "value" to "preAdmission")
                     requestPreAdmissionConsent(state)
                 } else if (state.phase in setOf("Connected", "Starting", "BootstrapConnecting", "NodeAuthenticating", "ConfiguringVPN", "SwitchingServer", "WaitingUser", "Reconnecting", "SleepPaused", "KillSwitch")) {
@@ -433,7 +327,10 @@ class MainActivity : Activity() {
                     requestVpnConsentForCurrentSelection()
                 }
             },
-            onRefresh = { startForegroundService(Intent(this, SessionService::class.java).setAction("refresh")) },
+            onRefresh = {
+                if (SessionService.view.recoveryStatus != "RECOVERY_RUNNING")
+                    startForegroundService(Intent(this, SessionService::class.java).setAction("refresh"))
+            },
         )
         mainPanel.addView(orbitHeader)
         activateHourButton = Button(this).apply {
@@ -550,6 +447,11 @@ class MainActivity : Activity() {
         })
         status = TextView(this).apply { textSize = 18f; setPadding(0, 24, 0, 0) }
         mainPanel.addView(status)
+        recoveryErrorButton = Button(this).apply {
+            text = "Восстановить подключение"
+            setOnClickListener { openRecoveryEditor() }
+        }
+        mainPanel.addView(recoveryErrorButton)
         helpPanel.addView(Button(this).apply {
             text = "Диагностика последней попытки"
             setOnClickListener {
@@ -585,6 +487,10 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 48)
             addView(TextView(this@MainActivity).apply { text = "Настройки"; textSize = 24f })
+            addView(Button(this@MainActivity).apply {
+                text = "Восстановить подключение"
+                setOnClickListener { openRecoveryEditor() }
+            })
             addView(Button(this@MainActivity).apply {
                 text = "Работа с выключенным экраном"
                 minHeight = dp(48)
@@ -814,9 +720,8 @@ class MainActivity : Activity() {
             addView(helpSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(settingsSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
-        savedInstanceState?.getString(STATE_LINK_TEXT)?.let { link.setText(it) }
         // §26.2: the launch token is evaluated only after the screen exists, and only for a
-        // genuine user open (ACTION_MAIN/LAUNCHER), never for an import/deeplink or a return.
+        // genuine user open (ACTION_MAIN/LAUNCHER), never for an external deep link or a return.
         if (autoConnectUserLaunch) maybeAutoConnect()
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -824,20 +729,15 @@ class MainActivity : Activity() {
             addView(content, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(bottomNavigation, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         })
-        val launchIntent = intent
-        val incomingImport = !externalIntentConsumed && launchIntent != null &&
-            (launchIntent.action == Intent.ACTION_VIEW || launchIntent.action == Intent.ACTION_SEND) &&
-            (launchIntent.dataString != null || launchIntent.getStringExtra(Intent.EXTRA_TEXT) != null)
         render(SessionService.view)
-        handleIncomingIntent(intent)
         maybeOpenAnnouncements(intent)
-        if (!incomingImport) autoLoadSavedSubscription()
+        autoLoadSavedSubscription()
     }
 
     /**
      * Owner contract 4: the first render of the process starts the standard linkless
      * bootstrap/resume through the existing seed gate, so /me and the gateways load
-     * without tapping «Открыть сохранённую подписку». Exactly once per process; the
+     * automatically on first open. Exactly once per process; the
      * cached list never cancels the refresh (existing `resume` action unchanged).
      */
     private fun autoLoadSavedSubscription() {
@@ -1141,7 +1041,7 @@ class MainActivity : Activity() {
      * the native command is sent by the Service, which re-validates the stored last server
      * against the current account and shows an honest message when it is unusable.
      */
-    /** A genuine user open (cold ACTION_MAIN or a launcher re-open), never an import/deeplink. */
+    /** A genuine user open (cold ACTION_MAIN or a launcher re-open), never an external deep link. */
     private fun isUserLaunchIntent(incoming: Intent?): Boolean {
         val action = incoming?.action
         if (action != null && action != Intent.ACTION_MAIN) return false
@@ -1172,7 +1072,7 @@ class MainActivity : Activity() {
             .setAction("autoconnect").putExtra(AutoConnectPrefs.EXTRA_GENERATION, generation))
     }
 
-    /** Off / Disconnect / cancel / import: invalidate the token and drop any pending sequence.
+    /** Off / Disconnect / cancel: invalidate the token and drop any pending sequence.
      * A cold Off toggle must not create the service or promote a foreground notification;
      * the preference/token already block every queued send. */
     private fun cancelAutoConnectLaunch() {
@@ -1246,23 +1146,17 @@ class MainActivity : Activity() {
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // Capture the real launch before handleIncomingIntent mutates an import/deeplink
-        // intent into ACTION_MAIN, so a deeplink can never arm an auto-connect token.
         val launcherOpen = intent.action == Intent.ACTION_MAIN &&
             (intent.categories?.contains(Intent.CATEGORY_LAUNCHER) == true)
-        externalIntentConsumed = false
         setIntent(intent)
-        handleIncomingIntent(intent)
         maybeOpenAnnouncements(intent)
-        if (launcherOpen && !externalIntentConsumed) {
+        if (launcherOpen) {
             autoConnectLaunch.invalidate()
             maybeAutoConnect()
         }
     }
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(STATE_EXTERNAL_INTENT_CONSUMED, externalIntentConsumed)
         outState.putString(STATE_VISIBLE_TAB, visibleTarget.name)
-        outState.putString(STATE_LINK_TEXT, link.text?.toString().orEmpty())
         outState.putLong(STATE_AUTOCONNECT_GENERATION, autoConnectLaunch.currentGeneration())
         outState.putBoolean(STATE_AUTOCONNECT_CONSENT_PENDING, autoConnectLaunch.started())
         checkoutOpenPolicy.saveTo(outState)
@@ -1307,19 +1201,6 @@ class MainActivity : Activity() {
     @Deprecated("Activity result used without adding an activity framework")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        val scan = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
-        if (scan != null) {
-            if (scan.contents != null) acceptImportInput(scan.contents)
-            return
-        }
-        if (requestCode == REQUEST_QR_IMAGE) {
-            if (resultCode == RESULT_OK && data?.data != null) decodeQrImage(data.data!!)
-            return
-        }
-        if (requestCode == REQUEST_SUBSCRIPTION_FILE) {
-            if (resultCode == RESULT_OK && data?.data != null) decodeSubscriptionFile(data.data!!)
-            return
-        }
         if (requestCode == REQUEST_AUTOCONNECT_CONSENT) {
             val generation = autoConnectLaunch.currentGeneration()
             val stillValid = resultCode == RESULT_OK && generation != 0L &&
@@ -1337,53 +1218,6 @@ class MainActivity : Activity() {
             consentDenied = true
             render(SessionService.view)
         }
-    }
-    private fun handleIncomingIntent(incoming: Intent?) {
-        if (externalIntentConsumed) return
-        val consumed = incoming ?: return
-        val raw = when (consumed.action) {
-            Intent.ACTION_VIEW -> consumed.dataString
-            Intent.ACTION_SEND -> consumed.getStringExtra(Intent.EXTRA_TEXT)
-            else -> null
-        } ?: return
-        externalIntentConsumed = true
-        consumed.action = Intent.ACTION_MAIN
-        consumed.data = null
-        consumed.removeExtra(Intent.EXTRA_TEXT)
-        acceptImportInput(raw)
-    }
-    private fun acceptImportInput(raw: String) {
-        val value = runCatching { SubscriptionImportInput.normalize(raw) }.getOrElse {
-            status.text = "Ссылка подписки не распознана"
-            return
-        }
-        val state = SessionService.view
-        if (state.phase != "Idle" && state.phase != "Error") {
-            status.text = "Сначала завершите текущее действие"
-            return
-        }
-        cancelAutoConnectLaunch()
-        startForegroundService(Intent(this, SessionService::class.java)
-            .setAction("import").putExtra("link", value))
-        link.text.clear()
-    }
-    private fun decodeQrImage(uri: Uri) {
-        Thread {
-            val value = runCatching { QrImageDecoder.decode(contentResolver, uri) }
-            runOnUiThread {
-                value.onSuccess { acceptImportInput(it) }
-                    .onFailure { status.text = "QR подписки не найден в изображении" }
-            }
-        }.start()
-    }
-    private fun decodeSubscriptionFile(uri: Uri) {
-        Thread {
-            val value = runCatching { SubscriptionTextFileReader.read(contentResolver, uri) }
-            runOnUiThread {
-                value.onSuccess { acceptImportInput(it) }
-                    .onFailure { status.text = "Файл подписки повреждён или слишком большой" }
-            }
-        }.start()
     }
     private fun connectSelected() {
         PowerDiagnostics.flag("cs.enter",
@@ -1435,6 +1269,25 @@ class MainActivity : Activity() {
             else -> PowerDiagnostics.line("cs.branch", "value" to "noBranch", "phase" to state.phase)
         }
     }
+    private fun openRecoveryEditor() {
+        val seed = runCatching { MobileBootstrapSeed.parse(assets.open("test-mobile.json").bufferedReader().use { it.readText() }) }.getOrNull()
+        val current = SessionService.view
+        val reason = RecoveryCodeUi.unavailableReason(seed?.recoveryVerifyKeyB64 != null && seed.serviceSeed != null &&
+            installationStore.read().optString("link").isEmpty(),
+            workingVpn = current.phase in setOf("Connected", "SwitchingServer", "KillSwitch", "SleepPaused", "Reconnecting"),
+            busy = current.recoveryStatus == "RECOVERY_RUNNING",
+            serviceActive = current.attempt != null || current.phase !in setOf("Idle", "Error"))
+        if (reason != null) {
+            Toast.makeText(this, RecoveryCodeUi.textForStatus(reason), Toast.LENGTH_LONG).show()
+            return
+        }
+        RecoveryCodeUi.showEditor(this, submit = { code ->
+            cancelAutoConnectLaunch()
+            startForegroundService(Intent(this, SessionService::class.java)
+                .setAction("recovery_apply").putExtra("recovery_code", code))
+        })
+    }
+
     private fun render(passed: ViewState) {
         // Live view, or the durable retained catalog when the Service is not running
         // (fresh process). Display-only; the Service is started by the Connect action.
@@ -1458,6 +1311,7 @@ class MainActivity : Activity() {
             pendingChoiceId = null
         }
         val pending = pendingChoiceId ?: state.pendingNodeId
+        recoveryErrorButton.visibility = if (state.error != null) View.VISIBLE else View.GONE
         status.text = mainStatusText(state)
         subscription.text = SubscriptionStatusText.status(
             state.summary,
@@ -1485,10 +1339,6 @@ class MainActivity : Activity() {
         subscriptionPlan.visibility = if (subscriptionPlan.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         renderDevices(state)
         renderPurchase(state)
-        val idle = state.phase == "Idle" || state.phase == "Error"
-        importButton.isEnabled = idle
-        resumeButton.isEnabled = idle
-        refreshButton.isEnabled = idle
         val displayed = pending ?: NodeSelection.displayedNodeId(state.nodes, state.selectedNodeId)
         val verifiedConnectable = NodeSelection.connectableNodeId(
             BrowseCatalogCodec.verifiedNodes(state), state.selectedNodeId)
@@ -1551,7 +1401,7 @@ class MainActivity : Activity() {
      * §3.2B: open the provider-issued HTTPS checkout URL for an already-created payment.
      * The payment is recorded as opened only after `startActivity` actually succeeds, so a
      * failed launch stays retryable through the explicit continue action; no browser / no
-     * network / invalid link becomes an honest visible error and the kept payment stays
+     * network failure becomes an honest visible error and the kept payment stays
      * checkable. Returning from the browser never writes access.
      */
     private fun launchCheckoutBrowser(open: CheckoutOpen) {
@@ -1760,6 +1610,7 @@ class MainActivity : Activity() {
         },
         // Owner warning shown before the first hour can start; display-only, no new flow.
         PreAdmissionConnect.HOUR_WARNING.takeIf { PreAdmissionConnect.eligible(state) },
+        state.recoveryStatus?.let(RecoveryCodeUi::textForStatus),
         RegistrationUi.statusText(state),
         TrialUi.statusText(state),
     ).joinToString("\n")
@@ -1778,16 +1629,12 @@ class MainActivity : Activity() {
     }
 
     private companion object {
-        const val STATE_EXTERNAL_INTENT_CONSUMED = "external_intent_consumed"
         const val THEME_SYSTEM = 200; const val THEME_LIGHT = 201; const val THEME_DARK = 202
         const val SCHEDULE_OFF = 300; const val SCHEDULE_TWICE = 301
         const val SCHEDULE_DAILY = 302; const val SCHEDULE_WEEKLY = 303
         const val STATE_VISIBLE_TAB = "visible_tab"
-        const val STATE_LINK_TEXT = "link_text"
-        const val REQUEST_QR_IMAGE = 201
         const val REQUEST_AUTOCONNECT_CONSENT = 101
         const val STATE_AUTOCONNECT_GENERATION = "autoconnect_generation"
         const val STATE_AUTOCONNECT_CONSENT_PENDING = "autoconnect_consent_pending"
-        const val REQUEST_SUBSCRIPTION_FILE = 202
     }
 }

@@ -32,7 +32,7 @@ class SubscriptionStateReplacementTest {
         assertTrue(replaced.keys().asSequence().none())
     }
 
-    @Test fun productFlowPreservesIdentityAndRequiresExplicitConfirmedUiAction() {
+    @Test fun retainedStorageHelperHasNoUserFacingReplacementAction() {
         val store = String(Files.readAllBytes(Paths.get("src/main/java/xyz/terlimo/test/InstallationStore.kt")))
             .substringAfter("fun replaceSubscription()")
             .substringBefore("fun readRoutingSettings(")
@@ -42,10 +42,10 @@ class SubscriptionStateReplacementTest {
         assertFalse(store.contains("encryptionAlias"))
 
         val ui = String(Files.readAllBytes(Paths.get("src/main/java/xyz/terlimo/test/MainActivity.kt")))
-        assertTrue(ui.contains("text = \"Заменить подписку\""))
-        assertTrue(ui.contains("setPositiveButton(\"Удалить и заменить\")"))
-        assertTrue(ui.contains("SessionService.replaceSubscriptionIfUnchanged(expectedState)"))
-        assertTrue(ui.contains("InstallationStore(this@MainActivity).replaceSubscription()"))
+        assertFalse(ui.contains("text = \"Заменить подписку\""))
+        assertFalse(ui.contains("setPositiveButton(\"Удалить и заменить\")"))
+        assertFalse(ui.contains("SessionService.replaceSubscriptionIfUnchanged(expectedState)"))
+        assertFalse(ui.contains("InstallationStore(this@MainActivity).replaceSubscription()"))
     }
 
     @Test fun phaseChangeWhileDialogIsOpenRejectsMutationAtCommitTime() {

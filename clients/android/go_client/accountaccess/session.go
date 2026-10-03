@@ -31,6 +31,8 @@ type MobileConfig struct {
 	HTTP        Doer
 	Signer      Signer
 	Now         func() time.Time
+	// Recovery authenticates the existing installation only; never enroll on unknown.
+	DisableEnrollment bool
 }
 
 type challengeResponse struct {
@@ -177,6 +179,25 @@ func (m *MobileSession) Bearer(ctx context.Context) (string, error) {
 	return m.current.SessionID, nil
 }
 
+// CachedBearer never authenticates or refreshes solely for an optional request.
+func (m *MobileSession) CachedBearer() (string, Subject, string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current := m.current
+	if current == nil || current.InstallationRef != m.Fingerprint() {
+		return "", Subject{}, "", false
+	}
+	expires, err := time.Parse(time.RFC3339, current.ExpiresAt)
+	if err != nil || !m.config.Now().Add(30*time.Second).Before(expires) {
+		return "", Subject{}, "", false
+	}
+	account := ""
+	if current.AccountRef != nil {
+		account = *current.AccountRef
+	}
+	return current.SessionID, Subject{AccountRef: account, InstallationID: m.Fingerprint()}, current.Generation, true
+}
+
 // Subject is the stable authenticated subject for the revision/digest domain.
 func (m *MobileSession) Subject() Subject {
 	m.mu.Lock()
@@ -220,7 +241,7 @@ func (m *MobileSession) authenticate(ctx context.Context) (*sessionObject, error
 		return nil, err
 	}
 	if apiError.Code == "PROOF_INVALID" {
-		if reason, _ := apiError.Details["reason"].(string); reason == "installation_unknown" {
+		if reason, _ := apiError.Details["reason"].(string); reason == "installation_unknown" && !m.config.DisableEnrollment {
 			if enrollErr := m.enroll(ctx); enrollErr != nil {
 				return nil, enrollErr
 			}
@@ -451,6 +472,9 @@ func (m *MobileSession) buildProof(ctx context.Context, requestID string, challe
 }
 
 func (m *MobileSession) adopt(session sessionObject) error {
+	if m.config.DisableEnrollment && session.InstallationRef != m.Fingerprint() {
+		return fmt.Errorf("recovery installation mismatch")
+	}
 	if session.SessionID == "" || session.Generation == "" || len(session.Scopes) == 0 {
 		return fmt.Errorf("session object invalid")
 	}

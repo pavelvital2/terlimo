@@ -58,8 +58,30 @@ func newMobileTransportAndStore(start managedStart, persist servicechannel.Persi
 			return nil, nil, err
 		}
 	}
+	activeSeeds := seeds
+	var recovery *mobileRecoveryTransport
+	if start.RecoveryCode != "" {
+		key, keyErr := servicechannel.DecodeRecoveryVerifyKey(start.RecoveryVerifyKeyB64)
+		if keyErr != nil {
+			return nil, nil, keyErr
+		}
+		candidate, verifyErr := servicechannel.VerifyRecoveryCode(start.RecoveryCode, key, environment)
+		if verifyErr != nil {
+			return nil, nil, verifyErr
+		}
+		noop, validateErr := seeds.ValidateRecovery(candidate)
+		if validateErr != nil {
+			return nil, nil, validateErr
+		}
+		staged, stageErr := seeds.StageRecovery(candidate)
+		if stageErr != nil {
+			return nil, nil, stageErr
+		}
+		activeSeeds = staged
+		recovery = &mobileRecoveryTransport{durable: seeds, candidate: candidate, noop: noop}
+	}
 	channel := servicechannel.NewChannel(servicechannel.EstablishFunc(managedServiceEstablish))
-	doer, err := servicechannel.NewDoer(start.MobileBaseURL, seeds, channel)
+	doer, err := servicechannel.NewDoer(start.MobileBaseURL, activeSeeds, channel)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -72,6 +94,10 @@ func newMobileTransportAndStore(start managedStart, persist servicechannel.Persi
 	// fixed error class (never IP/credential/token/payload/raw error text).
 	channel.Trace = func(ev servicechannel.TraceEvent) {
 		fmt.Fprintln(os.Stderr, formatServiceTrace(ev))
+	}
+	if recovery != nil {
+		recovery.Doer = doer
+		return recovery, seeds, nil
 	}
 	return doer, seeds, nil
 }

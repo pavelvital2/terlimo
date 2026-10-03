@@ -88,9 +88,10 @@ func (o *catalogOperations) begin(parent context.Context, manual bool) (context.
 	} else if manual {
 		cycle, o.pending = o.pending, ""
 	}
-	ctx, stop := parent, func() {}
+	taggedParent := context.WithValue(parent, catalogPublishedKey{}, &atomic.Bool{})
+	ctx, stop := taggedParent, func() {}
 	if cycle != "" {
-		tagged := context.WithValue(parent, catalogCycleKey{}, cycle)
+		tagged := context.WithValue(taggedParent, catalogCycleKey{}, cycle)
 		tagged = context.WithValue(tagged, catalogPublishedKey{}, &atomic.Bool{})
 		ctx, stop = context.WithTimeout(tagged, 65*time.Second)
 	} else if manual && o.latest != "" {
@@ -119,6 +120,7 @@ func (o *catalogOperations) current() context.Context {
 func (m *managedMobile) beginCatalogAttempt(parent context.Context, manual bool) (context.Context, func()) {
 	ctx, finish := m.catalogOps.begin(parent, manual)
 	return ctx, func() {
+		m.idleSeedPublished = ctx.Err() == nil && catalogProgressComplete(ctx)
 		if finish() {
 			m.runner.TriggerManual()
 		}

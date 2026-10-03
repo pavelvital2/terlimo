@@ -131,7 +131,7 @@ class OrbitHomeSourceTest {
     @Test fun idleCatalogActionUsesOrbitPrimaryStyle() {
         val catalog = source("src/main/java/xyz/terlimo/test/ServerCatalogView.kt")
         val idle = catalog.substringAfter("private fun addIdle()").substringBefore("private fun addError")
-        assertTrue(idle.contains("Открыть сохранённую подписку"))
+        assertTrue(idle.contains("Загрузить каталог"))
         assertTrue(idle.contains("TerlimoCatalogBrandTokens.ACCENT"))
         assertTrue(idle.contains("TerlimoCatalogBrandTokens.BACKGROUND"))
         assertTrue(idle.contains("LayoutParams.MATCH_PARENT, dp(48)"))

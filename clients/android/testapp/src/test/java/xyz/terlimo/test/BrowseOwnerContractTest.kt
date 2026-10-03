@@ -364,8 +364,9 @@ class BrowseOwnerContractTest {
         assertTrue(auto.contains("setAction(\"resume\")"))
         assertFalse(auto.contains("isNotEmpty()"))
         assertTrue(activity.substringAfter("override fun onCreate(").contains("autoLoadSavedSubscription()"))
-        // A link launch imports; only an ordinary launch auto-resumes.
-        assertTrue(activity.contains("if (!incomingImport) autoLoadSavedSubscription()"))
+        // Every initial screen uses normal mobile resume; external data is never imported.
+        assertFalse(activity.contains("incomingImport"))
+        assertFalse(activity.contains("handleIncomingIntent"))
     }
 
     @Test

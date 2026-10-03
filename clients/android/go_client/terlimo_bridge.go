@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,7 +50,9 @@ type managedStart struct {
 	// Durable service seed state (last-good cached seed + user hash override) from the
 	// host AtomicFile namespace. It can never install a builtin seed: without the
 	// packaged service_seed it is a configuration error, not an HTTPS fallback.
-	ServiceSeedStateB64 string `json:"service_seed_state_b64"`
+	ServiceSeedStateB64  string `json:"service_seed_state_b64"`
+	RecoveryVerifyKeyB64 string `json:"recovery_verify_key_b64"`
+	RecoveryCode         string `json:"recovery_code"`
 	// Durable onboarding attempt identity (request_key/intent/intent metadata) from the
 	// host AtomicFile namespace. It is persisted before the first intent call and
 	// survives cancel/restart; no bootstrap secret is ever part of it.
@@ -129,6 +132,9 @@ type managedLifecycle struct {
 }
 
 type managedBridge struct {
+	seedReceiptBusy      atomic.Bool
+	seedUpdateEpoch      uint64
+	preemptSeed          func()
 	lifecycle            managedLifecycle
 	runtimeEpoch         uint64
 	attempt              string
@@ -406,15 +412,20 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 		if json.Unmarshal(scanner.Bytes(), &m) != nil || m.string("attempt_id") != b.attempt || m["v"] != float64(1) {
 			continue
 		}
+		if !b.preemptSeedUpdate(m) {
+			continue
+		}
 		switch m.string("type") {
 		case "device_sleep", "device_wake":
 			if len(m) != 4 {
+				b.finishSeedReceipt()
 				continue
 			}
 			b.mu.Lock()
 			revision, ok := m.positiveSafeUint64("lifecycle_revision")
 			if !ok || revision <= b.lifecycle.Revision {
 				b.mu.Unlock()
+				b.finishSeedReceipt()
 				continue
 			}
 			resumed := b.lifecycle.Sleeping
@@ -547,6 +558,7 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 		case "cancel_catalog":
 			cycle := m.string("catalog_cycle")
 			if !validCatalogCycle(cycle) {
+				b.finishSeedReceipt()
 				continue
 			}
 			b.mu.Lock()
@@ -565,6 +577,7 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 			if _, tagged := m["catalog_cycle"]; tagged {
 				cycle := m.string("catalog_cycle")
 				if !validCatalogCycle(cycle) {
+					b.finishSeedReceipt()
 					continue
 				}
 				b.mu.Lock()
@@ -576,6 +589,7 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 				if hook != nil {
 					hook(cycle)
 				}
+				b.finishSeedReceipt()
 				continue
 			}
 			// Bounded manual refresh of an already active attempt. It only wakes the
@@ -626,6 +640,7 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 				probeID, ok := rawID.(string)
 				if !ok || !validManagedProbeID(probeID) {
 					_ = b.send(bridgeMessage{"type": "node_probe_result", "node_id": request.NodeID, "status": "failed"})
+					b.finishSeedReceipt()
 					continue
 				}
 				request.ProbeID = probeID
@@ -662,6 +677,7 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 			}
 			enqueueCaptchaResult(CaptchaResult{RequestID: m.string("request_id"), Value: value})
 		}
+		b.finishSeedReceipt()
 	}
 }
 
@@ -709,7 +725,13 @@ func (b *managedBridge) persist(ctx context.Context, state []byte) error {
 func (b *managedBridge) persistNamespace(ctx context.Context, namespace string, state []byte) error {
 	wait, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_, err := b.request(wait, bridgeMessage{"type": "persist", "namespace": namespace,
-		"state_b64": base64.RawURLEncoding.EncodeToString(state)}, "request_id", "persist_result")
+	message := bridgeMessage{"type": "persist", "namespace": namespace, "state_b64": base64.RawURLEncoding.EncodeToString(state)}
+	if epoch, ok := ctx.Value(optionalSeedEpochKey{}).(uint64); ok && namespace == "service_seed_v1" {
+		message["optional_seed_epoch"] = strconv.FormatUint(epoch, 10)
+		if deadline, ok := wait.Deadline(); ok {
+			message["deadline_unix_ms"] = deadline.UnixMilli()
+		}
+	}
+	_, err := b.request(wait, message, "request_id", "persist_result")
 	return err
 }

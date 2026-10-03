@@ -54,6 +54,18 @@ class PreAdmissionConnectTest {
     }
 
     @Test
+    fun recoveryCannotOfferFirstConnectFromRetainedAccountProjection() {
+        val retained = state(projection()).copy(recoveryStatus = "RECOVERY_RUNNING")
+        for (phase in listOf("Idle", "BootstrapConnecting", "ImportVerified", "WaitingUser")) {
+            assertFalse(PreAdmissionConnect.connectable(retained.copy(phase = phase), false))
+        }
+        val active = state(projection(dataAccess = "subscription_data", onboarding = "active"))
+            .copy(displayMode = CatalogDisplayMode.BROWSE, browseSelectedId = "gw",
+                recoveryStatus = "RECOVERY_RUNNING")
+        assertFalse(PreAdmissionConnect.activeBrowse(active))
+    }
+
+    @Test
     fun `active browse selection uses consent and explicit connect without a new hour`() {
         for (grant in listOf("subscription_data", "onboarding_hour")) {
             val active = state(projection(dataAccess = grant, onboarding = "active"))

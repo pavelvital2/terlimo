@@ -2,6 +2,7 @@ package xyz.terlimo.test
 
 import org.json.JSONObject
 import java.net.URL
+import java.util.Base64
 
 /**
  * Trusted packaged mobile-v1 bootstrap seed (`test-mobile.json`).
@@ -23,6 +24,8 @@ internal data class MobileBootstrapSeed(
      * the typed schema strictly, and an absent block keeps the accepted HTTPS path.
      */
     val serviceSeed: String? = null,
+    /** Packaged public verification key. Native remains the authority for recovery validation. */
+    val recoveryVerifyKeyB64: String? = null,
 ) {
     companion object {
         /** Contract environments accepted by the native mobile session. */
@@ -46,7 +49,15 @@ internal data class MobileBootstrapSeed(
             val serviceRaw = seed.opt("service")
             if (serviceRaw != null && serviceRaw !is JSONObject) return null
             val serviceSeed = (serviceRaw as? JSONObject)?.toString()
-            return MobileBootstrapSeed(baseUrl, environment, serviceSeed)
+            // A malformed optional key disables recovery without invalidating ordinary bootstrap.
+            val recoveryKey = (seed.opt("recovery_verify_key_b64") as? String)?.takeIf { key ->
+                key.length == 43 && key.matches(Regex("^[A-Za-z0-9_-]+$")) &&
+                    runCatching {
+                        val bytes = Base64.getUrlDecoder().decode(key)
+                        bytes.size == 32 && Base64.getUrlEncoder().withoutPadding().encodeToString(bytes) == key
+                    }.getOrDefault(false)
+            }
+            return MobileBootstrapSeed(baseUrl, environment, serviceSeed, recoveryKey)
         }
     }
 }

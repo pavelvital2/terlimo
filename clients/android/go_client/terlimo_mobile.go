@@ -40,17 +40,21 @@ func mobileSubscriptionRef(fingerprint string) string { return "mobile:" + finge
 // stays the single retry/refresh owner; this type only reacts to verified pairs, keeps
 // the projected store fresh and stops the real data plane on proven stop decisions.
 type managedMobile struct {
-	runner      *accountaccess.Runner
-	controller  *managedController
-	bridge      *managedBridge
-	fingerprint string
-	explicit    *onboarding.Flow
+	seedDoer          *servicechannel.Doer
+	seedKey           string
+	idleSeedPublished bool
+	runner            *accountaccess.Runner
+	controller        *managedController
+	bridge            *managedBridge
+	fingerprint       string
+	explicit          *onboarding.Flow
 	// session is the mobile PoP session owner: after a successful hour activation it is
 	// refreshed so the next Ensure authenticates with the preferred (access:sync)
 	// scopes instead of the pre-hour management-only fallback. Never upgraded in place.
 	session         *accountaccess.MobileSession
 	client          *accountaccess.Client
 	transportCloser io.Closer
+	recovery        *mobileRecoveryTransport
 	catalogOps      catalogOperations
 
 	mu            sync.Mutex
@@ -112,11 +116,12 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 		transportCloser = closer
 	}
 	session, err := accountaccess.NewMobileSession(accountaccess.MobileConfig{
-		BaseURL:     start.MobileBaseURL,
-		Environment: environment,
-		SPKIDER:     spkiDER,
-		HTTP:        transport,
-		Signer:      signer,
+		BaseURL:           start.MobileBaseURL,
+		Environment:       environment,
+		SPKIDER:           spkiDER,
+		HTTP:              transport,
+		Signer:            signer,
+		DisableEnrollment: start.RecoveryCode != "",
 	})
 	if err != nil {
 		return nil, err
@@ -181,7 +186,14 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 		verifiedSig:     make(chan struct{}, 1),
 		browseSig:       make(chan struct{}, 1),
 	}
+	if doer, ok := transport.(*servicechannel.Doer); ok && start.RecoveryCode == "" {
+		m.seedDoer, m.seedKey = doer, start.RecoveryVerifyKeyB64
+		doer.Channel.PreserveConnectionSeed = true
+	}
 	m.catalogOps.initialize(start.CatalogCycle)
+	if recovery, ok := transport.(*mobileRecoveryTransport); ok {
+		m.recovery = recovery
+	}
 	identity := onboarding.Identity{
 		Environment:    string(environment),
 		InstallationID: session.Fingerprint(),
@@ -242,6 +254,12 @@ func newManagedMobile(start managedStart, spkiDER []byte, signer accountaccess.S
 		},
 		OnManualCycleFinished: m.notifyManualCycleFinished,
 		BeginAttempt:          m.beginCatalogAttempt,
+		IdleReady:             m.updateSeedAtIdle,
+		PreemptIdle: func() {
+			if m.seedDoer != nil {
+				m.seedDoer.PreemptOptional()
+			}
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -548,6 +566,11 @@ func (m *managedMobile) run(ctx context.Context, bridge *managedBridge) {
 	m.mu.Unlock()
 	defer m.stopTimer()
 	defer m.retireProbeAdmission()
+	if m.seedDoer != nil {
+		bridge.mu.Lock()
+		bridge.preemptSeed = m.seedDoer.PreemptOptional
+		bridge.mu.Unlock()
+	}
 	if m.runner != nil {
 		// §11/§29: coalesce manual refresh at bridge receipt (before any blocking
 		// dispatcher handler); the Runner fence keeps single-flight semantics.

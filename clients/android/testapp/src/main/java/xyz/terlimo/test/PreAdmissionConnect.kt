@@ -35,7 +35,7 @@ internal object PreAdmissionConnect {
     )
 
     fun eligible(state: ViewState): Boolean {
-        if (state.phase in ACTIVE_OR_STOPPING_PHASES) return false
+        if (state.recoveryStatus == "RECOVERY_RUNNING" || state.phase in ACTIVE_OR_STOPPING_PHASES) return false
         val projection = state.accountAccess?.projection ?: return false
         if (projection.grant.dataAccess != "none") return false
         if (projection.onboarding.state != "not_started") return false
@@ -47,7 +47,7 @@ internal object PreAdmissionConnect {
 
     /** Existing data grant connects the selected public row through ordinary admission. */
     fun activeBrowse(state: ViewState): Boolean {
-        if (state.phase in ACTIVE_OR_STOPPING_PHASES || state.displayMode != CatalogDisplayMode.BROWSE) return false
+        if (state.recoveryStatus == "RECOVERY_RUNNING" || state.phase in ACTIVE_OR_STOPPING_PHASES || state.displayMode != CatalogDisplayMode.BROWSE) return false
         val snapshot = state.accountAccess ?: return false
         val p = snapshot.projection
         return snapshot.current && p.grant.dataAccess in setOf("subscription_data", "onboarding_hour") &&

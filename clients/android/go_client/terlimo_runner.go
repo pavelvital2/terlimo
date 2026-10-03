@@ -491,6 +491,9 @@ func (c *managedController) runMobile(ctx context.Context, cancel context.Cancel
 	// attempt must never leave its explicit gateway pending for anything else.
 	defer c.clearPendingExplicitGateway()
 	diagMarkAttemptStart()
+	if c.start.RecoveryCode != "" {
+		return c.runRecovery(ctx)
+	}
 	mobile, e := newManagedMobile(c.start, c.public, c.sign, c.bridge, c)
 	if e != nil {
 		return e

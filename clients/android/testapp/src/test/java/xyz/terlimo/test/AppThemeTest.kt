@@ -81,7 +81,7 @@ class AppThemeTest {
         assertTrue(main.contains("setTheme(AppTheme.platformTheme())"))
     }
 
-    @Test fun settingsChoiceSavesAndRecreatesWithTabAndInputPreserved() {
+    @Test fun settingsChoiceSavesAndRecreatesWithTabPreserved() {
         val main = source("MainActivity.kt")
         // Three explicit choices with the exact approved labels.
         listOf("\"Системная\"", "\"Светлая\"", "\"Тёмная\"").forEach {
@@ -91,9 +91,9 @@ class AppThemeTest {
             .substringBefore("addView(themeGroup)")
         assertTrue(block.contains("AppTheme.save(this@MainActivity, mode)"))
         assertTrue(block.contains("recreate()"))
-        // Recreate must not repeat service side effects and must keep the visible tab/input.
+        // Recreate must not repeat service side effects and must keep the visible tab.
         assertTrue(main.contains("STATE_VISIBLE_TAB"))
-        assertTrue(main.contains("STATE_LINK_TEXT"))
+        assertFalse(main.contains("STATE_LINK_TEXT"))
         val restore = main.substringAfter("val restoredState = BottomNavigation.restoreSelection")
             .substringBefore("restoreTarget = null")
         assertFalse("restore must not run side-effecting onTab", restore.contains("probe_all_cancel"))

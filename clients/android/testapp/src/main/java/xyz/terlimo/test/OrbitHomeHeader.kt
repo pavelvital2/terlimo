@@ -86,8 +86,10 @@ internal class OrbitHomeHeader(
         // KillSwitch is a protected hold, not a connect attempt: a fresh attempt may still be
         // started by choosing another gateway, so it must not show the shared "Подключение…".
         val blocked = state.phase == "KillSwitch"
-        val connecting = !preAdmissionConnect && state.phase in setOf("Starting", "BootstrapConnecting", "NodeAuthenticating", "ConfiguringVPN", "SwitchingServer", "WaitingUser", "Reconnecting", "SleepPaused")
+        val recovering = state.recoveryStatus == "RECOVERY_RUNNING"
+        val connecting = recovering || !preAdmissionConnect && state.phase in setOf("Starting", "BootstrapConnecting", "NodeAuthenticating", "ConfiguringVPN", "SwitchingServer", "WaitingUser", "Reconnecting", "SleepPaused")
         title.text = when {
+            recovering -> "Восстанавливаем подключение…"
             connected -> "VPN подключён"
             state.phase == "Stopping" -> "Отключение…"
             state.phase == "SleepPaused" -> "Пауза для экономии батареи"
@@ -111,7 +113,7 @@ internal class OrbitHomeHeader(
             state.selectedNodeId.isBlank() -> "Выберите сервер и подключитесь"
             else -> state.nodes.singleOrNull { it.id == state.selectedNodeId }?.name ?: "Выберите доступный сервер"
         }
-        power.contentDescription = if (connected || connecting || blocked) "Отключить VPN" else "Подключить VPN"
+        power.contentDescription = if (recovering) "Отменить восстановление" else if (connected || connecting || blocked) "Отключить VPN" else "Подключить VPN"
         power.setImageResource(when {
             connected -> R.drawable.ic_vpn_connected
             connecting -> R.drawable.ic_vpn_connecting

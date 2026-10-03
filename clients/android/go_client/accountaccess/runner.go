@@ -50,6 +50,12 @@ type RunnerConfig struct {
 	// runs after the manual fence is cleared, so a replacement operation can wake
 	// this same runner without being lost behind the canceled request.
 	BeginAttempt func(context.Context, bool) (context.Context, func())
+	// IdleReady runs on this owner after successful catalogue publication and finish.
+	// false means busy/unpublished; retry only at a later natural successful cycle.
+	// true consumes the single optional attempt, even on cancellation or unavailable data.
+	// The existing next-cycle deadline bounds optional work; it cannot defer renewal.
+	IdleReady    func(context.Context, time.Time) bool
+	PreemptIdle  func()
 	Attempts     int
 	Jitter       func(time.Duration) time.Duration
 	Sleep        func(ctx context.Context, delay time.Duration) error
@@ -149,6 +155,9 @@ func (r *Runner) stage(token string) {
 
 // Trigger requests an immediate refresh. Triggers coalesce: at most one is pending.
 func (r *Runner) Trigger(reason string) {
+	if r.config.PreemptIdle != nil {
+		r.config.PreemptIdle()
+	}
 	select {
 	case r.wake <- reason:
 	default:
@@ -161,6 +170,9 @@ func (r *Runner) Trigger(reason string) {
 // dedicated buffered channel, so a manual request is never lost when the shared wake
 // channel already holds another reason. Other wake reasons are unaffected.
 func (r *Runner) TriggerManual() {
+	if r.config.PreemptIdle != nil {
+		r.config.PreemptIdle()
+	}
 	r.mu.Lock()
 	if r.manualQueued {
 		r.mu.Unlock()
@@ -188,6 +200,7 @@ func (r *Runner) finishManualRun() {
 // (for example an explicit revoke) is reported through OnAdmission and does not spin.
 func (r *Runner) Run(ctx context.Context) error {
 	manual := false
+	optionalDone := false
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -235,6 +248,13 @@ func (r *Runner) Run(ctx context.Context) error {
 			// nonterminal admission pending): keep the floor cadence, never a hot loop.
 			wait = r.config.RefreshFloor
 		}
+		// Publication/finish happened above; queued foreground refresh always wins.
+		if !optionalDone && wait > 0 && err == nil && (catalog != nil || browse != nil) &&
+			r.config.IdleReady != nil && len(r.wake) == 0 && len(r.manualWake) == 0 {
+			idleStart := time.Now()
+			optionalDone = r.config.IdleReady(ctx, idleStart.Add(wait))
+			wait -= time.Since(idleStart)
+		}
 		if wait < 0 {
 			wait = 0
 		}
@@ -254,6 +274,35 @@ func (r *Runner) Run(ctx context.Context) error {
 			// the next iteration to a host catalog cycle.
 		}
 	}
+}
+
+// AuthenticateServiceOnce is the explicit recovery readiness boundary. It uses the
+// same session/client, but does not fetch a catalogue, sync a grant, persist account
+// receipts or start the recurring Run loop. A signed endpoint is not enough: a
+// current installation session and its strictly decoded /me must both succeed.
+func (r *Runner) AuthenticateServiceOnce(ctx context.Context) error {
+	if err := r.config.Session.Ensure(ctx); err != nil {
+		return err
+	}
+	subject, generation := r.config.Session.Subject(), r.config.Session.Generation()
+	me, apiError, err := r.config.Coordinator.opts.Client.GetMe(ctx)
+	if err != nil {
+		return err
+	}
+	if apiError != nil {
+		return errors.New("RECOVERY_NETWORK")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	account := ""
+	if me.AccountRef != nil {
+		account = *me.AccountRef
+	}
+	if generation == "" || generation != r.config.Session.Generation() || subject != r.config.Session.Subject() || account != subject.AccountRef {
+		return errors.New("RECOVERY_NETWORK")
+	}
+	return nil
 }
 
 // attempt runs one bounded cycle and returns the verified catalog or the display-only

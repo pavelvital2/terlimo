@@ -229,9 +229,9 @@ internal class ServerCatalogView(
     private fun addIdle() {
         addView(card().apply {
             addView(text("Каталог ещё не открыт", 18f, bold = true))
-            addView(text("Откройте сохранённую подписку или импортируйте новую.", 14f, muted = true))
+            addView(text("Загрузите список доступных серверов.", 14f, muted = true))
             addView(Button(context).apply {
-                text = "Открыть сохранённую подписку"
+                text = "Загрузить каталог"
                 minHeight = dp(48)
                 isAllCaps = false
                 textSize = 14f
