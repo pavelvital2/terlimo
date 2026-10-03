@@ -10,7 +10,6 @@ catalog/access.sync + gateway apply pipeline provisions it unchanged.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
@@ -260,7 +259,7 @@ async def activate_trial(
             moment,
             moment + timedelta(days=TRIAL_DAYS),
             BASE_LIMIT,
-            json.dumps(TRIAL_SOURCE_PLAN),
+            TRIAL_SOURCE_PLAN,
         )
         return {"trial": _trial_projection(row, moment, replay=False), "account_state": "ACTIVE_TRIAL"}
 
