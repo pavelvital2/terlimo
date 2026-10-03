@@ -12,12 +12,18 @@ import ipaddress
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from .config import Settings
+class RecoverySettings(Protocol):
+    @property
+    def recovery_code_file(self) -> str: ...
+    @property
+    def recovery_verify_key_b64(self) -> str: ...
+    @property
+    def environment(self) -> str: ...
 
 DOMAIN = b"TERLIMO-RECOVERY-V1\x00"
 MAX_CODE = 3500
@@ -146,7 +152,7 @@ def sign_seed(raw: bytes, private_key: Ed25519PrivateKey, environment: str) -> s
 class PublicRecoveryCode:
     """One small per-process cache, refreshed on file metadata change; invalid -> unavailable."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: RecoverySettings):
         self._path = settings.recovery_code_file
         self._key = settings.recovery_verify_key_b64
         self._environment = settings.environment

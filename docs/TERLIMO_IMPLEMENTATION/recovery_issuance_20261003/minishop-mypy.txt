@@ -1,0 +1,2 @@
+pyproject.toml: note: unused section(s): module = ['backend.scripts', 'backend.scripts.*', 'bot.app.factories.*', 'bot.handlers.*', 'bot.infra.*', 'bot.keyboards.*', 'bot.payment_providers.*', 'bot.plugins.*', 'bot.utils.*', 'db.*', 'scripts', 'scripts.*', 'tests', 'tests.*']
+Success: no issues found in 5 source files

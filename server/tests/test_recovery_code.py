@@ -261,7 +261,8 @@ async def test_bot_real_runner_public_before_db_and_copyable(configured):
     assert [o['state'] for o in outcomes] == ['missing_token', 'recovery', 'recovery', 'recovery']
     assert db.acquisitions == 0
     assert transport.sent[0][2] == telegram_bot.RECOVERY_MENU
-    assert all(text == VECTOR['recovery_code'] and markup is None for _, text, markup in transport.sent[1:])
+    assert all(text == VECTOR['recovery_code'] and markup is None for _, text, markup in transport.sent[1::2])
+    assert all(text == telegram_bot.RECOVERY_INSTRUCTION for _, text, _ in transport.sent[2::2])
     assert await runner.handle_once() == []  # offset preserved
 
 
@@ -332,7 +333,7 @@ async def test_bot_startup_does_not_connect_application_db(configured, monkeypat
     assert telegram_bot.bot_ready(settings)  # No Telegram binding/registration key required.
     await telegram_bot._amain(settings)
     assert db.acquisitions == 0 and closed == ['transport', 'db']
-    assert transport.sent == [(123456, VECTOR['recovery_code'], None)]
+    assert transport.sent == [(123456, VECTOR['recovery_code'], None), (123456, telegram_bot.RECOVERY_INSTRUCTION, None)]
 
 
 @pytest.mark.parametrize('invalid', [False, True])

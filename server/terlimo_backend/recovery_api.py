@@ -8,6 +8,7 @@ from .auth_api import SCHEMA_VERSION, ApiError, _error_response, random_hex, rfc
 from .config import Settings
 from .db import Database, DatabaseUnavailable
 from .recovery_code import PublicRecoveryCode, RecoveryUnavailable
+from .recovery_page import register_public_recovery_page
 from .session_auth import AuthError, authenticate_session
 
 SERVICE_SEED_PATH = "/api/mobile/v1/service-seed"
@@ -15,6 +16,7 @@ SERVICE_SEED_PATH = "/api/mobile/v1/service-seed"
 
 def register_recovery_routes(app: web.Application, settings: Settings, database: Database) -> None:
     public_code = PublicRecoveryCode(settings)
+    register_public_recovery_page(app, public_code)
 
     async def service_seed(request: web.Request) -> web.Response:
         # Match the existing mobile response envelope; middleware also echoes X-Request-ID.

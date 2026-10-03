@@ -1,0 +1,91 @@
+{
+  "UTC": "2026-10-03T16:30:49.608068+00:00",
+  "assignment": "whitelist-20261003-first-release-recovery-issuance-v1",
+  "sources": {
+    "canonical": {
+      "base": "2d823640c3823a678bee5e3d4497925d4ec57f64",
+      "head": "fe559cef0e4701958b9346b353dc567bc776e9b3",
+      "tree": "534776aec49a2ed5506dbad86aa04aabf8e57724",
+      "checkout": "/home/pavel/step036-receipts/private/first-release-recovery-issuance-20261003/source",
+      "clean": true,
+      "patches": {
+        "canonical-full.patch": {
+          "SHA256": "96dd2fbb7b5c976d276e7488445586c4f1503c61ea7be67d72a36d53d8b1d798",
+          "size": 24605
+        },
+        "canonical-delta.patch": {
+          "SHA256": "96dd2fbb7b5c976d276e7488445586c4f1503c61ea7be67d72a36d53d8b1d798",
+          "size": 24605
+        }
+      },
+      "full_delta_identical": "one local commit from exact assigned component base",
+      "files": {
+        "server/docs/recovery-issuance-20261003.md": "f6cc10569784f0a999596a0db6df581b2a391c9a0ef238e602a9d75a85879622",
+        "server/terlimo_backend/recovery_api.py": "00ed51c5f5221b9686a5e7a991c3353cc020774e3412d2a4db7d8003a8a520a9",
+        "server/terlimo_backend/recovery_code.py": "0bbe95a1c13ed53896e99d4438a5dde3106bb93cc584aa6fba022d453476baf5",
+        "server/terlimo_backend/recovery_page.py": "adb39bc00cf1b9f10c1cc2dc637aa2f279ee6034e0c8ac22da6c934e32421388",
+        "server/terlimo_backend/recovery_publish.py": "52bef083a8377d64b3102b4db36d915a3a9fbb5a7a3d5611084d00a281fe2c45",
+        "server/terlimo_backend/telegram_bot.py": "d4285309aa4cc909b54263fc6269f59e4cbc2d4be0bd7daa0b635b094f8aebf3",
+        "server/tests/test_recovery_code.py": "232653a5c76e59864afd06566fc69e14995fafc1329bcd9dbc8dbe13f4345cd8",
+        "server/tests/test_recovery_issuance.py": "ad96db34b1847389165bc3333f1432d468d71e3b0103ca9c19108fa791ad3f8d"
+      }
+    },
+    "minishop": {
+      "base": "1bf361f604683cff31ed2a84b2163393761a9742",
+      "head": "88342ce6b537718652523073c3dba40e2a40306a",
+      "tree": "84ae7e1d80fee45805cdcfcc12e49698a3b306b7",
+      "checkout": "/home/pavel/step036-receipts/private/first-release-recovery-issuance-20261003/minishop-source",
+      "clean": true,
+      "patches": {
+        "minishop-full.patch": {
+          "SHA256": "58df91ef8a78b39476dd858ef1305f17649cd1b7cf9a59bac5997c78c6988f4d",
+          "size": 33911
+        },
+        "minishop-delta.patch": {
+          "SHA256": "58df91ef8a78b39476dd858ef1305f17649cd1b7cf9a59bac5997c78c6988f4d",
+          "size": 33911
+        }
+      },
+      "full_delta_identical": "one local commit from exact assigned component base",
+      "files": {
+        "backend/bot/app/controllers/dispatcher_controller.py": "52c5c108cde9c58ca0c477ad7d603800e0b8ade4a3004bf33dfb4ba503b2b67f",
+        "backend/bot/app/web/public_recovery.py": "88300c344b6711f5472bcc5e7e35367e7f494d2309e06abcb6a60046cf881e05",
+        "backend/bot/app/web/recovery_page.py": "d62de430edf1baedcf6257061e05d5f8c5459f56d17c37a7f6f3577a8fcf7646",
+        "backend/bot/app/web/webapp/routes.py": "b1f4f72cc7caefe64e42367099f6f2c7f47570b6629335df5b50e98129407c76",
+        "backend/bot/keyboards/inline/user_keyboards_menus.py": "ff76a11fc1cefd116314993f68357f347e88bac1aec7a3d8491920e8cdf9163f",
+        "backend/bot/middlewares/public_recovery.py": "f50e298c1b7b0519816f499b37e6b0b3a877d28b7190a670b33fde0c68fc5a25",
+        "backend/bot/services/public_recovery.py": "5f027b47c764a022a78aba96f369f21af6b1580113da7b0e1e89d1472ca4043f",
+        "backend/bot/services/recovery_code.py": "0a02c1df0c1b800ba97bb388d3fd7eee8f1cb7b631636763e2e735343466fa71",
+        "locales/en.json": "3144233370e0a5266c453943802d7fabf90b85467d10e2818770aad15c9e90b1",
+        "locales/ru.json": "abaef8d6e93105c0e4209d042a1ee017563267c33929ad1cd0d44cab6c08d29f",
+        "tests/fixtures/recovery-v1-test-vector.json": "d447a3b14110ffec5505bc17a7ca308c23cd84778f829a87b105da4dedceb865",
+        "tests/unit/test_public_recovery_issuance.py": "71202a6259c4a5a4a6cf2c03d0d44a3170cb3a2700d5e0f9151494df8a5f900b"
+      }
+    }
+  },
+  "checks": {
+    "canonical_existing_recovery_tests": {
+      "passed": 54,
+      "evidence": "server-tests.txt; first attempt had 1 new fixture cleanup failure, fixed in affected new test only"
+    },
+    "canonical_new_tests": {
+      "passed": 4,
+      "evidence": "server-tests-final.txt"
+    },
+    "minishop_new_tests": {
+      "passed": 4,
+      "evidence": "minishop-tests-final.txt"
+    },
+    "minishop_affected_lint": "PASS",
+    "minishop_new_modules_scoped_mypy": "PASS 5 files; follow-imports=skip; not full repository gate"
+  },
+  "runtime_applied": false,
+  "production_applied": false,
+  "source_acceptance_requested": true,
+  "remaining": [
+    "root source review/publish",
+    "root handoff accepted primary4 public code bytes; currently configured revision2 must not be issued to floor4 client",
+    "separately authorized TEST application and issuance/copy acceptance",
+    "production signed code/public verifier/current deployment integration and release gates; no TEST code in production"
+  ]
+}

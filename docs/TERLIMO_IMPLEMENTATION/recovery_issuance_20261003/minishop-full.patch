@@ -1,0 +1,774 @@
+diff --git a/backend/bot/app/controllers/dispatcher_controller.py b/backend/bot/app/controllers/dispatcher_controller.py
+index 34248ab8..940c6f3b 100644
+--- a/backend/bot/app/controllers/dispatcher_controller.py
++++ b/backend/bot/app/controllers/dispatcher_controller.py
+@@ -18,6 +18,7 @@ from bot.middlewares.channel_subscription import ChannelSubscriptionMiddleware
+ from bot.middlewares.db_session import DBSessionMiddleware
+ from bot.middlewares.i18n import I18nMiddleware, JsonI18n
+ from bot.middlewares.profile_sync import ProfileSyncMiddleware
++from bot.middlewares.public_recovery import PublicRecoveryMiddleware
+ from bot.middlewares.update_antiflood import UpdateAntiFloodMiddleware
+ from config.settings import Settings
+ 
+@@ -46,7 +47,12 @@ def build_dispatcher(
+         session_factory=async_session_factory,
+     )
+ 
++    # Public transport codes must not wait for account FSM/Redis or DB.
++    # Preserve the same FSM instance for every other update.
++    dp.update.outer_middleware.unregister(dp.fsm)
+     dp.update.outer_middleware(UpdateAntiFloodMiddleware(settings=settings))
++    dp.update.outer_middleware(PublicRecoveryMiddleware(i18n_instance))
++    dp.update.outer_middleware(dp.fsm)
+     dp.update.outer_middleware(DBSessionMiddleware(async_session_factory))
+     dp.update.outer_middleware(I18nMiddleware(i18n=i18n_instance, settings=settings))
+     dp.update.outer_middleware(ProfileSyncMiddleware())
+diff --git a/backend/bot/app/web/public_recovery.py b/backend/bot/app/web/public_recovery.py
+new file mode 100644
+index 00000000..8be24a10
+--- /dev/null
++++ b/backend/bot/app/web/public_recovery.py
+@@ -0,0 +1,16 @@
++"""Anonymous recovery page on the existing site, independent of auth and DB."""
++
++from aiohttp import web
++
++from bot.services.public_recovery import public_recovery_code, recovery_texts
++
++from .context import get_i18n
++from .recovery_page import recovery_page_response
++
++
++async def public_recovery_page_route(request: web.Request) -> web.Response:
++    i18n = get_i18n(request)
++    if i18n is None:
++        raise web.HTTPServiceUnavailable(headers={"Cache-Control": "no-store"})
++    lang = "en" if request.query.get("lang") == "en" else "ru"
++    return recovery_page_response(public_recovery_code(), recovery_texts(i18n, lang), language=lang)
+diff --git a/backend/bot/app/web/recovery_page.py b/backend/bot/app/web/recovery_page.py
+new file mode 100644
+index 00000000..a3477350
+--- /dev/null
++++ b/backend/bot/app/web/recovery_page.py
+@@ -0,0 +1,81 @@
++"""Public recovery page in the existing server; no session, DB, resolver or rights."""
++
++import base64
++import hashlib
++from collections.abc import Mapping
++from html import escape
++
++from aiohttp import web
++
++from bot.services.recovery_code import PublicRecoveryCode, RecoveryUnavailable
++
++COPY_SCRIPT = """const code = document.getElementById('recovery-code');
++const button = document.getElementById('copy-code');
++const status = document.getElementById('copy-status');
++if (code && button && status) {
++  button.disabled = false;
++  button.addEventListener('click', async () => {
++    try {
++      if (!navigator.clipboard) throw new Error('clipboard unavailable');
++      await navigator.clipboard.writeText(code.value);
++      status.textContent = status.dataset.copied;
++    } catch (_) {
++      code.focus(); code.select();
++      status.textContent = status.dataset.failed;
++    }
++  });
++}
++"""
++SCRIPT_HASH = base64.b64encode(hashlib.sha256(COPY_SCRIPT.encode()).digest()).decode()
++
++
++def recovery_page_response(
++    loader: PublicRecoveryCode, texts: Mapping[str, str], *, language: str = "ru"
++) -> web.Response:
++    try:
++        code = loader.get()
++        available = True
++    except RecoveryUnavailable:
++        code = ""
++        available = False
++    t = {k: escape(v, quote=True) for k, v in texts.items()}
++    content = (
++        (
++            f'<label for="recovery-code">{t["code_label"]}</label>'
++            '<textarea id="recovery-code" readonly rows="8" spellcheck="false">'
++            f"{escape(code)}</textarea>"
++            f'<button id="copy-code" type="button" disabled>{t["copy"]}</button>'
++            f'<p id="copy-status" role="status" aria-live="polite" data-copied="{t["copied"]}" '
++            f'data-failed="{t["copy_failed"]}"></p>'
++        )
++        if available
++        else f'<p role="status">{t["unavailable"]}</p>'
++    )
++    body = (
++        f'<!doctype html><html lang="{escape(language, quote=True)}"><head><meta charset="utf-8">'
++        '<meta name="viewport" content="width=device-width,initial-scale=1">'
++        f"<title>TERLIMO — {t['title']}</title>"
++        "<style>body{font:18px system-ui,sans-serif;max-width:42rem;"
++        "margin:2rem auto;padding:0 1rem;line-height:1.5}"
++        "textarea{box-sizing:border-box;width:100%;font:14px monospace;"
++        "overflow-wrap:anywhere;margin:.5rem 0}"
++        "button{font:inherit;padding:.65rem 1rem;min-height:44px}"
++        "label{display:block}</style></head>"
++        f"<body><main><h1>{t['title']}</h1><p>{t['instruction']}</p>{content}<p>{t['rights']}</p>"
++        f"<noscript><p>{t['copy_failed']}</p></noscript></main><script>{COPY_SCRIPT}</script></body></html>"
++    )
++    return web.Response(
++        text=body,
++        content_type="text/html",
++        status=200 if available else 503,
++        headers={
++            "Cache-Control": "no-store",
++            "Referrer-Policy": "no-referrer",
++            "X-Content-Type-Options": "nosniff",
++            "Content-Security-Policy": (
++                f"default-src 'none'; script-src 'sha256-{SCRIPT_HASH}'; "
++                "style-src 'unsafe-inline'; base-uri 'none'; "
++                "frame-ancestors 'none'; form-action 'none'"
++            ),
++        },
++    )
+diff --git a/backend/bot/app/web/webapp/routes.py b/backend/bot/app/web/webapp/routes.py
+index 295c1dde..6efa31c4 100644
+--- a/backend/bot/app/web/webapp/routes.py
++++ b/backend/bot/app/web/webapp/routes.py
+@@ -3,6 +3,7 @@ from aiohttp import web
+ from bot.app.web.admin_api_impl.routes import (
+     setup_admin_routes,
+ )
++from bot.app.web.public_recovery import public_recovery_page_route
+ 
+ from .account import (
+     account_avatar_route,
+@@ -117,6 +118,7 @@ register_webapp_route_contracts()
+ 
+ 
+ def setup_subscription_webapp_routes(app: web.Application) -> None:
++    app.router.add_get("/api/public/recovery", public_recovery_page_route)
+     app.router.add_get("/robots.txt", robots_txt_route)
+     app.router.add_get("/", index_route)
+     app.router.add_get("/login/password", index_route)
+diff --git a/backend/bot/keyboards/inline/user_keyboards_menus.py b/backend/bot/keyboards/inline/user_keyboards_menus.py
+index 5b2ba8c7..38774ab7 100644
+--- a/backend/bot/keyboards/inline/user_keyboards_menus.py
++++ b/backend/bot/keyboards/inline/user_keyboards_menus.py
+@@ -37,6 +37,7 @@ def get_main_menu_inline_keyboard(
+     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
+     builder = InlineKeyboardBuilder()
+     support_link = normalize_support_link(settings.support_settings.link)
++    builder.row(InlineKeyboardButton(text=_(key="recovery_title"), callback_data="public_recovery"))
+ 
+     if show_trial_button and settings.TRIAL_ENABLED:
+         builder.row(_trial_activation_button(lang, i18n_instance, settings))
+@@ -92,6 +93,7 @@ def get_bot_interface_inline_keyboard(
+     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
+     builder = InlineKeyboardBuilder()
+     support_link = normalize_support_link(settings.support_settings.link)
++    builder.row(InlineKeyboardButton(text=_(key="recovery_title"), callback_data="public_recovery"))
+ 
+     if show_trial_button and settings.TRIAL_ENABLED:
+         builder.row(_trial_activation_button(lang, i18n_instance, settings))
+diff --git a/backend/bot/middlewares/public_recovery.py b/backend/bot/middlewares/public_recovery.py
+new file mode 100644
+index 00000000..7f765979
+--- /dev/null
++++ b/backend/bot/middlewares/public_recovery.py
+@@ -0,0 +1,67 @@
++"""Exact public recovery actions before DB/profile/registration middleware.
++
++The existing private-chat bot handles these nonpersonal transport codes without
++creating users, requiring membership, grants or contacting an old backend.
++All other updates follow the unchanged authenticated/account middleware chain.
++"""
++
++from collections.abc import Awaitable, Callable
++from html import escape
++from typing import Any
++
++from aiogram import BaseMiddleware
++from aiogram.types import Message, TelegramObject, Update
++
++from bot.services.public_recovery import Translator, public_recovery_code
++from bot.services.recovery_code import RecoveryUnavailable
++
++
++class PublicRecoveryMiddleware(BaseMiddleware):
++    def __init__(self, i18n: Translator, username: str = "") -> None:
++        self.i18n = i18n
++        self.username = username.lstrip("@")
++        self.loader = public_recovery_code()
++
++    async def __call__(
++        self,
++        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
++        event: TelegramObject,
++        data: dict[str, Any],
++    ) -> Any:
++        if not isinstance(event, Update):
++            return await handler(event, data)
++        message = event.message
++        callback = event.callback_query
++        texts = {"/recovery", "/start recovery"}
++        if self.username:
++            texts |= {"/recovery@" + self.username, "/start@" + self.username + " recovery"}
++        matched = (
++            message is not None
++            and message.chat.type == "private"
++            and (message.text or "").strip() in texts
++        )
++        if callback is not None and callback.data == "public_recovery":
++            # InaccessibleMessage cannot send replies; do not run account actions.
++            if not isinstance(callback.message, Message):
++                await callback.answer()
++                return None
++            if callback.message.chat.type != "private":
++                return await handler(event, data)
++            message = callback.message
++            matched = True
++        if not matched or message is None:
++            return await handler(event, data)
++        user = (
++            event.message.from_user if event.message else callback.from_user if callback else None
++        )
++        lang = "ru" if user and (user.language_code or "").startswith("ru") else "en"
++        if callback:
++            await callback.answer()
++        try:
++            code = self.loader.get()
++        except RecoveryUnavailable:
++            await message.answer(self.i18n.gettext(lang, "recovery_unavailable"), parse_mode=None)
++            return None
++        await message.answer("<pre>" + escape(code) + "</pre>", parse_mode="HTML")
++        await message.answer(self.i18n.gettext(lang, "recovery_bot_instruction"), parse_mode=None)
++        return None
+diff --git a/backend/bot/services/public_recovery.py b/backend/bot/services/public_recovery.py
+new file mode 100644
+index 00000000..83d56656
+--- /dev/null
++++ b/backend/bot/services/public_recovery.py
+@@ -0,0 +1,46 @@
++"""Public-file configuration only; no account/database/provider access."""
++
++import os
++from dataclasses import dataclass
++from functools import lru_cache
++from typing import Protocol
++
++from .recovery_code import PublicRecoveryCode
++
++
++class Translator(Protocol):
++    def gettext(self, lang_code: str | None, key: str, **kwargs: object) -> str: ...
++
++
++@dataclass(frozen=True)
++class PublicRecoverySettings:
++    recovery_code_file: str
++    recovery_verify_key_b64: str
++    environment: str
++
++
++@lru_cache(maxsize=1)
++def public_recovery_code() -> PublicRecoveryCode:
++    return PublicRecoveryCode(
++        PublicRecoverySettings(
++            os.environ.get("RECOVERY_CODE_FILE", ""),
++            os.environ.get("RECOVERY_VERIFY_KEY_B64", ""),
++            os.environ.get("TERLIMO_RECOVERY_ENVIRONMENT", "production"),
++        )
++    )
++
++
++PAGE_KEYS = (
++    "title",
++    "instruction",
++    "rights",
++    "unavailable",
++    "copy",
++    "copied",
++    "copy_failed",
++    "code_label",
++)
++
++
++def recovery_texts(i18n: Translator, lang: str) -> dict[str, str]:
++    return {key: i18n.gettext(lang, "recovery_" + key) for key in PAGE_KEYS}
+diff --git a/backend/bot/services/recovery_code.py b/backend/bot/services/recovery_code.py
+new file mode 100644
+index 00000000..f18cdede
+--- /dev/null
++++ b/backend/bot/services/recovery_code.py
+@@ -0,0 +1,212 @@
++"""Recovery v1 public codes. Signing is an operator-only, offline operation.
++
++The API/bot read the same bounded signed public file and never load a private key.
++A code carries no application identity or access rights. Client revision ordering,
++connection provenance and persistence remain client responsibilities.
++"""
++
++from __future__ import annotations
++
++import base64
++import binascii
++import ipaddress
++import json
++import re
++from pathlib import Path
++from typing import Any, Protocol
++
++from cryptography.exceptions import InvalidSignature
++from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
++
++
++class RecoverySettings(Protocol):
++    @property
++    def recovery_code_file(self) -> str: ...
++    @property
++    def recovery_verify_key_b64(self) -> str: ...
++    @property
++    def environment(self) -> str: ...
++
++
++DOMAIN = b"TERLIMO-RECOVERY-V1\x00"
++MAX_CODE = 3500
++MAX_SEED = 8192
++FIELDS = frozenset(
++    {
++        "version",
++        "revision",
++        "environment",
++        "peer_ip",
++        "dtls_port",
++        "dtls_spki_sha256",
++        "service_classifier",
++        "vk_hashes",
++        "stream_id",
++    }
++)
++
++
++class RecoveryInvalid(ValueError):
++    """Bounded public error; do not include input/key/file contents in exceptions."""
++
++
++class RecoveryUnavailable(RuntimeError):
++    pass
++
++
++def encode_b64(raw: bytes) -> str:
++    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
++
++
++def decode_b64(text: str, size: int | None = None) -> bytes:
++    if not isinstance(text, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", text):
++        raise RecoveryInvalid("base64url")
++    try:
++        raw = base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True)
++    except (ValueError, binascii.Error):
++        raise RecoveryInvalid("base64url") from None
++    if encode_b64(raw) != text or (size is not None and len(raw) != size):
++        raise RecoveryInvalid("base64url")
++    return raw
++
++
++def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
++    result = {}
++    for key, value in pairs:
++        if key in result:
++            raise RecoveryInvalid("duplicate_field")
++        result[key] = value
++    return result
++
++
++def parse_seed(raw: bytes, environment: str) -> dict[str, Any]:
++    if not 0 < len(raw) <= MAX_SEED:
++        raise RecoveryInvalid("seed_size")
++    try:
++        seed = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
++    except (ValueError, UnicodeError, RecursionError):
++        raise RecoveryInvalid("seed_json") from None
++    if not isinstance(seed, dict) or seed.keys() != FIELDS:
++        raise RecoveryInvalid("seed_fields")
++    if type(seed["version"]) is not int or seed["version"] != 1:
++        raise RecoveryInvalid("seed_version")
++    revision = seed["revision"]
++    if not isinstance(revision, str) or not re.fullmatch(r"0|[1-9][0-9]{0,18}", revision):
++        raise RecoveryInvalid("seed_revision")
++    if environment not in ("test", "production") or seed["environment"] != environment:
++        raise RecoveryInvalid("seed_environment")
++    peer = seed["peer_ip"]
++    try:
++        if not isinstance(peer, str) or "%" in peer:
++            raise ValueError
++        ipaddress.ip_address(peer)
++    except ValueError:
++        raise RecoveryInvalid("seed_peer") from None
++    port = seed["dtls_port"]
++    if type(port) is not int or not 1 <= port <= 65535:
++        raise RecoveryInvalid("seed_port")
++    decode_b64(seed["dtls_spki_sha256"], 32)
++    classifier = seed["service_classifier"]
++    if not isinstance(classifier, str) or not re.fullmatch(r"[!-~]{1,128}", classifier):
++        raise RecoveryInvalid("seed_classifier")
++    hashes = seed["vk_hashes"]
++    if not isinstance(hashes, list) or not 1 <= len(hashes) <= 4:
++        raise RecoveryInvalid("seed_hashes")
++    for value in hashes:
++        if not isinstance(value, str) or not value or any(c in value for c in " \t\r\n"):
++            raise RecoveryInvalid("seed_hash")
++        try:
++            if len(value.encode("utf-8")) > 128:
++                raise RecoveryInvalid("seed_hash")
++        except UnicodeError:
++            raise RecoveryInvalid("seed_hash") from None
++    # The accepted Android build is arm64: retain its existing signed Go int bound.
++    stream = seed["stream_id"]
++    if type(stream) is not int or not 0 <= stream <= 9223372036854775807:
++        raise RecoveryInvalid("seed_stream")
++    return seed
++
++
++def verify_code(code: str, public_key_b64: str, environment: str) -> dict[str, Any]:
++    if not isinstance(code, str):
++        raise RecoveryInvalid("code_type")
++    code = code.strip()
++    if not 0 < len(code) <= MAX_CODE or not code.isascii() or any(c.isspace() for c in code):
++        raise RecoveryInvalid("code_size_or_whitespace")
++    parts = code.split(".")
++    if len(parts) != 3 or parts[0] != "TR1":
++        raise RecoveryInvalid("code_version")
++    payload = decode_b64(parts[1])
++    if len(payload) > MAX_SEED:
++        raise RecoveryInvalid("seed_size")
++    signature = decode_b64(parts[2], 64)
++    key = decode_b64(public_key_b64, 32)
++    try:
++        Ed25519PublicKey.from_public_bytes(key).verify(signature, DOMAIN + payload)
++    except InvalidSignature:
++        raise RecoveryInvalid("signature") from None
++    return parse_seed(payload, environment)
++
++
++def sign_seed(raw: bytes, private_key: Ed25519PrivateKey, environment: str) -> str:
++    seed = parse_seed(raw, environment)
++    # Fixed field order/compact UTF8; verification always uses original decoded bytes.
++    payload = json.dumps(
++        {
++            k: seed[k]
++            for k in (
++                "version",
++                "revision",
++                "environment",
++                "peer_ip",
++                "dtls_port",
++                "dtls_spki_sha256",
++                "service_classifier",
++                "vk_hashes",
++                "stream_id",
++            )
++        },
++        ensure_ascii=False,
++        separators=(",", ":"),
++    ).encode("utf-8")
++    code = "TR1." + encode_b64(payload) + "." + encode_b64(private_key.sign(DOMAIN + payload))
++    if len(code) > MAX_CODE:
++        raise RecoveryInvalid("code_size")
++    return code
++
++
++class PublicRecoveryCode:
++    """One small per-process cache, refreshed on file metadata change; invalid -> unavailable."""
++
++    def __init__(self, settings: RecoverySettings):
++        self._path = settings.recovery_code_file
++        self._key = settings.recovery_verify_key_b64
++        self._environment = settings.environment
++        self._stamp: tuple[int, ...] | None = None
++        self._code: str | None = None
++
++    def get(self) -> str:
++        try:
++            if not self._path or not self._key:
++                raise RecoveryInvalid("not_configured")
++            path = Path(self._path)
++            stat = path.stat()
++            stamp = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
++            if stamp != self._stamp:
++                self._code = None
++                self._stamp = None
++                if not 0 < stat.st_size <= MAX_CODE + 2:
++                    raise RecoveryInvalid("file_size")
++                with path.open("rb") as stream:
++                    raw = stream.read(MAX_CODE + 3)
++                if len(raw) > MAX_CODE + 2:
++                    raise RecoveryInvalid("file_size")
++                code = raw.decode("ascii").strip()
++                verify_code(code, self._key, self._environment)
++                self._code, self._stamp = code, stamp
++            if self._code is None:
++                raise RecoveryInvalid("not_configured")
++            return self._code
++        except (OSError, ValueError, UnicodeError):
++            self._code, self._stamp = None, None
++            raise RecoveryUnavailable("RECOVERY_UNAVAILABLE") from None
+diff --git a/locales/en.json b/locales/en.json
+index 80072eaf..afd78ae2 100644
+--- a/locales/en.json
++++ b/locales/en.json
+@@ -3877,5 +3877,14 @@
+   "wa_partner_withdrawal_create_error": "Could not create the withdrawal request. Check the requisites and balance.",
+   "wa_partner_withdrawal_status_canceled": "Canceled",
+   "wa_partner_withdrawal_status_failed": "Failed",
+-  "wa_retry": "Try again"
++  "wa_retry": "Try again",
++  "recovery_title": "Restore connection",
++  "recovery_instruction": "Copy the code and return to TERLIMO: Settings → Restore connection → paste the code.",
++  "recovery_rights": "No purchase or new registration is needed. The code changes connection parameters, not your account or access rights.",
++  "recovery_unavailable": "Recovery code is unavailable right now. Please try later.",
++  "recovery_copy": "Copy",
++  "recovery_copied": "Code copied. Return to the app.",
++  "recovery_copy_failed": "Automatic copy failed. Select the code and copy it manually.",
++  "recovery_code_label": "Recovery code",
++  "recovery_bot_instruction": "Copy the entire code block above using Telegram copy or long press → Copy. Copy the code and return to TERLIMO: Settings → Restore connection → paste the code. No purchase or new registration is needed. The code changes connection parameters, not your account or access rights."
+ }
+diff --git a/locales/ru.json b/locales/ru.json
+index 6a9ad805..9535dac8 100644
+--- a/locales/ru.json
++++ b/locales/ru.json
+@@ -3877,5 +3877,14 @@
+   "wa_partner_withdrawal_create_error": "Не удалось создать заявку. Проверьте реквизиты и баланс.",
+   "wa_partner_withdrawal_status_canceled": "Отменён",
+   "wa_partner_withdrawal_status_failed": "Ошибка",
+-  "wa_retry": "Повторить"
++  "wa_retry": "Повторить",
++  "recovery_title": "Восстановить подключение",
++  "recovery_instruction": "Скопируйте код и вернитесь в TERLIMO: Настройки → Восстановить подключение → вставьте код.",
++  "recovery_rights": "Покупка и повторная регистрация не нужны. Код меняет параметры подключения, а не аккаунт или права доступа.",
++  "recovery_unavailable": "Код восстановления сейчас недоступен. Попробуйте позже.",
++  "recovery_copy": "Скопировать",
++  "recovery_copied": "Код скопирован. Вернитесь в приложение.",
++  "recovery_copy_failed": "Не удалось скопировать автоматически. Выделите код и скопируйте его вручную.",
++  "recovery_code_label": "Код восстановления",
++  "recovery_bot_instruction": "Скопируйте код целиком из блока выше: кнопка копирования Telegram или удержание → Скопировать. Скопируйте код и вернитесь в TERLIMO: Настройки → Восстановить подключение → вставьте код. Покупка и повторная регистрация не нужны. Код меняет параметры подключения, а не аккаунт или права доступа."
+ }
+diff --git a/tests/fixtures/recovery-v1-test-vector.json b/tests/fixtures/recovery-v1-test-vector.json
+new file mode 100644
+index 00000000..22a2f975
+--- /dev/null
++++ b/tests/fixtures/recovery-v1-test-vector.json
+@@ -0,0 +1,30 @@
++{
++  "test_only": true,
++  "warning": "DUMMY KEY AND ENDPOINT. Never deploy. Private test seed is public bytes 00..1f. No real VK credential.",
++  "private_test_seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
++  "public_key_b64": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
++  "seed": {
++    "version": 1,
++    "revision": "42",
++    "environment": "test",
++    "peer_ip": "192.0.2.123",
++    "dtls_port": 57500,
++    "dtls_spki_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
++    "service_classifier": "TERLIMO-TEST-DUMMY-RECOVERY",
++    "vk_hashes": [
++      "TEST-DUMMY-NOT-A-VK-HASH"
++    ],
++    "stream_id": 1
++  },
++  "payload_utf8": "{\"version\":1,\"revision\":\"42\",\"environment\":\"test\",\"peer_ip\":\"192.0.2.123\",\"dtls_port\":57500,\"dtls_spki_sha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"service_classifier\":\"TERLIMO-TEST-DUMMY-RECOVERY\",\"vk_hashes\":[\"TEST-DUMMY-NOT-A-VK-HASH\"],\"stream_id\":1}",
++  "signed_bytes_hex": "5445524c494d4f2d5245434f564552592d5631007b2276657273696f6e223a312c227265766973696f6e223a223432222c22656e7669726f6e6d656e74223a2274657374222c22706565725f6970223a223139322e302e322e313233222c2264746c735f706f7274223a35373530302c2264746c735f73706b695f736861323536223a2241414141414141414141414141414141414141414141414141414141414141414141414141414141414141222c22736572766963655f636c6173736966696572223a225445524c494d4f2d544553542d44554d4d592d5245434f56455259222c22766b5f686173686573223a5b22544553542d44554d4d592d4e4f542d412d564b2d48415348225d2c2273747265616d5f6964223a317d",
++  "signature_b64": "SIw-Y9GPRhoN5xaq2zMGOXM_hfVIIIK5JdkDztxJH615DZsCS9hV7hWDb_lnbP8ICNx8hKzVYFlo5jz3Ez3BAQ",
++  "recovery_code": "TR1.eyJ2ZXJzaW9uIjoxLCJyZXZpc2lvbiI6IjQyIiwiZW52aXJvbm1lbnQiOiJ0ZXN0IiwicGVlcl9pcCI6IjE5Mi4wLjIuMTIzIiwiZHRsc19wb3J0Ijo1NzUwMCwiZHRsc19zcGtpX3NoYTI1NiI6IkFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJzZXJ2aWNlX2NsYXNzaWZpZXIiOiJURVJMSU1PLVRFU1QtRFVNTVktUkVDT1ZFUlkiLCJ2a19oYXNoZXMiOlsiVEVTVC1EVU1NWS1OT1QtQS1WSy1IQVNIIl0sInN0cmVhbV9pZCI6MX0.SIw-Y9GPRhoN5xaq2zMGOXM_hfVIIIK5JdkDztxJH615DZsCS9hV7hWDb_lnbP8ICNx8hKzVYFlo5jz3Ez3BAQ",
++  "http_example": {
++    "request_id": "00112233445566778899aabbccddeeff",
++    "server_time": "2026-10-03T00:00:00Z",
++    "schema_version": "1.0",
++    "status": "ok",
++    "recovery_code": "TR1.eyJ2ZXJzaW9uIjoxLCJyZXZpc2lvbiI6IjQyIiwiZW52aXJvbm1lbnQiOiJ0ZXN0IiwicGVlcl9pcCI6IjE5Mi4wLjIuMTIzIiwiZHRsc19wb3J0Ijo1NzUwMCwiZHRsc19zcGtpX3NoYTI1NiI6IkFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJzZXJ2aWNlX2NsYXNzaWZpZXIiOiJURVJMSU1PLVRFU1QtRFVNTVktUkVDT1ZFUlkiLCJ2a19oYXNoZXMiOlsiVEVTVC1EVU1NWS1OT1QtQS1WSy1IQVNIIl0sInN0cmVhbV9pZCI6MX0.SIw-Y9GPRhoN5xaq2zMGOXM_hfVIIIK5JdkDztxJH615DZsCS9hV7hWDb_lnbP8ICNx8hKzVYFlo5jz3Ez3BAQ"
++  }
++}
+diff --git a/tests/unit/test_public_recovery_issuance.py b/tests/unit/test_public_recovery_issuance.py
+new file mode 100644
+index 00000000..549e6cfe
+--- /dev/null
++++ b/tests/unit/test_public_recovery_issuance.py
+@@ -0,0 +1,175 @@
++"""No live bot/DB: execute public middleware, signed file rotation and page copy UI."""
++
++import json
++import os
++from html import unescape
++from pathlib import Path
++
++import pytest
++from aiogram.types import CallbackQuery, Message, Update
++from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
++
++from bot.app.web.recovery_page import recovery_page_response
++from bot.middlewares.public_recovery import PublicRecoveryMiddleware
++from bot.services.public_recovery import public_recovery_code, recovery_texts
++from bot.services.recovery_code import sign_seed
++
++ROOT = Path(__file__).resolve().parents[2]
++VECTOR = json.loads((ROOT / "tests/fixtures/recovery-v1-test-vector.json").read_text())
++KEY = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(VECTOR["private_test_seed_hex"]))
++
++
++class Translator:
++    def __init__(self):
++        self.locales = {
++            lang: json.loads((ROOT / "locales" / f"{lang}.json").read_text())
++            for lang in ["ru", "en"]
++        }
++
++    def gettext(self, lang_code, key, **kwargs):
++        return self.locales[lang_code or "ru"][key]
++
++
++@pytest.fixture
++def configured(tmp_path, monkeypatch):
++    file = tmp_path / "code"
++    file.write_text(VECTOR["recovery_code"])
++    monkeypatch.setenv("RECOVERY_CODE_FILE", str(file))
++    monkeypatch.setenv("RECOVERY_VERIFY_KEY_B64", VECTOR["public_key_b64"])
++    monkeypatch.setenv("TERLIMO_RECOVERY_ENVIRONMENT", "test")
++    public_recovery_code.cache_clear()
++    yield file
++    public_recovery_code.cache_clear()
++
++
++def update(text):
++    return Update.model_validate(
++        {
++            "update_id": 1,
++            "message": {
++                "message_id": 2,
++                "date": 1,
++                "chat": {"id": 123, "type": "private"},
++                "from": {"id": 123, "is_bot": False, "first_name": "TEST", "language_code": "ru"},
++                "text": text,
++            },
++        }
++    )
++
++
++@pytest.mark.asyncio
++async def test_public_actions_before_account_chain_and_new_file(configured, monkeypatch):
++    sent = []
++
++    async def answer(self, text, **kwargs):
++        sent.append((text, kwargs))
++
++    monkeypatch.setattr(Message, "answer", answer)
++
++    async def forbidden(*args):
++        raise AssertionError("DB/profile/registration/account chain must not run")
++
++    middleware = PublicRecoveryMiddleware(Translator())
++    for text in ["/start recovery", "/recovery"]:
++        await middleware(forbidden, update(text), {})
++    assert unescape(sent[0][0]) == "<pre>" + VECTOR["recovery_code"] + "</pre>"
++    assert sent[0][1]["parse_mode"] == "HTML" and "Скопируйте" in sent[1][0]
++    seed = dict(VECTOR["seed"], revision="43", peer_ip="192.0.2.124", vk_hashes=["new-test-hash"])
++    newer = sign_seed(json.dumps(seed).encode(), KEY, "test")
++    replacement = configured.with_suffix(".new")
++    replacement.write_text(newer)
++    os.replace(replacement, configured)
++    await middleware(forbidden, update("/start recovery"), {})
++    assert newer in sent[-2][0] and VECTOR["recovery_code"] not in sent[-2][0]
++    configured.unlink()
++    await middleware(forbidden, update("/recovery"), {})
++    assert "недоступен" in sent[-1][0] and "TR1." not in sent[-1][0]
++
++
++@pytest.mark.asyncio
++async def test_menu_callback_and_unchanged_registration_chain(configured, monkeypatch):
++    sent = []
++    ack = []
++    other = []
++
++    async def answer(self, text, **kwargs):
++        sent.append(text)
++
++    async def callback_answer(self, **kwargs):
++        ack.append(True)
++
++    monkeypatch.setattr(Message, "answer", answer)
++    monkeypatch.setattr(CallbackQuery, "answer", callback_answer)
++
++    async def ordinary(event, data):
++        other.append(event)
++        return "ordinary"
++
++    middleware = PublicRecoveryMiddleware(Translator())
++    original = update("/start other-token")
++    assert await middleware(ordinary, original, {}) == "ordinary" and other == [original]
++    message = update("").message
++    callback = Update.model_validate(
++        {
++            "update_id": 3,
++            "callback_query": {
++                "id": "TEST",
++                "from": {"id": 123, "is_bot": False, "first_name": "TEST", "language_code": "ru"},
++                "chat_instance": "TEST",
++                "data": "public_recovery",
++                "message": message.model_dump(),
++            },
++        }
++    )
++    await middleware(ordinary, callback, {})
++    assert len(ack) == 1 and len(sent) == 2 and len(other) == 1
++    # Unrelated/group messages stay on the existing chain.
++    group_data = update("/recovery").model_dump()
++    group_data["message"]["chat"]["type"] = "group"
++    group = Update.model_validate(group_data)
++    assert await middleware(ordinary, group, {}) == "ordinary"
++
++
++def test_page_public_localized_valid_missing_and_environment_guard(configured, monkeypatch):
++    for lang in ["ru", "en"]:
++        response = recovery_page_response(
++            public_recovery_code(), recovery_texts(Translator(), lang), language=lang
++        )
++        assert response.status == 200 and VECTOR["recovery_code"] in response.text
++        assert 'id="copy-code"' in response.text and "readonly" in response.text
++        assert (
++            response.headers["Cache-Control"] == "no-store" and "Set-Cookie" not in response.headers
++        )
++    # Default production reader never issues a TEST code on a production site.
++    monkeypatch.delenv("TERLIMO_RECOVERY_ENVIRONMENT")
++    public_recovery_code.cache_clear()
++    response = recovery_page_response(public_recovery_code(), recovery_texts(Translator(), "ru"))
++    assert response.status == 503 and VECTOR["recovery_code"] not in response.text
++    assert 'id="copy-code"' not in response.text
++
++
++@pytest.mark.asyncio
++async def test_real_dispatcher_public_recovery_does_not_open_fsm_storage(configured, monkeypatch):
++    from aiogram import Bot, Dispatcher
++    from aiogram.fsm.storage.memory import MemoryStorage
++
++    class UnavailableAccountStorage(MemoryStorage):
++        async def get_state(self, key):
++            raise AssertionError("Account FSM/Redis must not run for public recovery")
++
++    sent = []
++
++    async def answer(self, text, **kwargs):
++        sent.append(text)
++
++    monkeypatch.setattr(Message, "answer", answer)
++    dp = Dispatcher(storage=UnavailableAccountStorage())
++    dp.update.outer_middleware.unregister(dp.fsm)
++    dp.update.outer_middleware(PublicRecoveryMiddleware(Translator()))
++    dp.update.outer_middleware(dp.fsm)
++    bot = Bot("123456:TEST-not-real-token")
++    try:
++        await dp.feed_update(bot, update("/start recovery"))
++        assert len(sent) == 2 and VECTOR["recovery_code"] in sent[0]
++    finally:
++        await bot.session.close()

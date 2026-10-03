@@ -1,0 +1,8 @@
+....                                                                     [100%]
+=============================== warnings summary ===============================
+tests/test_recovery_issuance.py::test_public_page_no_db_latest_moved_endpoint_and_missing
+  /home/pavel/projects/terlimo-backend/.venv/lib/python3.12/site-packages/aiohttp/web_protocol.py:593: DeprecationWarning: returning HTTPException object is deprecated (#2415) and will be removed, please raise the exception instead
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 1 warning in 0.43s

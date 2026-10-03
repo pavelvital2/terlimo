@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org"
 START_COMMAND = "/start"
 RECOVERY_BUTTON = "Восстановить подключение"
+RECOVERY_INSTRUCTION = "Скопируйте сообщение с кодом целиком (удержание → Скопировать). Вернитесь в TERLIMO: Настройки → Восстановить подключение → вставьте код. Покупка и повторная регистрация не нужны. Код меняет подключение, а не аккаунт или доступ."
 RECOVERY_MENU = {"keyboard": [[{"text": RECOVERY_BUTTON}]], "resize_keyboard": True}
 
 
@@ -113,9 +114,10 @@ def _recovery_chat(update: dict[str, Any], settings: Settings) -> int | None:
     chat, text = message.get("chat"), message.get("text")
     if not isinstance(chat, dict) or type(chat.get("id")) is not int or not isinstance(text, str):
         return None
-    accepted = {"/recovery", RECOVERY_BUTTON}
+    accepted = {"/recovery", "/start recovery", RECOVERY_BUTTON}
     if settings.telegram_bot_username:
         accepted.add("/recovery@" + settings.telegram_bot_username.lstrip("@"))
+        accepted.add("/start@" + settings.telegram_bot_username.lstrip("@") + " recovery")
     return chat["id"] if text.strip() in accepted else None
 
 
@@ -139,7 +141,8 @@ async def handle_update(
         try:
             code = (public_code or PublicRecoveryCode(settings)).get()
             # Whole code only: no prefix/markup that users might accidentally paste.
-            return {"telegram_id": chat_id, "state": "recovery", "reply": code}
+            return {"telegram_id": chat_id, "state": "recovery", "reply": code,
+                    "instruction": RECOVERY_INSTRUCTION}
         except RecoveryUnavailable:
             return {"telegram_id": chat_id, "state": "recovery_unavailable",
                     "reply": "Код восстановления сейчас недоступен. Попробуйте позже."}
@@ -207,6 +210,8 @@ class RegistrationBotRunner:
                                                            reply_markup=outcome["reply_markup"])
                     else:
                         await self._transport.send_message(outcome["telegram_id"], outcome["reply"])
+                    if outcome.get("instruction"):
+                        await self._transport.send_message(outcome["telegram_id"], outcome["instruction"])
                 except (ClientError, OSError):
                     logger.warning("telegram reply failed")
         return handled
