@@ -225,6 +225,7 @@ type RegistrationReferralCandidate struct {
 	CandidateID string `json:"referral_candidate_id"`
 }
 
+// Deprecated: lacks durable replay correlation; integrations must use RequestRegistrationLinkWithCandidateKey.
 func (c *Client) RequestRegistrationLinkWithCandidate(ctx context.Context, candidate RegistrationReferralCandidate) (RegistrationLink, *ErrorResponse, error) {
 	if !validUUID(candidate.CandidateID) {
 		return RegistrationLink{}, nil, ErrInvalidRequest
@@ -290,4 +291,142 @@ func (v *ReferralInfo) UnmarshalJSON(raw []byte) error {
 	}
 	*v = ReferralInfo(p)
 	return nil
+}
+
+// ReferralRegistration correlates an immutable server registration intent to a
+// caller-persisted candidate and key. UUIDs do not prove installation ownership.
+type ReferralRegistration struct {
+	CandidateID    string `json:"candidate_id"`
+	RegistrationID string `json:"registration_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+func (v *ReferralRegistration) UnmarshalJSON(raw []byte) error {
+	type plain ReferralRegistration
+	var p plain
+	if err := referralObject(raw, &p, "candidate_id", "registration_id", "idempotency_key"); err != nil {
+		return err
+	}
+	if !validUUID(p.CandidateID) || !validUUID(p.RegistrationID) || !validIdempotencyKey(p.IdempotencyKey) {
+		return fmt.Errorf("registration correlation invalid")
+	}
+	*v = ReferralRegistration(p)
+	return nil
+}
+
+type ReferralAttributionReceipt struct {
+	ReceiptID      string  `json:"receipt_id"`
+	AccountRef     string  `json:"account_ref"`
+	CandidateID    string  `json:"candidate_id"`
+	RegistrationID string  `json:"registration_id"`
+	IdempotencyKey string  `json:"idempotency_key"`
+	State          string  `json:"state"`
+	Reason         *string `json:"reason"`
+}
+
+func (v *ReferralAttributionReceipt) UnmarshalJSON(raw []byte) error {
+	type plain ReferralAttributionReceipt
+	var p plain
+	if err := referralObject(raw, &p, "receipt_id", "account_ref", "candidate_id", "registration_id", "idempotency_key", "state", "reason"); err != nil {
+		return err
+	}
+	if !validUUID(p.ReceiptID) || !validUUID(p.AccountRef) || !validUUID(p.CandidateID) || !validUUID(p.RegistrationID) || !validIdempotencyKey(p.IdempotencyKey) {
+		return fmt.Errorf("attribution correlation invalid")
+	}
+	switch p.State {
+	case "attached":
+		if p.Reason != nil {
+			return fmt.Errorf("attached reason invalid")
+		}
+	case "rejected":
+		if p.Reason == nil {
+			return fmt.Errorf("rejected reason missing")
+		}
+		switch *p.Reason {
+		case "self", "already_attributed", "ineligible", "invalid":
+		default:
+			return fmt.Errorf("rejected reason invalid")
+		}
+	default:
+		return fmt.Errorf("attribution state invalid")
+	}
+	*v = ReferralAttributionReceipt(p)
+	return nil
+}
+
+// RequestRegistrationLinkWithCandidateKey never invents a key or retries. Missing
+// additive proof in a legacy success remains unresolved (error, zero success DTO).
+// Host still fences fresh account, original installation and persisted intent/CAS.
+func (c *Client) RequestRegistrationLinkWithCandidateKey(ctx context.Context, candidate RegistrationReferralCandidate, key string) (RegistrationLink, *ErrorResponse, error) {
+	if !validUUID(candidate.CandidateID) || !validIdempotencyKey(key) {
+		return RegistrationLink{}, nil, ErrInvalidRequest
+	}
+	raw, status, err := c.request(ctx, http.MethodPost, "/registration/telegram/link", candidate, key)
+	if err != nil {
+		return RegistrationLink{}, nil, err
+	}
+	if status != http.StatusOK {
+		var strictError ErrorResponse
+		if wlwire.StrictJSON(raw, &strictError) != nil {
+			return RegistrationLink{}, nil, fmt.Errorf("registration error envelope invalid")
+		}
+		e, err := decodeError(raw, status)
+		if err != nil {
+			return RegistrationLink{}, nil, err
+		}
+		if e.Code == "REGISTRATION_EXPIRED" {
+			// The error keeps the ordinary envelope. Only this narrowly typed details
+			// member can establish terminality; a bare legacy 410 proves nothing.
+			var envelope struct {
+				Details json.RawMessage `json:"details"`
+			}
+			var details struct {
+				State        string               `json:"state"`
+				Registration ReferralRegistration `json:"referral_registration"`
+			}
+			if json.Unmarshal(raw, &envelope) != nil || status != http.StatusGone || e.Retryable || referralObject(envelope.Details, &details, "state", "referral_registration") != nil || details.State != "expired" || details.Registration.CandidateID != candidate.CandidateID || details.Registration.IdempotencyKey != key {
+				return RegistrationLink{}, e, fmt.Errorf("registration expiry uncorrelated")
+			}
+			e.referralRegistrationExpiry = &details.Registration
+		}
+		return RegistrationLink{}, e, nil
+	}
+	v, err := DecodeRegistrationLinkStrict(raw)
+	if err != nil {
+		return RegistrationLink{}, nil, err
+	}
+	switch v.State {
+	case "pending":
+		r := v.ReferralRegistration
+		if r == nil || r.CandidateID != candidate.CandidateID || r.IdempotencyKey != key {
+			return RegistrationLink{}, nil, fmt.Errorf("registration pending uncorrelated")
+		}
+	case "registered":
+		r := v.ReferralAttribution
+		if r == nil || r.CandidateID != candidate.CandidateID || r.IdempotencyKey != key {
+			return RegistrationLink{}, nil, fmt.Errorf("registration attribution uncorrelated")
+		}
+	}
+	return v, nil, nil
+}
+
+// Matches checks the saved registration identity as well as candidate/key. It is
+// also required on pending replay: the keyed method cannot know an earlier ID.
+func (r ReferralRegistration) Matches(candidateID, registrationID, key string) bool {
+	return validUUID(candidateID) && validUUID(registrationID) && validIdempotencyKey(key) && r.CandidateID == candidateID && r.RegistrationID == registrationID && r.IdempotencyKey == key
+}
+
+// Matches is necessary, not sufficient, to clear durable candidate state. Caller
+// must also compare original installation and flight/disk CAS with fresh /me.
+func (r ReferralAttributionReceipt) Matches(accountRef, candidateID, registrationID, key string) bool {
+	return validUUID(accountRef) && r.AccountRef == accountRef && (ReferralRegistration{r.CandidateID, r.RegistrationID, r.IdempotencyKey}).Matches(candidateID, registrationID, key)
+}
+
+// ReferralRegistrationExpiry returns only a correlated HTTP410 proof obtained by
+// the keyed method; caller must match any already-saved registration ID and CAS.
+func (e *ErrorResponse) ReferralRegistrationExpiry() (ReferralRegistration, bool) {
+	if e == nil || e.referralRegistrationExpiry == nil {
+		return ReferralRegistration{}, false
+	}
+	return *e.referralRegistrationExpiry, true
 }

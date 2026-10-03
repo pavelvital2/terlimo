@@ -1,0 +1,68 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/mobile/v1/registration/telegram/link",
+    "headers": {
+      "Idempotency-Key": "registration-key-0001"
+    },
+    "body": {
+      "referral_candidate_id": "12345678-1234-1234-1234-123456789abc"
+    }
+  },
+  "pending": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-10-03T00:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "registration": {
+      "state": "pending",
+      "token": "tok123",
+      "bot_username": "terlimo_bot",
+      "deep_link": "https://t.me/terlimo_bot?start=tok123",
+      "expires_at": "2026-10-03T00:10:00Z",
+      "expires_in": 600,
+      "referral_registration": {
+        "candidate_id": "12345678-1234-1234-1234-123456789abc",
+        "registration_id": "aaaaaaaa-1234-1234-1234-123456789abc",
+        "idempotency_key": "registration-key-0001"
+      }
+    }
+  },
+  "registered": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-10-03T00:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "registration": {
+      "state": "registered",
+      "referral_attribution": {
+        "receipt_id": "bbbbbbbb-1234-1234-1234-123456789abc",
+        "account_ref": "cccccccc-1234-1234-1234-123456789abc",
+        "candidate_id": "12345678-1234-1234-1234-123456789abc",
+        "registration_id": "aaaaaaaa-1234-1234-1234-123456789abc",
+        "idempotency_key": "registration-key-0001",
+        "state": "attached",
+        "reason": null
+      }
+    }
+  },
+  "expired": {
+    "http_status": 410,
+    "body": {
+      "request_id": "0123456789abcdef0123456789abcdef",
+      "server_time": "2026-10-03T00:00:00Z",
+      "schema_version": "1.0",
+      "status": "error",
+      "code": "REGISTRATION_EXPIRED",
+      "retryable": false,
+      "details": {
+        "state": "expired",
+        "referral_registration": {
+          "candidate_id": "12345678-1234-1234-1234-123456789abc",
+          "registration_id": "aaaaaaaa-1234-1234-1234-123456789abc",
+          "idempotency_key": "registration-key-0001"
+        }
+      }
+    }
+  }
+}

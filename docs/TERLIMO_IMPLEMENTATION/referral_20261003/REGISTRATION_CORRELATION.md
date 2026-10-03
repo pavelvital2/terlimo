@@ -1,0 +1,5 @@
+# Keyed referral registration — root SOURCE acceptance
+
+Candidate aa88b05f303ee3381a4bdcb295d92f6cb333cca4 on318a61a. All3postimage hashes match. Root read production diff, existing strict error decoder, shared fixtures and targeted test log. Accepted7named targeted cases PASS without repeat. Keyed API rejects missing/foreign candidate/K receipts and bare expiry; callers must additionally check original installation, saved registration ID, fresh account and durable CAS. Ordinary registration remains unchanged. No server/Android/runtime readiness implied.
+
+Server must persist immutable installation/K/candidate registration intent and protected replay result; never expire-and-recreate on sameK. Expired intent must commit despite error response; 410 REGISTRATION_EXPIRED carries exact correlation. Only explicit new intent may use newK after correlated expiry; candidate stays retained. Full registered receipt comes from verified account and immutable intent. Missing evidence remains unresolved.

@@ -469,6 +469,8 @@ func DecodeMeStrict(raw []byte) (MeResponse, error) {
 // one-time token and the deep link are carried only long enough to open Telegram; they
 // are never persisted by the client.
 type RegistrationLink struct {
+	ReferralRegistration         *ReferralRegistration
+	ReferralAttribution          *ReferralAttributionReceipt
 	ReferralAttributionReceiptID *string
 	State                        string
 	Token                        string
@@ -486,13 +488,15 @@ func DecodeRegistrationLinkStrict(raw []byte) (RegistrationLink, error) {
 		SchemaVersion string `json:"schema_version"`
 		Status        string `json:"status"`
 		Registration  struct {
-			ReferralAttributionReceiptID *string `json:"referral_attribution_receipt_id,omitempty"`
-			State                        string  `json:"state"`
-			Token                        *string `json:"token"`
-			BotUsername                  *string `json:"bot_username"`
-			DeepLink                     *string `json:"deep_link"`
-			ExpiresAt                    *string `json:"expires_at"`
-			ExpiresIn                    *int    `json:"expires_in"`
+			ReferralRegistration         *ReferralRegistration       `json:"referral_registration,omitempty"`
+			ReferralAttribution          *ReferralAttributionReceipt `json:"referral_attribution,omitempty"`
+			ReferralAttributionReceiptID *string                     `json:"referral_attribution_receipt_id,omitempty"`
+			State                        string                      `json:"state"`
+			Token                        *string                     `json:"token"`
+			BotUsername                  *string                     `json:"bot_username"`
+			DeepLink                     *string                     `json:"deep_link"`
+			ExpiresAt                    *string                     `json:"expires_at"`
+			ExpiresIn                    *int                        `json:"expires_in"`
 		} `json:"registration"`
 	}
 	if err := wlwire.StrictJSON(raw, &envelope); err != nil {
@@ -502,7 +506,15 @@ func DecodeRegistrationLinkStrict(raw []byte) (RegistrationLink, error) {
 		!requestIDPattern.MatchString(envelope.RequestID) || !ValidUtcTime(envelope.ServerTime) {
 		return RegistrationLink{}, fmt.Errorf("registration link envelope invalid")
 	}
+	registration := envelope.Registration.ReferralRegistration
+	attribution := envelope.Registration.ReferralAttribution
+	if registration != nil && envelope.Registration.State != "pending" || attribution != nil && envelope.Registration.State != "registered" {
+		return RegistrationLink{}, fmt.Errorf("registration referral object state mismatch")
+	}
 	receipt := envelope.Registration.ReferralAttributionReceiptID
+	if receipt != nil && attribution != nil && *receipt != attribution.ReceiptID {
+		return RegistrationLink{}, fmt.Errorf("registration receipt mismatch")
+	}
 	if receipt != nil && (!validUUID(*receipt) || envelope.Registration.State != "registered") {
 		return RegistrationLink{}, fmt.Errorf("registration referral receipt invalid")
 	}
@@ -524,11 +536,11 @@ func DecodeRegistrationLinkStrict(raw []byte) (RegistrationLink, error) {
 			*envelope.Registration.ExpiresIn < 1 || *envelope.Registration.ExpiresIn > 3600 {
 			return RegistrationLink{}, fmt.Errorf("registration link expiry invalid")
 		}
-		return RegistrationLink{State: "pending", Token: token, BotUsername: bot,
+		return RegistrationLink{ReferralRegistration: registration, State: "pending", Token: token, BotUsername: bot,
 			DeepLink: *envelope.Registration.DeepLink, ExpiresAt: envelope.Registration.ExpiresAt,
 			ExpiresIn: *envelope.Registration.ExpiresIn}, nil
 	case "registered":
-		return RegistrationLink{State: "registered", ReferralAttributionReceiptID: receipt}, nil
+		return RegistrationLink{State: "registered", ReferralAttributionReceiptID: receipt, ReferralAttribution: attribution}, nil
 	default:
 		return RegistrationLink{}, fmt.Errorf("registration link state unknown")
 	}
@@ -912,6 +924,8 @@ type SyncRecovery struct {
 // ErrorResponse mirrors the bounded error envelope, including the GET /gateways
 // nonterminal admission tokens.
 type ErrorResponse struct {
+	// Set only for correlated HTTP410 registration replay, never from arbitrary errors.
+	referralRegistrationExpiry *ReferralRegistration
 	// Set only by the authenticated POST /payments response validator. Never decoded from JSON.
 	expiredQuoteNoOrder bool
 	RequestID           string         `json:"request_id"`
