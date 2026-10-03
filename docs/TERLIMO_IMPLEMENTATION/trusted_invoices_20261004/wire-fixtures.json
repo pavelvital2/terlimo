@@ -1,0 +1,125 @@
+{
+  "fixture_kind": "synthetic examples via shared serializers; no runtime receipts",
+  "path": "/api/mobile/v1/internal/telegram/billing",
+  "headers": {
+    "X-Telegram-Bot-Key": "<protected server credential, never browser>",
+    "Idempotency-Key": "caller-persisted-create-key-001"
+  },
+  "create_request": {
+    "operation": "create",
+    "telegram_id": 801,
+    "quote_id": "00000000-0000-4000-8000-000000000101"
+  },
+  "create_response": {
+    "request_id": "00000000000000000000000000000000",
+    "server_time": "2026-10-04T00:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "payment_id": "00000000-0000-4000-8000-000000000201",
+    "payment_status": "pending",
+    "checkout_reference": "https://checkout.invalid/example",
+    "credited_entitlement_revision": null,
+    "access_application_state": "not_requested",
+    "pricing": {
+      "base_amount_minor": 20000,
+      "discount_minor": 10000,
+      "payable_amount_minor": 10000,
+      "currency": "RUB",
+      "discount_kind": "referral_first_main",
+      "terms_version": "referral-20261003-v1"
+    },
+    "referral_discount_state": "reserved",
+    "product": {
+      "kind": "subscription",
+      "plan_id": "terlimo-30d",
+      "device_delta": 0,
+      "target_entitlement_id": null,
+      "target_valid_until": null,
+      "valid_from": "2026-10-04T00:00:00Z",
+      "valid_until": "2026-11-03T00:00:00Z",
+      "renew_extra_slot_ids": [],
+      "base_amount_minor": 20000,
+      "extra_amount_minor": 0,
+      "device_limit": 2,
+      "extra_slots": []
+    },
+    "credit_state": "unapplied",
+    "credit_review_reason": null,
+    "credited_product": null,
+    "provisioning_state": "not_requested"
+  },
+  "status_request": {
+    "operation": "status",
+    "telegram_id": 801,
+    "payment_id": "00000000-0000-4000-8000-000000000201"
+  },
+  "status_response": {
+    "request_id": "00000000000000000000000000000000",
+    "server_time": "2026-10-04T00:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "payment_id": "00000000-0000-4000-8000-000000000201",
+    "payment_status": "paid",
+    "checkout_reference": "https://checkout.invalid/example",
+    "credited_entitlement_revision": "1",
+    "access_application_state": "retryable_failure",
+    "pricing": {
+      "base_amount_minor": 20000,
+      "discount_minor": 10000,
+      "payable_amount_minor": 10000,
+      "currency": "RUB",
+      "discount_kind": "referral_first_main",
+      "terms_version": "referral-20261003-v1"
+    },
+    "referral_discount_state": "consumed",
+    "product": {
+      "kind": "subscription",
+      "plan_id": "terlimo-30d",
+      "device_delta": 0,
+      "target_entitlement_id": null,
+      "target_valid_until": null,
+      "valid_from": "2026-10-04T00:00:00Z",
+      "valid_until": "2026-11-03T00:00:00Z",
+      "renew_extra_slot_ids": [],
+      "base_amount_minor": 20000,
+      "extra_amount_minor": 0,
+      "device_limit": 2,
+      "extra_slots": []
+    },
+    "credit_state": "applied",
+    "credit_review_reason": null,
+    "credited_product": {
+      "valid_from": "2026-10-04T00:00:00Z",
+      "valid_until": "2026-11-03T00:00:00Z",
+      "device_limit": 2,
+      "current_device_limit": 2,
+      "pricing": {
+        "base_amount_minor": 20000,
+        "discount_minor": 10000,
+        "payable_amount_minor": 10000,
+        "currency": "RUB",
+        "discount_kind": "referral_first_main",
+        "terms_version": "referral-20261003-v1"
+      }
+    },
+    "provisioning_state": "external_pending"
+  },
+  "expired_no_order_http_status": 409,
+  "expired_no_order_response": {
+    "request_id": "00000000000000000000000000000000",
+    "server_time": "2026-10-04T00:00:00Z",
+    "schema_version": "1.0",
+    "status": "error",
+    "code": "QUOTE_EXPIRED",
+    "retryable": false,
+    "details": {
+      "reason": "expired_quote_no_order",
+      "create_resolution": {
+        "kind": "no_order",
+        "quote_id": "00000000-0000-4000-8000-000000000101",
+        "request_idempotency_key": "caller-persisted-create-key-001",
+        "reason": "expired_quote_no_order"
+      }
+    }
+  }
+}

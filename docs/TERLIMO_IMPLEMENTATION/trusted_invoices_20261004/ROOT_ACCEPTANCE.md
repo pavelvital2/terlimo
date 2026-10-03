@@ -1,0 +1,9 @@
+# Root SOURCE acceptance — trusted invoice create/status
+
+Reviewed donor 822ebd1cf8f712573c33731100b85e0bdbacad86 / tree 3def4bcece354b3832d9ea82f8d80bee160c7998 over exact published 79256d8700f2b4499e29a73a1c868090c2cfc5c1. Six postimage hashes and attached artifact hashes verified; REPORT.md listed in manifest was not attached and is not independent evidence. Root reviewed actual three product-file diffs, shared serializer/quote/reservation boundaries, all twelve distinct affected test cases and supplied logs. No new concrete blocker found in this bounded source slice.
+
+Accepted: strict trusted create/status authorization with explicit account/caller ownership; frozen Q/amount/currency/product/pricing; global K/source Q precedence and no second provider POST for unknown/in-flight; committed exact no_order; common all-MAIN reservation guard across mobile/account; released trusted preparation locks before provider I/O; retained mobile serialization/binding/wire; shared provider finalizer and existing callback/reconcile credit. Logical paid credit remains external_pending, with no fake installation, grant or referral reward.
+
+Executor evidence: twelve distinct temporary-PG/local-HTTP/fake-provider cases, including real lock barriers and affected repetitions after final changes; not twenty distinct tests. Root did not repeat passed suites. git diff --check and applied postimage verification passed.
+
+This accepts source, not live provider/runtime/full checkout. TEST remains through0041;0042 and these routes are not activated by this publication. Still required: account trial, typed external delivery and verified reward trigger, preserved inline bot/site caller checkout/trial, legacy ownership/history/callback/expiry cutover, and combined user acceptance. Production unchanged.

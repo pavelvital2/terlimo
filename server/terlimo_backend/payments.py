@@ -22,7 +22,7 @@ import json
 import logging
 import math
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -411,6 +411,26 @@ async def payment_install_lock(connection: asyncpg.Connection, installation_id: 
         await connection.execute("SELECT pg_advisory_unlock(hashtextextended($1, 0))", lock_key)
 
 
+@dataclass(frozen=True)
+class TrustedPaymentOwner:
+    """Internal proof resolved by the authenticated Telegram backend wrapper.
+
+    Never deserialize this from request JSON. No installation/binding is borrowed.
+    Mapping is rechecked after the preparation lock wait and before insertion.
+    """
+    account_id: uuid.UUID
+    telegram_id: int
+
+
+async def _verify_trusted_owner(connection, owner, *, lock=False):
+    suffix = " FOR SHARE" if lock else ""
+    valid = await connection.fetchval(
+        "SELECT id FROM accounts WHERE id=$1 AND telegram_id=$2 AND status='verified'" + suffix,
+        owner.account_id, owner.telegram_id)
+    if valid is None:
+        raise ApiError("REGISTRATION_REQUIRED", http=409, retryable=False)
+
+
 async def create_order(
     connection: asyncpg.Connection,
     settings: Settings,
@@ -424,14 +444,36 @@ async def create_order(
     public_method: str | None = None,
     checkout_owner_account_id: Any = None,
     checkout_owner_binding_id: Any = None,
+    _trusted_owner: TrustedPaymentOwner | None = None,
 ) -> dict[str, Any]:
     from .payment_products import product_of
+    trusted = _trusted_owner is not None
+    deployment_settings = settings
+    if trusted:
+        if installation_id is not None or checkout_owner_binding_id is not None:
+            raise ApiError("ORDER_CONFLICT", http=409)
+        checkout_owner_account_id = _trusted_owner.account_id
     commercial_quote = None
     if quote_id is not None:
         try:
-            commercial_quote = await connection.fetchrow("SELECT * FROM s5_payment_quotes WHERE id=$1 AND installation_id=$2",uuid.UUID(str(quote_id)),installation_id)
+            qid = uuid.UUID(str(quote_id))
         except (ValueError, AttributeError):
             raise ApiError("BAD_MESSAGE", http=400) from None
+        if trusted:
+            commercial_quote = await connection.fetchrow(
+                "SELECT * FROM s5_payment_quotes WHERE id=$1 AND owner_kind='telegram_account' "
+                "AND trusted_owner_account_id=$2 AND trusted_caller='telegram_backend'",
+                qid, checkout_owner_account_id)
+            if commercial_quote is None:
+                raise ApiError("NOT_FOUND", http=404)
+            # Replay must not use current tariff/discount/config; new-only gates below.
+            from .s5_payments import _quoted_settings
+            settings = replace(_quoted_settings(settings, checkout_owner_account_id, commercial_quote, durable=True),
+                               payment_currency=commercial_quote["currency"])
+        else:
+            commercial_quote = await connection.fetchrow("SELECT * FROM s5_payment_quotes WHERE id=$1 AND installation_id=$2",qid,installation_id)
+    elif trusted:
+        raise ApiError("BAD_MESSAGE", http=400)
     product = product_of(commercial_quote) if commercial_quote else None
     if product and product["owner_account_id"] != (str(checkout_owner_account_id) if checkout_owner_account_id else None):
         raise ApiError("ORDER_CONFLICT",http=409)
@@ -469,8 +511,13 @@ async def create_order(
             source_quote_id = uuid.UUID(str(quote_id))
         except (ValueError, AttributeError):
             raise ApiError("BAD_MESSAGE", http=400, details={"reason": "bad_quote_id"}) from None
-    # Durable replay and all new-create decisions share the installation lock.
-    async with payment_install_lock(connection, installation_id):
+    # Durable replay and preparation share the proven owner lock.
+    prepare_owner = f"telegram-account:{checkout_owner_account_id}" if trusted else installation_id
+    async with payment_install_lock(connection, prepare_owner):
+        if trusted:
+            await _verify_trusted_owner(connection, _trusted_owner)
+            # Refresh mutable terminal/expiry facts after waiting for another create.
+            commercial_quote = await connection.fetchrow("SELECT * FROM s5_payment_quotes WHERE id=$1",source_quote_id)
         existing = await connection.fetchrow(
             "SELECT * FROM payment_orders WHERE idempotency_key = $1", key
         )
@@ -478,7 +525,10 @@ async def create_order(
             # Durable replay first: an exact same-key retry returns the prior order without any
             # quote freshness/proof check and without a provider call. Conflict is proven before
             # any mutation, so a mismatching replay changes nothing.
-            if existing["installation_id"] != installation_id:
+            if (trusted and (existing["owner_kind"] != "telegram_account"
+                    or existing["trusted_owner_account_id"] != checkout_owner_account_id
+                    or existing["trusted_caller"] != "telegram_backend")) or (
+                    not trusted and (existing["owner_kind"] != "installation" or existing["installation_id"] != installation_id)):
                 raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "installation_mismatch"})
             if (
                 int(existing["months"]) != months
@@ -514,17 +564,26 @@ async def create_order(
             order_id = existing["id"]
         else:
             async with connection.transaction():
+                if trusted:
+                    await _verify_trusted_owner(connection, _trusted_owner, lock=True)
                 # Bounded evasion guard: while ANY order for this installation has an unresolved
                 # provider-create (unknown outcome), a different idempotency key may not start a new
                 # invoice. Recovery is reconciliation/operator identity lookup, not client retry.
-                unresolved = await connection.fetchval(
-                    """
-                    SELECT 1 FROM payment_orders
-                    WHERE installation_id = $1 AND provider_create_state IN ('in_flight', 'unknown')
-                    LIMIT 1
-                    """,
-                    installation_id,
-                )
+                if trusted:
+                    unresolved = await connection.fetchval(
+                        "SELECT 1 FROM payment_orders WHERE owner_kind='telegram_account' "
+                        "AND trusted_owner_account_id=$1 AND trusted_caller='telegram_backend' "
+                        "AND provider_create_state IN ('in_flight','unknown') LIMIT 1",
+                        checkout_owner_account_id)
+                else:
+                    unresolved = await connection.fetchval(
+                        """
+                        SELECT 1 FROM payment_orders
+                        WHERE installation_id = $1 AND provider_create_state IN ('in_flight', 'unknown')
+                        LIMIT 1
+                        """,
+                        installation_id,
+                    )
                 if unresolved is not None:
                     raise ApiError(
                         "PAYMENT_PROVIDER_UNKNOWN",
@@ -554,24 +613,51 @@ async def create_order(
                         raise ApiError("ORDER_CONFLICT",http=409,details={"reason":"idempotency_key_reused"})
                     if await connection.fetchval("SELECT 1 FROM payment_orders WHERE source_quote_id=$1",source_quote_id):
                         raise ApiError("ORDER_CONFLICT",http=409,details={"reason":"quote_already_used"})
-                    rejection = await reserve_check(connection,serialization_account_id,source_quote_id,key,discounted=bool(pricing))
+                    if trusted:
+                        from .referral_pricing import check_unknown_main
+                        await check_unknown_main(connection,serialization_account_id)
+                    if trusted and commercial_quote["referral_create_resolution_reason"]:
+                        from .referral_pricing import no_order_error
+                        rejection = no_order_error(source_quote_id,key,commercial_quote["referral_create_resolution_reason"])
+                    else:
+                        if trusted and await connection.fetchval("SELECT history_state FROM referral_benefits WHERE account_id=$1",serialization_account_id) != 'ready':
+                            raise ApiError("REFERRAL_HISTORY_PENDING",http=503,retryable=True)
+                        rejection = await reserve_check(connection,serialization_account_id,source_quote_id,key,discounted=bool(pricing))
                 else:
                     rejection = None
+                if trusted and rejection is None:
+                    from .s5_payments import _quote_selection_proven
+                    if not _quote_selection_proven(commercial_quote,product):
+                        raise ApiError("ORDER_CONFLICT",http=409,details={"reason":"quote_mismatch"})
+                    if commercial_quote["expires_at"] <= datetime.now(UTC):
+                        from .referral_pricing import no_order_error
+                        reason = commercial_quote["referral_create_resolution_reason"] or "expired_quote_no_order"
+                        await connection.execute("UPDATE s5_payment_quotes SET referral_create_resolution_reason=$2 WHERE id=$1",source_quote_id,reason)
+                        rejection = no_order_error(source_quote_id,key,reason)
+                    else:
+                        from .s5_payments import _quoted_settings
+                        _quoted_settings(deployment_settings,checkout_owner_account_id,commercial_quote,durable=False)
+                        if await connection.fetchval("SELECT history_state FROM referral_benefits WHERE account_id=$1",checkout_owner_account_id) != 'ready':
+                            raise ApiError("REFERRAL_HISTORY_PENDING",http=503,retryable=True)
                 if rejection is None:
                     if source_quote_id is not None:
                         # Server-side proof of the selected plan for a genuinely new order: the durable
                         # quote must belong to this installation and match parameters exactly; never an
                         # arbitrary caller-supplied dict.
-                        proof = await connection.fetchrow(
-                            "SELECT * FROM s5_payment_quotes WHERE id = $1 AND installation_id = $2 FOR UPDATE",
-                            source_quote_id,
-                            installation_id,
-                        )
+                        if trusted:
+                            proof = commercial_quote
+                        else:
+                            proof = await connection.fetchrow(
+                                "SELECT * FROM s5_payment_quotes WHERE id = $1 AND installation_id = $2 FOR UPDATE",
+                                source_quote_id, installation_id)
                         quote["plan"] = _plan_from_quote(proof, settings, months, requested_public)
                         if product:
-                            from .payment_products import validate_credit_target
-                            binding = await connection.fetchrow("SELECT id,account_id FROM account_bindings WHERE installation_id=$1 AND status='active'",installation_id)
-                            _, review = await validate_credit_target(connection,{"quote":quote,"checkout_owner_binding_id":checkout_owner_binding_id},binding,datetime.now(UTC))
+                            from .payment_products import validate_credit_target, validate_account_credit_target
+                            if trusted:
+                                _, review = await validate_account_credit_target(connection,{"quote":quote},checkout_owner_account_id,datetime.now(UTC))
+                            else:
+                                binding = await connection.fetchrow("SELECT id,account_id FROM account_bindings WHERE installation_id=$1 AND status='active'",installation_id)
+                                _, review = await validate_credit_target(connection,{"quote":quote,"checkout_owner_binding_id":checkout_owner_binding_id},binding,datetime.now(UTC))
                             if review:
                                 raise ApiError("PAYMENT_STATE_INVALID",http=409)
                     if requested_method is not None:
@@ -594,8 +680,9 @@ async def create_order(
                                 INSERT INTO payment_orders
                                     (installation_id, provider, idempotency_key, quote, amount, currency, months, tariff_key,
                                      provider_create_state, source_quote_id,
-                                     checkout_owner_account_id, checkout_owner_binding_id)
-                                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'in_flight', $9, $10, $11)
+                                     checkout_owner_account_id, checkout_owner_binding_id,
+                                     owner_kind, trusted_owner_account_id, trusted_caller)
+                                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'in_flight', $9, $10, $11, $12, $13, $14)
                                 RETURNING id
                                 """,
                                 installation_id,
@@ -609,6 +696,9 @@ async def create_order(
                                 source_quote_id,
                                 checkout_owner_account_id,
                                 checkout_owner_binding_id,
+                                "telegram_account" if trusted else "installation",
+                                checkout_owner_account_id if trusted else None,
+                                "telegram_backend" if trusted else None,
                             )
                         except asyncpg.UniqueViolationError:
                             # One quote funds at most one order; no provider create happened for this attempt.
@@ -624,40 +714,52 @@ async def create_order(
                 "UPDATE payment_orders SET provider_create_state = 'in_flight', updated_at = now() WHERE id = $1",
                 order_id,
             )
-        try:
-            payment = await provider.create_payment(
-                amount=amount,
-                currency=settings.payment_currency,
-                months=months,
-                order_ref=str(order_id),
-                description="TERLIMO +1 device" if months == 0 else f"TERLIMO {months}m",
-                method=requested_method,
-            )
-        except Exception:
-            # Any failure (non-2xx/timeout/malformed body/DB error after the provider call) may
-            # follow a created transaction: fail closed as unknown, never invite a duplicate
-            # invoice. The only safe recovery is operator/merchant identity reconciliation.
-            await connection.execute(
-                "UPDATE payment_orders SET provider_create_state = 'unknown', updated_at = now() WHERE id = $1",
-                order_id,
-            )
-            raise
-        order = await connection.fetchrow(
-            """
-            UPDATE payment_orders
-            SET provider_payment_id = $2, provider_payment_url = $3, provider_qr = $4,
-                provider_variant = $5, provider_create_state = 'created',
-                provider_created_at = now(), status = 'pending', updated_at = now()
-            WHERE id = $1
-            RETURNING *
-            """,
-            order_id,
-            payment.provider_payment_id,
-            payment.pay_url,
-            payment.qr,
-            payment.variant,
+        if not trusted:
+            # Preserve the legacy/mobile serialized response behavior, including
+            # concurrent same-key callers waiting for the first provider result.
+            return await _finish_order_creation(connection, provider, order_id=order_id,
+                amount=amount,currency=settings.payment_currency,months=months,method=requested_method)
+    # Trusted in_flight + reservation commit before I/O; no trusted lock spans it.
+    return await _finish_order_creation(connection, provider, order_id=order_id,
+        amount=amount,currency=settings.payment_currency,months=months,method=requested_method)
+
+
+async def _finish_order_creation(connection, provider, *, order_id, amount, currency, months, method):
+    """One provider-create/finalization implementation shared by both owner kinds."""
+    try:
+        payment = await provider.create_payment(
+            amount=amount,
+            currency=currency,
+            months=months,
+            order_ref=str(order_id),
+            description="TERLIMO +1 device" if months == 0 else f"TERLIMO {months}m",
+            method=method,
         )
-        return {"payment": _order_view(order)}
+    except Exception:
+        # Any failure (non-2xx/timeout/malformed body/DB error after the provider call) may
+        # follow a created transaction: fail closed as unknown, never invite a duplicate
+        # invoice. The only safe recovery is operator/merchant identity reconciliation.
+        await connection.execute(
+            "UPDATE payment_orders SET provider_create_state = 'unknown', updated_at = now() WHERE id = $1",
+            order_id,
+        )
+        raise
+    order = await connection.fetchrow(
+        """
+        UPDATE payment_orders
+        SET provider_payment_id = $2, provider_payment_url = $3, provider_qr = $4,
+            provider_variant = $5, provider_create_state = 'created',
+            provider_created_at = now(), status = 'pending', updated_at = now()
+        WHERE id = $1
+        RETURNING *
+        """,
+        order_id,
+        payment.provider_payment_id,
+        payment.pay_url,
+        payment.qr,
+        payment.variant,
+    )
+    return {"payment": _order_view(order)}
 
 
 

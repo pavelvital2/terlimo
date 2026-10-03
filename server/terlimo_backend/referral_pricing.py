@@ -60,17 +60,21 @@ def no_order_error(quote_id, key, reason):
                         'request_idempotency_key':key,'reason':reason}})
 
 
+async def check_unknown_main(connection, account_id):
+    if await connection.fetchval('''SELECT 1 FROM payment_orders p LEFT JOIN account_bindings b
+        ON b.installation_id=p.installation_id AND b.status='active'
+        WHERE coalesce(p.checkout_owner_account_id,p.account_id,b.account_id)=$1
+        AND p.months IN (1,3,6) AND p.provider_create_state IN ('in_flight','unknown') LIMIT 1''',account_id):
+        raise ApiError('PAYMENT_PROVIDER_UNKNOWN',http=503,retryable=False)
+
+
 async def reserve_check(connection, account_id, quote_id, key, *, discounted=True):
     """Under the account lock after global K/source Q/unknown checks.
 
     Caller commits a returned rejection before raising it. Quote invalidation is
     durable: relaxing eligibility cannot resurrect this Q with any later key.
     """
-    if await connection.fetchval('''SELECT 1 FROM payment_orders p LEFT JOIN account_bindings b
-        ON b.installation_id=p.installation_id AND b.status='active'
-        WHERE coalesce(p.checkout_owner_account_id,p.account_id,b.account_id)=$1
-        AND p.months IN (1,3,6) AND p.provider_create_state IN ('in_flight','unknown') LIMIT 1''',account_id):
-        raise ApiError('PAYMENT_PROVIDER_UNKNOWN',http=503,retryable=False)
+    await check_unknown_main(connection, account_id)
     benefit = await connection.fetchrow('SELECT * FROM referral_benefits WHERE account_id=$1 FOR UPDATE',account_id)
     reason = None
     other_invoice = await connection.fetchval('''SELECT 1 FROM payment_orders p LEFT JOIN account_bindings b
