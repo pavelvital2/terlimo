@@ -30,6 +30,7 @@ from .onboarding_api import (
     register_onboarding_routes,
 )
 from .referral_api import register_referral_routes
+from .referral_trusted import register_trusted_referral_routes
 from .recovery_api import register_recovery_routes
 from .payments import register_payment_routes
 from .s5_payments import register_s5_payment_routes
@@ -129,6 +130,7 @@ def create_app(settings: Settings, database: Database) -> web.Application:
     register_device_routes(app, settings, database)
     register_recovery_routes(app, settings, database)
     register_referral_routes(app, settings, database)
+    register_trusted_referral_routes(app, settings, database)
     app[MAINTENANCE_TASK_KEY] = None
 
     async def _startup(_: web.Application) -> None:

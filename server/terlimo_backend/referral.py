@@ -50,16 +50,18 @@ def digest(body):
 
 
 async def _initialize_account(connection, account_id, *, new_account=False):
-    # Preserve account -> benefit lock order. No importer/network I/O here.
-    account = await connection.fetchrow("SELECT * FROM accounts WHERE id=$1 FOR UPDATE", account_id)
+    # Account -> benefit order is unchanged. Ordinary attribution updates no
+    # referenced key: NO KEY UPDATE preserves serialization while allowing the
+    # other account's FK KEY SHARE in reciprocal mobile/trusted attachments.
+    account = await connection.fetchrow("SELECT * FROM accounts WHERE id=$1 FOR NO KEY UPDATE", account_id)
     if account is None or account["status"] != "verified" or account["telegram_id"] is None:
         return
     await connection.execute(
         "INSERT INTO referral_benefits(account_id) VALUES($1) ON CONFLICT DO NOTHING", account_id
     )
     benefit = await connection.fetchrow("SELECT * FROM referral_benefits WHERE account_id=$1", account_id)
-    if benefit['history_epoch_id'] is not None and benefit['history_state'] == 'ready':
-        return  # Never reclassify live post-cutover events as imported history.
+    if benefit['history_state'] == 'ready' and account['referral_code'] is not None:
+        return  # Includes accepted pre-epoch staging: never replay it over live attribution.
     staged = await connection.fetchrow(
         "SELECT * FROM referral_history_staging WHERE telegram_id=$1", account["telegram_id"]
     )
@@ -138,9 +140,14 @@ async def _initialize_account(connection, account_id, *, new_account=False):
                 raise ApiError('SERVICE_UNAVAILABLE',http=503)
     else:
         return
+    # Assign a missing unique code separately. Do not list the unique column in
+    # ordinary updates: even SET referral_code=the_same_value upgrades the row
+    # lock to FOR UPDATE and would defeat FK-compatible ownership above.
+    if account['referral_code'] is None and staged['code'] is not None:
+        await connection.execute('UPDATE accounts SET referral_code=$2 WHERE id=$1',account_id,code)
     await connection.execute(
-        "UPDATE accounts SET referral_code=$2,referred_by_account_id=coalesce(referred_by_account_id,$3),referral_attributed_at=CASE WHEN referred_by_account_id IS NULL AND $3::uuid IS NOT NULL THEN now() ELSE referral_attributed_at END,referral_attribution_receipt_id=CASE WHEN $3::uuid IS NOT NULL THEN coalesce(referral_attribution_receipt_id,gen_random_uuid()) ELSE referral_attribution_receipt_id END,referral_terms_version=$4 WHERE id=$1",
-        account_id,code,inviter,TERMS_VERSION)
+        "UPDATE accounts SET referred_by_account_id=coalesce(referred_by_account_id,$2),referral_attributed_at=CASE WHEN referred_by_account_id IS NULL AND $2::uuid IS NOT NULL THEN now() ELSE referral_attributed_at END,referral_attribution_receipt_id=CASE WHEN $2::uuid IS NOT NULL THEN coalesce(referral_attribution_receipt_id,gen_random_uuid()) ELSE referral_attribution_receipt_id END,referral_terms_version=$3 WHERE id=$1",
+        account_id,inviter,TERMS_VERSION)
     await connection.execute(
         """UPDATE referral_benefits SET history_state='ready',
         imported_trial_used=imported_trial_used OR $2,imported_first_main_paid=imported_first_main_paid OR $3,
@@ -299,81 +306,64 @@ async def change_candidate(
     return result
 
 
-async def attach_candidate(connection, link, account_id):
-    candidate_id = link["referral_candidate_id"]
-    if candidate_id is None:
-        return None
-    if link["referral_attribution"] is not None:
-        return link["referral_attribution"]
-    candidate = await connection.fetchrow(
-        "SELECT * FROM referral_candidates WHERE id=$1 FOR UPDATE", candidate_id
-    )
+async def attach_account(connection, account_id, code):
+    """Shared mutation seam; caller owns transaction + existing bind-account lock.
+
+    No installation/registration fabrication. Caller has already authorized this
+    verified account; the row lock serializes mobile and trusted attribution.
+    """
     account = await connection.fetchrow(
-        "SELECT a.*,b.history_state FROM accounts a JOIN referral_benefits b ON b.account_id=a.id WHERE a.id=$1 FOR UPDATE OF a",
+        "SELECT a.*,b.history_state FROM accounts a LEFT JOIN referral_benefits b ON b.account_id=a.id WHERE a.id=$1 AND a.status='verified' AND a.telegram_id IS NOT NULL FOR NO KEY UPDATE OF a",
         account_id,
     )
-    inviter = (
-        None
-        if candidate is None
-        else await connection.fetchrow(
-            "SELECT a.id,b.history_state FROM accounts a JOIN referral_benefits b ON b.account_id=a.id WHERE a.referral_code=$1 AND a.status='verified' AND a.telegram_id IS NOT NULL",
-            candidate["code"],
-        )
+    if account is None:
+        raise ApiError("ACCESS_DENIED", http=403)
+    inviter = None if code is None else await connection.fetchrow(
+        "SELECT a.id,b.history_state FROM accounts a LEFT JOIN referral_benefits b ON b.account_id=a.id WHERE a.referral_code=$1 AND a.status='verified' AND a.telegram_id IS NOT NULL",
+        code,
     )
-    if account["history_state"] == "history_pending" or (
-        inviter is not None and inviter["history_state"] == "history_pending"
+    if account['history_state'] in (None,'history_pending') or (
+        inviter is not None and inviter['history_state'] in (None,'history_pending')
     ):
-        raise ApiError("REFERRAL_HISTORY_PENDING", http=503, retryable=True)
+        raise ApiError('REFERRAL_HISTORY_PENDING',http=503,retryable=True)
     reason = None
-    if (
-        candidate is None
-        or candidate["installation_id"] != link["installation_id"]
-        or inviter is None
-        or inviter["history_state"] != "ready"
-    ):
-        reason = "invalid"
-    elif inviter["id"] == account_id:
-        reason = "self"
-    elif account["referred_by_account_id"] is not None:
-        reason = "already_attributed"
-    elif account["history_state"] != "ready":
-        reason = "ineligible"
+    if inviter is None or inviter['history_state'] != 'ready':
+        reason = 'invalid'
+    elif inviter['id'] == account_id:
+        reason = 'self'
+    elif account['referred_by_account_id'] is not None:
+        reason = 'already_attributed'
+    elif account['history_state'] != 'ready':
+        reason = 'ineligible'
     elif await connection.fetchval(
         "SELECT 1 FROM entitlements WHERE account_id=$1 AND kind IN ('paid','trial','imported') "
         "AND status='active' AND (starts_at IS NULL OR starts_at<=now()) "
-        "AND (ends_at IS NULL OR ends_at>now()) LIMIT 1", account_id
+        "AND (ends_at IS NULL OR ends_at>now()) LIMIT 1",account_id
     ):
-        # Existing legacy attribution rules allow an expired user, not an
-        # already active subscription, to attach a previously absent inviter.
-        reason = "ineligible"
+        reason = 'ineligible'
+    receipt = {'receipt_id':str(uuid4()),'account_ref':str(account_id),
+               'state':'attached' if reason is None else 'rejected','reason':reason}
     if reason is None:
         await connection.execute(
-            "UPDATE accounts SET referred_by_account_id=$2,referral_attributed_at=now(),referral_terms_version=$3 WHERE id=$1",
-            account_id,
-            inviter["id"],
-            TERMS_VERSION,
-        )
-    receipt = {
-        "receipt_id": str(uuid4()),
-        "account_ref": str(account_id),
-        "candidate_id": str(candidate_id),
-        "registration_id": str(link["id"]),
-        "idempotency_key": link["referral_idempotency_key"],
-        "state": "attached" if reason is None else "rejected",
-        "reason": reason,
-    }
-    if reason is None:
-        await connection.execute(
-            "UPDATE accounts SET referral_attribution_receipt_id=$2 WHERE id=$1",
-            account_id,
-            UUID(receipt["receipt_id"]),
-        )
-    await connection.execute(
-        "UPDATE registration_links SET referral_attribution=$2 WHERE id=$1", link["id"], receipt
-    )
-    await connection.execute(
-        "UPDATE referral_candidates SET state=$2 WHERE id=$1", candidate_id, receipt["state"]
-    )
+            "UPDATE accounts SET referred_by_account_id=$2,referral_attributed_at=now(),referral_terms_version=$3,referral_attribution_receipt_id=$4 WHERE id=$1",
+            account_id,inviter['id'],TERMS_VERSION,UUID(receipt['receipt_id']))
+    return receipt
+
+
+async def attach_candidate(connection, link, account_id):
+    candidate_id = link['referral_candidate_id']
+    if candidate_id is None:
+        return None
+    if link['referral_attribution'] is not None:
+        return link['referral_attribution']
+    candidate = await connection.fetchrow(
+        'SELECT * FROM referral_candidates WHERE id=$1 FOR UPDATE',candidate_id)
+    code = candidate['code'] if candidate is not None and candidate['installation_id'] == link['installation_id'] else None
+    receipt = await attach_account(connection,account_id,code)
+    receipt.update(candidate_id=str(candidate_id),registration_id=str(link['id']),
+                   idempotency_key=link['referral_idempotency_key'])
+    await connection.execute('UPDATE registration_links SET referral_attribution=$2 WHERE id=$1',link['id'],receipt)
+    await connection.execute('UPDATE referral_candidates SET state=$2 WHERE id=$1',candidate_id,receipt['state'])
     return receipt
 
 
@@ -382,26 +372,42 @@ async def referral_info(connection, context):
         context.account_id is None
         or context.binding is None
         or context.binding["status"] != "active"
+        or context.installation_id is None
     ):
         raise ApiError("ACCESS_DENIED", http=403)
-    projection_sql = "SELECT a.*,b.history_state,b.imported_first_main_paid,b.reserved_order_id,b.consumed_order_id,b.reservation_state FROM accounts a LEFT JOIN referral_benefits b ON b.account_id=a.id WHERE a.id=$1 AND a.status='verified' AND a.telegram_id IS NOT NULL AND EXISTS(SELECT 1 FROM account_bindings own WHERE own.account_id=a.id AND own.installation_id=$2 AND own.status='active')"
-    account = await connection.fetchrow(projection_sql, context.account_id, context.installation_id)
+    return await account_referral_info(connection,context.account_id,installation_id=context.installation_id)
+
+
+async def account_referral_info(connection, account_id, *, installation_id=None):
+    """Common projection for already-authorized account callers, never a public ID API.
+
+    Mobile supplies its installation for the unchanged active-owner check; trusted
+    backend resolves a verified Telegram identity and does not need a data grant.
+    """
+    projection_sql = "SELECT a.*,b.history_state,b.imported_first_main_paid,b.reserved_order_id,b.consumed_order_id,b.reservation_state FROM accounts a LEFT JOIN referral_benefits b ON b.account_id=a.id WHERE a.id=$1 AND a.status='verified' AND a.telegram_id IS NOT NULL AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM account_bindings own WHERE own.account_id=a.id AND own.installation_id=$2 AND own.status='active'))"
+    account = await connection.fetchrow(projection_sql, account_id, installation_id)
     if account is None:
         raise ApiError("ACCESS_DENIED", http=403)
     if account["history_state"] in (None, "history_pending") or account["referral_code"] is None:
         # Existing registered users need no re-registration after protected coverage
         # activation. Authorization must precede any initializer mutation; reread
         # the same authoritative owner projection after its transaction commits.
-        await initialize_account(connection, context.account_id)
-        account = await connection.fetchrow(projection_sql, context.account_id, context.installation_id)
+        await initialize_account(connection, account_id)
+        account = await connection.fetchrow(projection_sql, account_id, installation_id)
         if account is None:
             raise ApiError("ACCESS_DENIED", http=403)
     if account["history_state"] in (None, "history_pending") or account["referral_code"] is None:
         raise ApiError("REFERRAL_HISTORY_PENDING", http=503, retryable=True)
     receipt = await connection.fetchval(
         "SELECT referral_attribution FROM registration_links WHERE referral_attribution->>'account_ref'=$1 AND referral_attribution IS NOT NULL ORDER BY confirmed_at DESC LIMIT 1",
-        str(context.account_id),
+        str(account_id),
     )
+    if isinstance(receipt,str):
+        receipt = json.loads(receipt)
+    if account['referral_attribution_receipt_id'] is not None and (
+        receipt is None or receipt['receipt_id'] != str(account['referral_attribution_receipt_id'])
+    ):
+        receipt = None  # Project the canonical attached receipt instead of an older rejection.
     state = "ineligible"
     if account["history_state"] == "ready" and account["referred_by_account_id"] is not None:
         state = (
@@ -413,15 +419,15 @@ async def referral_info(connection, context):
         )
     from .referral_pricing import eligible
 
-    if state == "eligible" and not await eligible(connection, context.account_id):
+    if state == "eligible" and not await eligible(connection, account_id):
         state = "ineligible"
     rewards = await connection.fetchrow(
         "SELECT coalesce(sum(days) FILTER(WHERE state IN ('WAITING','APPLYING')),0) waiting,coalesce(sum(days) FILTER(WHERE state='APPLIED'),0) applied FROM referral_rewards WHERE inviter_account_id=$1",
-        context.account_id,
+        account_id,
     )
     code = account["referral_code"]
     return {
-        "account_ref": str(context.account_id),
+        "account_ref": str(account_id),
         "code": code,
         "links": {
             "telegram": f"https://t.me/terlimo_vpn_wdtt_bot?start=ref_u{code}",
@@ -441,7 +447,7 @@ async def referral_info(connection, context):
             "reason": receipt["reason"] if receipt else None,
         },
         "benefits": {
-            "trial_bonus_days": await trial_bonus_days(connection, context.account_id),
+            "trial_bonus_days": await trial_bonus_days(connection, account_id),
             "discount": {"currency": "RUB", "amount_minor": 10000, "state": state},
         },
         "rewards": {

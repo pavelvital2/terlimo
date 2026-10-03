@@ -1,0 +1,170 @@
+{
+  "notice": "Synthetic examples; backend key intentionally omitted, never browser-facing.",
+  "cases": [
+    {
+      "name": "read_ready",
+      "method": "POST",
+      "path": "/api/mobile/v1/internal/telegram/referral",
+      "body": {
+        "operation": "read",
+        "telegram_id": 1001
+      },
+      "http": 200,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "referral": {
+          "account_ref": "00000000-0000-4000-8000-000000000001",
+          "code": "OwnCode",
+          "links": {
+            "telegram": "https://t.me/terlimo_vpn_wdtt_bot?start=ref_uOwnCode",
+            "web": "https://terlimo.xyz/?ref=uOwnCode"
+          },
+          "attribution": {
+            "state": "none",
+            "receipt_id": null,
+            "reason": null
+          },
+          "benefits": {
+            "trial_bonus_days": 0,
+            "discount": {
+              "currency": "RUB",
+              "amount_minor": 10000,
+              "state": "ineligible"
+            }
+          },
+          "rewards": {
+            "waiting_days": 0,
+            "applied_days": 0
+          },
+          "terms_version": "referral-20261003-v1"
+        }
+      }
+    },
+    {
+      "name": "attach",
+      "method": "POST",
+      "path": "/api/mobile/v1/internal/telegram/referral",
+      "idempotency_key": "persistent-invitation-001",
+      "body": {
+        "operation": "attach",
+        "telegram_id": 1001,
+        "code": "FriendCode"
+      },
+      "http": 200,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attribution": {
+          "receipt_id": "00000000-0000-4000-8000-000000000002",
+          "account_ref": "00000000-0000-4000-8000-000000000001",
+          "idempotency_key": "persistent-invitation-001",
+          "state": "attached",
+          "reason": null
+        }
+      }
+    },
+    {
+      "name": "rejected_invalid",
+      "http": 200,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attribution": {
+          "receipt_id": "00000000-0000-4000-8000-000000000002",
+          "account_ref": "00000000-0000-4000-8000-000000000001",
+          "idempotency_key": "persistent-invitation-001",
+          "state": "rejected",
+          "reason": "invalid"
+        }
+      }
+    },
+    {
+      "name": "rejected_self",
+      "http": 200,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attribution": {
+          "receipt_id": "00000000-0000-4000-8000-000000000002",
+          "account_ref": "00000000-0000-4000-8000-000000000001",
+          "idempotency_key": "persistent-invitation-001",
+          "state": "rejected",
+          "reason": "self"
+        }
+      }
+    },
+    {
+      "name": "rejected_already_attributed",
+      "http": 200,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attribution": {
+          "receipt_id": "00000000-0000-4000-8000-000000000002",
+          "account_ref": "00000000-0000-4000-8000-000000000001",
+          "idempotency_key": "persistent-invitation-001",
+          "state": "rejected",
+          "reason": "already_attributed"
+        }
+      }
+    },
+    {
+      "name": "rejected_ineligible",
+      "http": 200,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attribution": {
+          "receipt_id": "00000000-0000-4000-8000-000000000002",
+          "account_ref": "00000000-0000-4000-8000-000000000001",
+          "idempotency_key": "persistent-invitation-001",
+          "state": "rejected",
+          "reason": "ineligible"
+        }
+      }
+    },
+    {
+      "name": "REGISTRATION_AUTH",
+      "http": 403,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "server_time": "2026-10-03T00:00:00Z",
+        "schema_version": 1,
+        "status": "error",
+        "code": "REGISTRATION_AUTH",
+        "retryable": false
+      }
+    },
+    {
+      "name": "REGISTRATION_REQUIRED",
+      "http": 409,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "server_time": "2026-10-03T00:00:00Z",
+        "schema_version": 1,
+        "status": "error",
+        "code": "REGISTRATION_REQUIRED",
+        "retryable": false
+      }
+    },
+    {
+      "name": "IDEMPOTENCY_CONFLICT",
+      "http": 409,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "server_time": "2026-10-03T00:00:00Z",
+        "schema_version": 1,
+        "status": "error",
+        "code": "IDEMPOTENCY_CONFLICT",
+        "retryable": false
+      }
+    },
+    {
+      "name": "REFERRAL_HISTORY_PENDING",
+      "http": 503,
+      "response": {
+        "request_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "server_time": "2026-10-03T00:00:00Z",
+        "schema_version": 1,
+        "status": "error",
+        "code": "REFERRAL_HISTORY_PENDING",
+        "retryable": true
+      }
+    }
+  ]
+}
