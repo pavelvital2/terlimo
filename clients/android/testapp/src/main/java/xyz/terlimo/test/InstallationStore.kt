@@ -198,9 +198,13 @@ internal class InstallationStore(context: Context) {
         }
     }
 
-    fun writeCatalogCache(encoded: String) = synchronized(LOCK) {
+    fun writeCatalogCache(encoded: String, mobileSelection: JSONObject? = null) = synchronized(LOCK) {
         require(encoded.toByteArray(Charsets.UTF_8).size in 1..65_536) { "CACHE_OVERSIZED" }
-        writeLocked(JSONObject(readLocked().toString()).put("catalog_cache", encoded))
+        writeLocked(MobileSelectionPreference.merge(readLocked(), mobileSelection).put("catalog_cache", encoded))
+    }
+
+    fun clearMobileSelection() = synchronized(LOCK) {
+        writeLocked(MobileSelectionPreference.merge(readLocked(), null))
     }
 
     private fun encryptionKey() = store.getKey(encryptionAlias, null) as? SecretKey ?: error("KEY_UNAVAILABLE")

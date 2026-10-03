@@ -22,7 +22,8 @@ internal object NodeSelection {
         else state.copy(phase = phase, error = null)
 
     /** Apply catalog metadata without changing the active replacement ownership. */
-    fun applyCatalog(state: ViewState, catalog: NodeCatalog, summary: CatalogSummary?): ViewState {
+    fun applyCatalog(state: ViewState, catalog: NodeCatalog, summary: CatalogSummary?,
+        nativeSelectionAuthoritative: Boolean = false): ViewState {
         val pending = state.pendingNodeId?.takeIf { requested ->
             requested != catalog.selectedNodeId && catalog.nodes.any { it.id == requested }
         }
@@ -36,6 +37,7 @@ internal object NodeSelection {
             summary = summary,
             selectedNodeId = when {
                 switching -> state.selectedNodeId
+                nativeSelectionAuthoritative -> catalog.selectedNodeId
                 catalog.selectedNodeId.isNotEmpty() -> catalog.selectedNodeId
                 // Native may have no saved choice across repeated metadata snapshots.
                 // Read only the current display preference, never stale credentials

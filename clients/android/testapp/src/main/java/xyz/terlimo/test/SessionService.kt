@@ -1191,6 +1191,7 @@ class SessionService : Service() {
             activeLink = link.ifEmpty { saved.optString("link") }
             val mobileBootstrap = MobileBootstrapGate.forLink(activeLink, MobileBootstrapSeed.parse(mobileSeed))
             val mobileBaseUrl = mobileBootstrap?.baseUrl
+            mobileSelectionSource = mobileBootstrap
             // A linkless attempt is admitted only by the trusted packaged mobile seed: it is
             // the configured bootstrap input, not proof that the live transport works. An
             // arbitrary URL never qualifies, no pseudo-link is synthesized, and a saved
@@ -1327,6 +1328,9 @@ class SessionService : Service() {
                 .put("issuers", issuers)
                 .put("probe_by_node", probeSettings.toNativeJson())
             if (mobileBootstrap != null) {
+                MobileSelectionPreference.forStart(saved, storage.installationId(), mobileBootstrap)?.let {
+                    start.put("mobile_selection", it)
+                }
                 start.put("mobile_base_url", mobileBootstrap.baseUrl)
                 start.put("mobile_environment", mobileBootstrap.environment)
                 mobileBootstrap.serviceSeed?.let { start.put("service_seed", it) }
@@ -1760,7 +1764,10 @@ class SessionService : Service() {
                         // probe/admission/sync and never starts intent/hour/VPN. A malformed
                         // browse answer fails the attempt through the existing host-failure path.
                         val updatedBrowse = BrowseCatalogCodec.apply(view, BrowseCatalogCodec.parse(event)).copy(catalogStage = null)
-                        val refreshPlan = catalogGate.commit(attempt) { publishActive(attempt, retireProbes(updatedBrowse)) }
+                        val refreshPlan = catalogGate.commit(attempt) {
+                            publishActive(attempt, retireProbes(updatedBrowse))
+                            if (mobileSelectionSource != null) storage.clearMobileSelection()
+                        }
                         if (refreshPlan.stopCycle) stopAttempt(null, "schedule_cancelled")
                         completeCatalogRefresh(refreshPlan.completions)
                         if (refreshPlan.publish) {
@@ -1773,7 +1780,8 @@ class SessionService : Service() {
                     val catalog = NodeSelection.parseCatalog(event)
                     // Optional display data cannot change transport admission/outcome.
                     val summary = runCatching { CatalogSummary.parse(event) }.getOrNull()
-                    val updated = NodeSelection.applyCatalog(view, catalog, summary).copy(catalogStage = null)
+                    val updated = NodeSelection.applyCatalog(view, catalog, summary,
+                        nativeSelectionAuthoritative = mobileSelectionSource != null).copy(catalogStage = null)
                     // §26.5 commit-time ownership fence: the publish/persist block runs inside
                     // the ownership lock, so an Off/mode change either invalidates the claim
                     // before the decision or happens only after the write completed. A cycle
@@ -2601,7 +2609,15 @@ class SessionService : Service() {
             if (gate.active != attempt || stopping.get()) return@execute
             if (!clean) { stopAttempt("CLEANUP_FAILED"); return@execute }
             clearRollback()
-            publishActive(attempt, ActiveNodeSwitch.success(view, activeVpnNodeId, targetId, switchId, revision))
+            gate.ifActive(attempt) {
+                if (!stopping.get()) {
+                    val updated = ActiveNodeSwitch.success(view, activeVpnNodeId, targetId, switchId, revision)
+                    publish(updated)
+                    // The earlier catalog deliberately kept A while the switch was pending.
+                    // Persist B only at this existing correlated success callback.
+                    runCatching { persistCatalogCache(updated) }
+                }
+            }
         }
     }
     private fun rollbackSwitch(attempt: String, targetId: String, switchId: String, revision: String, code: String) {
@@ -3088,10 +3104,13 @@ class SessionService : Service() {
             }
         }, "terlimo-kill-switch-hold").start()
     }
+    private var mobileSelectionSource: MobileBootstrapSeed? = null
+
     private fun persistCatalogCache(state: ViewState) {
         if (state.nodes.isEmpty()) return
         storage.writeCatalogCache(CatalogCacheCodec.encode(
-            RetainedCatalog(state.nodes, state.selectedNodeId, state.catalogRevision)))
+            RetainedCatalog(state.nodes, state.selectedNodeId, state.catalogRevision)),
+            MobileSelectionPreference.fromCatalog(state, storage.installationId(), mobileSelectionSource))
     }
 
     /**

@@ -913,7 +913,23 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 		m.releasePending()
 	}
 
-	err := m.applyVerified(&me, &catalog, m.proofNode())
+	preferred := m.takeSelectionPreference(me, catalog)
+	proofNode := m.proofNode()
+	if proofNode == "" {
+		proofNode = preferred
+	} else {
+		preferred = ""
+	}
+	err := m.applyVerified(&me, &catalog, proofNode)
+	if err == nil && preferred != "" {
+		// The fresh projection/store commit succeeded for this exact admitted ID.
+		// This is not choose/select/Connect and starts no transport or probe.
+		m.controller.mu.Lock()
+		if m.controller.saved.SelectedNodeID == "" {
+			m.controller.saved.SelectedNodeID = preferred
+		}
+		m.controller.mu.Unlock()
+	}
 	if err == nil {
 		// Only the successfully projected/store-committed pair may authorize a probe.
 		m.acceptProbeAdmission(probeSerial, probeCandidate)
@@ -945,9 +961,9 @@ func (m *managedMobile) onVerified(me accountaccess.MeResponse, catalog accounta
 	}
 }
 
-// onBrowse publishes the display-only browse catalog to the host. It is a pure
-// projection: the credential store, lastGood, admission/sync/probe and the explicit
-// pairing are never touched, no revision exists and no selection is announced. A
+// onBrowse publishes display-only metadata and retires the credential preference.
+// The credential store, lastGood and explicit pairing are not replaced by browse;
+// no credential revision/selection is announced. A
 // repeated identical list is emitted once; a renewed validity re-emits the list.
 func (m *managedMobile) onBrowse(browse accountaccess.BrowseCatalogResponse) {
 	m.retireProbeAdmission()
@@ -955,6 +971,11 @@ func (m *managedMobile) onBrowse(browse accountaccess.BrowseCatalogResponse) {
 	if publishCtx.Err() != nil {
 		return
 	}
+	// A fresh browse answer cannot keep a credential selection pending for revival.
+	m.controller.mu.Lock()
+	m.controller.start.MobileSelection = nil
+	m.controller.saved.SelectedNodeID = ""
+	m.controller.mu.Unlock()
 	message := browseCatalogMessage(browse)
 	raw, err := json.Marshal(message["nodes"])
 	if err != nil {

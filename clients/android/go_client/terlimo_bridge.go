@@ -36,8 +36,9 @@ type managedStart struct {
 	ProbeByNode     map[string]managedProbe `json:"probe_by_node"`
 	// Optional mobile-v1 account-access seed. Empty keeps the existing managed flow
 	// unchanged; no fallback URL is ever synthesized.
-	MobileBaseURL     string `json:"mobile_base_url"`
-	MobileEnvironment string `json:"mobile_environment"`
+	MobileBaseURL     string                     `json:"mobile_base_url"`
+	MobileEnvironment string                     `json:"mobile_environment"`
+	MobileSelection   *mobileSelectionPreference `json:"mobile_selection,omitempty"`
 	// Durable receipt namespace blob loaded from the host AtomicFile; never wlbs state.
 	AccountAccessStateB64 string `json:"accountaccess_state_b64"`
 	// Optional public service-channel seed (JSON object, no secret). Empty keeps the
