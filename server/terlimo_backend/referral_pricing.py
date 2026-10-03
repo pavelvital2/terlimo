@@ -103,7 +103,10 @@ async def paid_account_locks(connection, order):
         order['installation_id'])
     accounts = {aid for aid in (order['checkout_owner_account_id'], order['account_id'], binding_account) if aid is not None}
     for aid in sorted(accounts, key=str):
-        await connection.fetchval("SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE", aid)
+        # Stabilize verified status for account-only credit BEFORE the benefit lock,
+        # including callback/reconcile callers which consume before applying credit.
+        lock = "SHARE" if order.get('owner_kind') == 'telegram_account' else "KEY SHARE"
+        await connection.fetchval(f"SELECT id FROM accounts WHERE id=$1 FOR {lock}", aid)
     inviters = set()
     for aid in accounts:
         inviter = await connection.fetchval("SELECT referred_by_account_id FROM accounts WHERE id=$1", aid)

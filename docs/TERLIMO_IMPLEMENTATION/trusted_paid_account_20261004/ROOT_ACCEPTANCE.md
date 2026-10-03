@@ -1,0 +1,7 @@
+# Paid account core — bounded SOURCE ACCEPT
+
+Root verified artifact hashes/sizes and all7 actual donor postimages at532d8349dc74051989a4a35643d5650766bc50da. Read migration0042/up-down trigger, shared validation/mobile wrapper, paid account status SHARE before benefits, immutable quote proof, account pending delivery/reconcile exclusion and actual16 targeted tests/logs. No independent rerun.
+
+Explicit account order owner cannot be changed from installation; trusted shape has no fakeinstallation/binding, source commercial snapshot frozen and checked against account Q. Applied replay precedes mutable checks; full calendar periods/slots/addon target semantics reused. Account SHARE stabilizes verified status, acquired before benefit writes also for callback consume. Existing mobile path remains binding-authorized.16 tempPG cases reported12+4PASS, real barrier/concurrent replay/callback, oldrow migration/down and mobile affected path provide sufficient SOURCE evidence. Initial invalid until:current fixture corrected without relaxing guard.
+
+Logical account credit leaves needs_grant true, no grants/outbox/reward, excluded only after applied from mobile reconcile batch. Future external proof remains mandatory; current SQL-generated synthetic order tests are not actual trusted invoice/auth API. No account create/status/trial/delivery/production/runtime acceptance. Safe to accept prerequisite source, not to enable full bot/site payments. No existing runtime42 application authorized by this file.

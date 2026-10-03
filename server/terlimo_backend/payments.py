@@ -674,10 +674,45 @@ async def get_order(
     return {"payment": _order_view(order)}
 
 
+async def _trusted_credit_snapshot_valid(connection, order) -> bool:
+    """Compare persisted trusted proof with its original quote, never current prices.
+
+    This is not identity authorization or an order constructor. Future trusted
+    create must authorize the Telegram mapping before freezing this proof.
+    A paid quote may have expired since invoice creation; credit must still apply.
+    """
+    from .payment_products import product_of
+    row = await connection.fetchrow("SELECT * FROM s5_payment_quotes WHERE id=$1", order["source_quote_id"])
+    if row is None or row["owner_kind"] != "telegram_account" or (
+        row["trusted_owner_account_id"] != order["trusted_owner_account_id"]
+        or row["trusted_caller"] != order["trusted_caller"]
+    ):
+        return False
+    snapshot = order["quote"]
+    while isinstance(snapshot, str):
+        snapshot = json.loads(snapshot)
+    pricing = row["pricing"]
+    while isinstance(pricing, str):
+        pricing = json.loads(pricing)
+    plan = snapshot.get("plan") if isinstance(snapshot, dict) else None
+    return (isinstance(plan, dict)
+        and snapshot.get("product") == product_of(row)
+        and snapshot.get("pricing") == pricing
+        and snapshot.get("method") == row["method"]
+        and plan.get("plan_id") == row["plan_id"]
+        and plan.get("duration_code") == row["duration_code"]
+        and plan.get("tariff_key") == row["tariff_key"]
+        and snapshot.get("duration") == (_duration_spec(int(row["months"])) if row["months"] else {"unit":"until","value":product_of(row)["valid_until"]})
+        and int(order["months"]) == int(row["months"])
+        and _exact_amount(order["amount"]) == int(row["amount_minor"])
+        and order["currency"] == row["currency"]
+        and order["tariff_key"] == row["tariff_key"])
+
+
 async def apply_paid_entitlement(
     connection: asyncpg.Connection, settings: Settings, *, order_id: Any
 ) -> Any:
-    """Apply a succeeded order to the (now) bound account exactly once.
+    """Apply a succeeded order to its proven account exactly once.
 
     Safe to call repeatedly: the order row is locked and applied_entitlement_id is the guard.
     """
@@ -691,17 +726,40 @@ async def apply_paid_entitlement(
             return order["applied_entitlement_id"]
         if order["credit_review_reason"] is not None:
             return None
-        binding = await connection.fetchrow(
-            "SELECT id, account_id FROM account_bindings WHERE installation_id = $1 AND status = 'active'",
-            order["installation_id"],
-        )
-        from .payment_products import order_product, validate_credit_target, paid_limit, renew_slots, slots
+        from .payment_products import (order_product, validate_credit_target,
+            validate_account_credit_target, paid_limit, renew_slots, slots)
         product = order_product(order)
-        if binding is None:
-            if product:
-                await connection.execute("UPDATE payment_orders SET credit_review_reason='owner_unbound' WHERE id=$1",order_id)
-            return None
-        account_id = binding["account_id"]
+        account_owned = order["owner_kind"] == "telegram_account"
+        binding = None
+        if account_owned:
+            # Only a persisted trusted order can select this branch. No public request
+            # accepts these fields; future trusted create must prove Telegram identity.
+            account_id = order["trusted_owner_account_id"]
+            from .referral_pricing import paid_account_locks
+            await paid_account_locks(connection, order)
+            verified = await connection.fetchval(
+                "SELECT status='verified' FROM accounts WHERE id=$1", account_id)
+            review = None
+            if not verified:
+                review = "owner_not_verified"
+            elif not product or product.get("owner_account_id") != str(account_id):
+                review = "owner_changed"
+            elif not await _trusted_credit_snapshot_valid(connection, order):
+                review = "snapshot_conflict"
+            if review:
+                await connection.execute("UPDATE payment_orders SET credit_review_reason=$2 WHERE id=$1", order_id, review)
+                return None
+        else:
+            binding = await connection.fetchrow(
+                "SELECT id, account_id FROM account_bindings WHERE installation_id = $1 AND status = 'active'",
+                order["installation_id"],
+            )
+            if binding is None:
+                if product:
+                    await connection.execute("UPDATE payment_orders SET credit_review_reason='owner_unbound' WHERE id=$1",order_id)
+                return None
+            account_id = binding["account_id"]
+        binding_id = binding["id"] if binding else None
         # Parked legacy payments can acquire their verified account only here.
         # Anchor before paid-account locks, matching the callback lock order.
         from .referral_pricing import consume
@@ -717,7 +775,10 @@ async def apply_paid_entitlement(
         )
 
         now = datetime.now(UTC)
-        target, review = await validate_credit_target(connection, order, binding, now)
+        if account_owned:
+            target, review = await validate_account_credit_target(connection, order, account_id, now)
+        else:
+            target, review = await validate_credit_target(connection, order, binding, now)
         if review:
             await connection.execute("UPDATE payment_orders SET credit_review_reason=$2 WHERE id=$1",order_id,review)
             return None
@@ -725,7 +786,7 @@ async def apply_paid_entitlement(
             await connection.execute("INSERT INTO paid_extra_slots(entitlement_id,source_order_id,expires_at) VALUES ($1,$2,$3)",target["id"],order_id,target["ends_at"])
             credited = await connection.fetchrow("UPDATE entitlements SET device_limit=$2,revision=revision+1 WHERE id=$1 RETURNING id,revision",target["id"],await paid_limit(connection,target,now))
             receipt = {"valid_from":rfc3339(now),"valid_until":rfc3339(target["ends_at"]),"device_limit":await paid_limit(connection,target,now),"current_device_limit":await paid_limit(connection,target,now)}
-            await connection.execute("UPDATE payment_orders SET applied_entitlement_id=$2,account_id=$3,binding_id=$4,credited_entitlement_revision=$5,credited_product=$6::jsonb WHERE id=$1",order_id,credited["id"],account_id,binding["id"],credited["revision"],json.dumps(receipt))
+            await connection.execute("UPDATE payment_orders SET applied_entitlement_id=$2,account_id=$3,binding_id=$4,credited_entitlement_revision=$5,credited_product=$6::jsonb WHERE id=$1",order_id,credited["id"],account_id,binding_id,credited["revision"],json.dumps(receipt))
             enqueued = await _enqueue_paid_grant(connection,settings,order_id=order_id)
             await connection.execute("UPDATE payment_orders SET needs_grant=$2 WHERE id=$1",order_id,not enqueued)
             return credited["id"]
@@ -808,7 +869,7 @@ async def apply_paid_entitlement(
             order_id,
             entitlement_id,
             account_id,
-            binding["id"],
+            binding_id,
             int(credited["revision"]),
             json.dumps(receipt),
         )
@@ -826,7 +887,7 @@ async def apply_paid_entitlement(
             not enqueued,
         )
         from .referral_rewards import enqueue_reward
-        if not product or product["kind"] == "subscription":
+        if not account_owned and (not product or product["kind"] == "subscription"):
             await enqueue_reward(connection,account_id=account_id,event_kind="first_main_paid",
                 source_entitlement_id=entitlement_id,source_order_id=order_id,months=int(order["months"]))
         return entitlement_id
@@ -984,7 +1045,7 @@ async def reconcile_payments(
         """
         SELECT * FROM payment_orders
         WHERE (credit_review_reason IS NULL AND ((status = 'pending' AND provider_payment_id IS NOT NULL)
-           OR (status = 'succeeded' AND (applied_entitlement_id IS NULL OR needs_grant))))
+           OR (status = 'succeeded' AND (applied_entitlement_id IS NULL OR (needs_grant AND owner_kind='installation')))))
            OR (status IN ('pending','canceled','expired','failed') AND provider_payment_id IS NOT NULL
                AND EXISTS(SELECT 1 FROM referral_benefits b WHERE b.reserved_order_id=payment_orders.id
                    AND b.consumed_order_id IS NULL))
@@ -1061,9 +1122,13 @@ async def _enqueue_paid_grant(
 ) -> bool:
     """Durable grant/outbox enqueue for an applied paid order; returns True when enqueued."""
     order = await connection.fetchrow(
-        "SELECT installation_id, applied_entitlement_id FROM payment_orders WHERE id = $1", order_id
+        "SELECT owner_kind, installation_id, applied_entitlement_id FROM payment_orders WHERE id = $1", order_id
     )
     if order is None or order["applied_entitlement_id"] is None:
+        return False
+    if order["owner_kind"] == "telegram_account":
+        # Logical credit is not external delivery. A future typed target receipt
+        # must resolve needs_grant and only then authorize the referral reward.
         return False
     binding = await connection.fetchrow(
         "SELECT id FROM account_bindings WHERE installation_id = $1 AND status = 'active'",

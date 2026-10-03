@@ -138,11 +138,21 @@ async def validate_credit_target(connection, order, binding, now):
         order["checkout_owner_binding_id"] != binding["id"]
     ):
         return None, "owner_changed"
+    return await validate_account_credit_target(connection, order, binding["account_id"], now)
+
+
+async def validate_account_credit_target(connection, order, account_id, now):
+    """Common frozen product/target validation; caller proves account ownership."""
+    product = order_product(order)
+    if not product:
+        return None, None
+    if product.get("owner_account_id") != str(account_id):
+        return None, "owner_changed"
     target_id = product["target_entitlement_id"]
     if not target_id:
         return None, None
     target = await connection.fetchrow("SELECT * FROM entitlements WHERE id=$1 FOR UPDATE", uuid.UUID(target_id))
-    if target is None or target["account_id"] != binding["account_id"] or target["kind"] != 'paid' or target["status"] != 'active':
+    if target is None or target["account_id"] != account_id or target["kind"] != 'paid' or target["status"] != 'active':
         return None, "target_unavailable"
     if product["kind"] == "device_addon":
         if target["ends_at"] is None or target["ends_at"] <= now or (target["starts_at"] and target["starts_at"] > now):
