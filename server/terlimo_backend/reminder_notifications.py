@@ -79,7 +79,7 @@ class ReminderNotificationHandlers:
                    acc.telegram_id, acc.status AS account_status,
                    r.state AS reminder_state, r.entitlement_revision,
                    e.revision AS current_revision, e.status AS entitlement_status,
-                   e.ends_at AS entitlement_ends_at, r.kind AS stage_kind
+                   e.ends_at AS entitlement_ends_at, e.kind AS entitlement_kind, r.kind AS stage_kind
             FROM announcements AS a
             JOIN entitlement_reminders AS r ON r.announcement_id = a.id
             JOIN entitlements AS e ON e.id = r.entitlement_id
@@ -139,5 +139,5 @@ class ReminderNotificationHandlers:
         # Text is recomputed from the authoritative deadline in the service calendar; only the
         # account's own verified Telegram id is addressed. A transport error propagates so the
         # durable outbox retries. A successful call is the only evidence of an attempt.
-        await self._transport.send_message(int(row["telegram_id"]), stage_text(row["stage_kind"], row["entitlement_ends_at"], now))
+        await self._transport.send_message(int(row["telegram_id"]), stage_text(row["stage_kind"], row["entitlement_ends_at"], now, entitlement_kind=row["entitlement_kind"]))
         return None

@@ -81,9 +81,21 @@ def visibility_until(stage: str, ends_at: datetime) -> datetime:
     return next_midnight.astimezone(UTC)
 
 
-def stage_text(stage: str, ends_at: datetime, moment: datetime | None = None) -> str:
+def stage_text(
+    stage: str, ends_at: datetime, moment: datetime | None = None,
+    *, entitlement_kind: str = "paid",
+) -> str:
     """Text reflects the ACTUAL deadline in the service calendar (future vs expired)."""
     local_date = _local_date(ends_at).isoformat()
+    if entitlement_kind == "trial":
+        # A trial can end while a separate paid right remains valid. Use an absolute
+        # date: the durable Help message can still be read after its creation time.
+        remaining = STAGE_OFFSETS[stage]
+        countdown = f" (осталось {remaining} дн.)" if remaining else ""
+        return (
+            f"Дата окончания пробного доступа: {local_date}{countdown}. "
+            "Оплаченная подписка имеет отдельный срок."
+        )
     if stage == "expiry_day":
         if moment is not None and ends_at <= moment:
             return f"Ваша подписка истекла сегодня ({local_date}). Продлите её, чтобы восстановить доступ."
@@ -219,7 +231,7 @@ async def _create_reminder(
             settings.environment,
             row["account_id"],
             stage,
-            stage_text(stage, row["ends_at"], moment),
+            stage_text(stage, row["ends_at"], moment, entitlement_kind=row["kind"]),
             visibility_until(stage, row["ends_at"]),
         )
         await connection.execute(
