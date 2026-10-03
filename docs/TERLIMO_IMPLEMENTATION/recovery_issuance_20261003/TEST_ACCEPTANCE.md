@@ -1,9 +1,13 @@
-# TEST recovery issuance — accepted subset, 2026-10-03
+# TEST recovery issuance — site and bot accepted, 2026-10-03
 
 Source79eaa5c, applied16:53:23UTC. Five deployed Python postimages match canonical hashes. Existing signed primary4 installed atomically, SHA f570ecf38df6c8bf538e1cffd1afd60630eecb626da92e3d079c24ef60b205b7 (675bytes includingLF). Public code unchanged from accepted phone recovery.
 
 SITE PASS: HTTPS /api/public/recovery200/no-store/no redirect, actual Chromium native clipboard exact code after explicit Copy; initial clipboard denied showed manual selection instruction. No mock browser handler. API live/ready200, relay socket/node listeners present; API PID1494066 and sole bot1494088. Relay/node/worker/PG/edge remained unchanged; env/Caddy/diagnostic flags preserved. Targeted before/after business equality reported for account/binding/rights/grants/payment ledger, no user rows exported. Root verified artifact/canonical consistency; no repeated runtime tests.
 
-BOT readiness accepted; actual Telegram user /start recovery and menu NOT_RUN because server executor has no authorized Telegram client session. Carry this one remaining user check into next Laptop phone acceptance; do not claim overall bot/runtime feature PASS. App recovery entry links are being integrated separately. Production not published or changed.
+BOT user PASS accepted from laptop-20261003-recovery-bot-adb-resume-pass-v1. On the same TECNO KL5n/installed version16, one reconnect to the previously authorized Wi-Fi ADB endpoint restored device access. Telegram required VPN; ordinary connection to the existing STEP036 node established WIFI|VPN owned by app UID10246. The existing authorized Telegram client opened the fixed TEST bot recovery link, received primary4, then the existing recovery menu returned primary4 again. Both messages were separately copied using Android UI and verified by pasting into the same TEST chat composer without sending; each paste was exactly674characters and matched the expected SHA after LF normalization. Each draft was cleared immediately. No handler imitation, new Telegram login, import or account/access mutation.
+
+Terminal17:37:06.610947UTC: ordinary app Disconnect restored original OFF; app UI says VPN выключен and system active transport is WIFI only. Wi-Fi ADB remains available. Root read the separate connection, link response, menu response, two clipboard and terminal evidence files. Earlier NOT_RUN results are superseded only for this bot check, not converted into successful earlier attempts.
+
+TEST site and bot issuance/copy are accepted. Runtime checks of the newly added app Settings/editor entry buttons remain for the next compatible APK; source568135d is accepted but installed version16 predates those buttons. Existing recovery transport and updater baselines were not repeated. Production not published or changed.
 
 Backup /root/terlimo-recovery-issuance-test-20261003 on TESTA contains indexed preimages. Rollback restores only affected source/onepoller/API; retain valid4 or disable issuance, never reissue old2. Detailed safe evidence archived by root in management recovery-issuance-test-apply.
