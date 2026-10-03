@@ -7,6 +7,8 @@ import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import android.widget.Button
+import android.widget.LinearLayout
 
 /** Editor policy only. Signature, seed schema, revision and environment validation belong to native. */
 internal object RecoveryCodeUi {
@@ -50,7 +52,8 @@ internal object RecoveryCodeUi {
     }
 
     fun showEditor(context: Context, submit: (String) -> Unit,
-        cancel: () -> Unit = {}): AlertDialog {
+        cancel: () -> Unit = {}, openTelegram: (() -> Unit)? = null,
+        openWebsite: (() -> Unit)? = null): AlertDialog {
         val input = EditText(context).apply {
             hint = "Вставьте код из сообщения бота"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or
@@ -63,9 +66,21 @@ internal object RecoveryCodeUi {
                 importantForContentCapture = View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
             }
         }
+        val editor = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(input)
+            openTelegram?.let { open -> addView(Button(context).apply {
+                text = "Получить в Telegram"
+                setOnClickListener { open() }
+            }) }
+            openWebsite?.let { open -> addView(Button(context).apply {
+                text = "Получить на сайте"
+                setOnClickListener { open() }
+            }) }
+        }
         val dialog = AlertDialog.Builder(context).setTitle("Восстановить подключение")
             .setMessage("Вставьте целый код восстановления и нажмите «Применить».")
-            .setView(input)
+            .setView(editor)
             .setPositiveButton("Применить", null)
             .setNegativeButton("Отмена") { _, _ -> cancel() }
             .create()

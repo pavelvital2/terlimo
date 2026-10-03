@@ -165,6 +165,27 @@ internal class InstallationStore(context: Context) {
         writeLocked(next)
     }
 
+    /** Host-only referral namespace; keeps identity, recovery and payment records intact. */
+    fun readReferralState(): ReferralState? = synchronized(LOCK) {
+        val raw = readLocked().opt("referral_client_v1") ?: return@synchronized null
+        check(raw is String) { "REFERRAL_STATE_INVALID" }
+        ReferralStateCodec.decode(raw, installationId())
+    }
+
+    fun compareAndSetReferral(expectedRevision: Long?, next: ReferralState): Boolean = synchronized(LOCK) {
+        check(next.installationId == installationId()) { "REFERRAL_STATE_INVALID" }
+        val current = readLocked()
+        val raw = current.opt("referral_client_v1")
+        val previous = if (raw == null) null else {
+            check(raw is String) { "REFERRAL_STATE_INVALID" }
+            ReferralStateCodec.decode(raw, installationId())
+        }
+        if (previous?.revision != expectedRevision) return@synchronized false
+        check(next.revision == (previous?.revision ?: 0L) + 1L) { "REFERRAL_STATE_INVALID" }
+        writeLocked(JSONObject(current.toString()).put("referral_client_v1", ReferralStateCodec.encode(next)))
+        true
+    }
+
     /** Display-only memory of the last verified catalog. Never an access grant. */
     fun readCatalogCache(): String? = synchronized(LOCK) { readLocked().opt("catalog_cache") as? String }
 
@@ -274,4 +295,10 @@ internal object SubscriptionStateReplacement {
 internal inline fun <T> withUnlockedStorage(unlocked: Boolean, access: () -> T): T {
     check(unlocked) { "USER_UNLOCK_REQUIRED" }
     return access()
+}
+
+internal class InstallationReferralStateStore(private val storage: InstallationStore) : ReferralStateStorage {
+    override fun read(): ReferralState? = storage.readReferralState()
+    override fun compareAndSet(expectedRevision: Long?, next: ReferralState): Boolean =
+        storage.compareAndSetReferral(expectedRevision, next)
 }

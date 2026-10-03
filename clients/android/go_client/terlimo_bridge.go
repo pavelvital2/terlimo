@@ -153,6 +153,7 @@ type managedBridge struct {
 	probeStop            chan struct{}
 	wake                 chan string
 	registration         chan string
+	referrals            chan managedReferralRequest
 	payments             chan bridgeMessage
 	usage                chan struct{}
 	announcements        chan struct{}
@@ -248,7 +249,7 @@ func (b *managedBridge) nextRuntimeEpoch() uint64 {
 }
 
 func newManagedBridge(out io.Writer, attempt string, cancel context.CancelFunc) *managedBridge {
-	return &managedBridge{attempt: attempt, out: out, writeSlot: make(chan struct{}, 1), waiters: make(map[string]chan bridgeMessage), selection: make(chan string, 1), explicit: make(chan string, 1), switchNode: make(chan managedSwitch, 1), preference: make(chan string, 1), probe: make(chan managedProbeRequest, 1), probeStop: make(chan struct{}, 1), wake: make(chan string, 1), registration: make(chan string, 1), payments: make(chan bridgeMessage, 1), usage: make(chan struct{}, 1), announcements: make(chan struct{}, 1), announcementRead: make(chan managedAnnouncementRead, 1), devices: make(chan string, 1), deviceDelete: make(chan managedDeviceDelete, 1), refreshManual: make(chan struct{}, 1), cancel: cancel}
+	return &managedBridge{attempt: attempt, out: out, writeSlot: make(chan struct{}, 1), waiters: make(map[string]chan bridgeMessage), selection: make(chan string, 1), explicit: make(chan string, 1), switchNode: make(chan managedSwitch, 1), preference: make(chan string, 1), probe: make(chan managedProbeRequest, 1), probeStop: make(chan struct{}, 1), wake: make(chan string, 1), registration: make(chan string, 1), referrals: make(chan managedReferralRequest, 1), payments: make(chan bridgeMessage, 1), usage: make(chan struct{}, 1), announcements: make(chan struct{}, 1), announcementRead: make(chan managedAnnouncementRead, 1), devices: make(chan string, 1), deviceDelete: make(chan managedDeviceDelete, 1), refreshManual: make(chan struct{}, 1), cancel: cancel}
 }
 
 func (b *managedBridge) lifecycleSnapshot() managedLifecycle {
@@ -473,12 +474,18 @@ func (b *managedBridge) read(ctx context.Context, scanner *bufio.Scanner) {
 			default:
 			}
 		case "request_telegram_registration", "refresh_telegram_registration", "activate_trial":
+			if m.string("type") == referralActionRegistration && hasReferralRegistrationFields(m) {
+				b.queueReferral(m)
+				break
+			}
 			// S3-A host commands. The mobile runner owns the HTTP call; the bridge only
 			// forwards the fixed op. Coalesced: a repeated tap is idempotent.
 			select {
 			case b.registration <- m.string("type"):
 			default:
 			}
+		case referralActionInfo, referralActionCandidateSet, referralActionCandidateClear:
+			b.queueReferral(m)
 		case paymentActionPlansList, paymentActionQuoteCreate, paymentActionPaymentCreate, paymentActionPaymentGet:
 			// S5 payment host actions. Each carries its own bounded fields and expects
 			// its own result event; nothing is coalesced or dropped silently (a full

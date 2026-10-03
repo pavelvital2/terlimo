@@ -31,7 +31,7 @@ func (m *managedMobile) updateSeedAtIdle(ctx context.Context, nextCycle time.Tim
 	m.bridge.mu.Lock()
 	// Commands already queued for the existing dispatchers take priority.
 	pending := len(m.bridge.selection)+len(m.bridge.explicit)+len(m.bridge.switchNode)+len(m.bridge.payments)+
-		len(m.bridge.registration)+len(m.bridge.usage)+len(m.bridge.devices)+len(m.bridge.deviceDelete)+
+		len(m.bridge.registration)+len(m.bridge.referrals)+len(m.bridge.usage)+len(m.bridge.devices)+len(m.bridge.deviceDelete)+
 		len(m.bridge.announcements)+len(m.bridge.announcementRead)+len(m.bridge.refreshManual)+len(m.bridge.wake)+
 		len(m.bridge.preference)+len(m.bridge.probe)+len(m.bridge.probeStop) > 0 || m.bridge.seedReceiptBusy.Load()
 	if pending {
@@ -80,6 +80,7 @@ func serviceControlCommand(kind string) bool {
 	switch kind {
 	case "device_sleep", "device_wake", "cancel", "select_node", "explicit_connect",
 		"request_telegram_registration", "refresh_telegram_registration", "activate_trial",
+		referralActionInfo, referralActionCandidateSet, referralActionCandidateClear,
 		"plans_list", "quote_create", "payment_create", "payment_get", "usage_read",
 		"announcements_list", "announcement_read", "devices_list", "device_delete",
 		"cancel_catalog", "refresh_manual", "switch_node", "choose_node", "probe_node", "cancel_probe":

@@ -10,6 +10,22 @@ fun updateLiteral(name: String): String {
     return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 }
 
+// testapp defaults to TEST recovery issuance. PROD entries require an explicit deployment.
+val recoveryEnvironment = providers.gradleProperty("terlimoRecoveryEnvironment").orNull ?: "test"
+require(recoveryEnvironment in setOf("test", "prod")) { "Invalid recovery deployment environment" }
+val recoveryBot = if (recoveryEnvironment == "test")
+    "https://t.me/terlimo_test_bot?start=recovery"
+else "https://t.me/terlimo_vpn_wdtt_bot?start=recovery"
+val recoverySite = if (recoveryEnvironment == "test")
+    "https://step036.193-5-251-217.sslip.io/api/public/recovery"
+else "https://terlimo.xyz/api/public/recovery"
+
+fun recoveryLiteral(name: String, expected: String): String {
+    val value = providers.gradleProperty(name).orNull ?: expected
+    require(value == expected) { "Recovery deployment property does not match selected environment" }
+    return "\"$value\""
+}
+
 android {
     buildFeatures { buildConfig = true }
     namespace = "xyz.terlimo.test"
@@ -22,6 +38,9 @@ android {
         buildConfigField("String", "UPDATE_MANIFEST_URL", updateLiteral("terlimoUpdateManifestUrl"))
         buildConfigField("String", "UPDATE_CHANNEL", updateLiteral("terlimoUpdateChannel"))
         buildConfigField("String", "UPDATE_PATH_PREFIX", updateLiteral("terlimoUpdatePathPrefix"))
+        buildConfigField("String", "RECOVERY_ENVIRONMENT", "\"$recoveryEnvironment\"")
+        buildConfigField("String", "RECOVERY_BOT_URL", recoveryLiteral("terlimoRecoveryBotUrl", recoveryBot))
+        buildConfigField("String", "RECOVERY_SITE_URL", recoveryLiteral("terlimoRecoverySiteUrl", recoverySite))
         versionCode = 14
         versionName = "0.14-routing"
         ndk { abiFilters += "arm64-v8a" }

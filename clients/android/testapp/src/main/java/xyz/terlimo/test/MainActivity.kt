@@ -121,6 +121,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         appUpdateUi = AppUpdateUi(this)
         SessionService.restorePurchaseHint(installationStore)
+        SessionService.restoreReferralHint(installationStore)
         // §26.5: restore the persisted schedule and reconcile BEFORE building the Settings UI,
         // so the radio group shows the real stored mode. Idempotent: a recreation never
         // restarts the period.
@@ -356,15 +357,35 @@ class MainActivity : Activity() {
         referralUi = ReferralUi(this,
             onCopy = { code ->
                 (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                    .setPrimaryClip(android.content.ClipData.newPlainText("Код приглашения", code))
-                Toast.makeText(this, "Код скопирован", Toast.LENGTH_SHORT).show()
+                    .setPrimaryClip(android.content.ClipData.newPlainText("Приглашение TERLIMO", code))
+                Toast.makeText(this, "Скопировано", Toast.LENGTH_SHORT).show()
             },
             onShare = { code ->
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "Мой код приглашения TERLIMO: $code")
-                }, "Поделиться кодом"))
-            })
+                    putExtra(Intent.EXTRA_TEXT, code)
+                }, "Поделиться приглашением"))
+            },
+            onDraftChanged = { draft ->
+                runCatching { SessionService.saveReferralDraft(installationStore, draft) }
+                    .onFailure { Toast.makeText(this, "Не удалось сохранить черновик", Toast.LENGTH_SHORT).show() }
+            },
+            onSubmit = {
+                referralUi.incomingCodeDraft()?.let { draft ->
+                    runCatching { SessionService.saveReferralDraft(installationStore, draft) }
+                        .onSuccess { referralAction("referral_submit") }
+                        .onFailure { Toast.makeText(this, "Код не отправлен: не удалось сохранить черновик", Toast.LENGTH_LONG).show() }
+                }
+            },
+            onClear = {
+                runCatching {
+                    val saved = ReferralJournal(InstallationReferralStateStore(installationStore), installationStore.installationId()).state()
+                    if (saved.candidate == null && !saved.unresolved) SessionService.saveReferralDraft(installationStore, "")
+                    else referralAction("referral_clear")
+                }.onFailure { Toast.makeText(this, "Не удалось очистить код", Toast.LENGTH_SHORT).show() }
+            },
+            onRetry = { referralAction("referral_retry") },
+            onRefresh = { referralAction("referral_info") })
         mainPanel.addView(referralUi.invitationPanel())
         homeAnnouncements = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         mainPanel.addView(homeAnnouncements)
@@ -542,7 +563,7 @@ class MainActivity : Activity() {
                 setOnClickListener { openRecoveryEditor() }
             })
             addView(TextView(this@MainActivity).apply {
-                text = FirstReleaseLinks.RECOVERY_UNAVAILABLE_TEXT
+                text = FirstReleaseLinks.RECOVERY_ENTRY_TEXT
             })
             addView(Button(this@MainActivity).apply {
                 text = "Получить в Telegram"
@@ -1316,6 +1337,10 @@ class MainActivity : Activity() {
             else -> PowerDiagnostics.line("cs.branch", "value" to "noBranch", "phase" to state.phase)
         }
     }
+    private fun referralAction(action: String) {
+        startForegroundService(Intent(this, SessionService::class.java).setAction(action))
+    }
+
     private fun openRecoveryEditor() {
         val seed = runCatching { MobileBootstrapSeed.parse(assets.open("test-mobile.json").bufferedReader().use { it.readText() }) }.getOrNull()
         val current = SessionService.view
@@ -1332,7 +1357,8 @@ class MainActivity : Activity() {
             cancelAutoConnectLaunch()
             startForegroundService(Intent(this, SessionService::class.java)
                 .setAction("recovery_apply").putExtra("recovery_code", code))
-        })
+        }, openTelegram = { FirstReleaseLinks.recoveryBotUrl()?.let(::openHelpLink) },
+            openWebsite = { FirstReleaseLinks.recoverySiteUrl()?.let(::openHelpLink) })
     }
 
     private fun render(passed: ViewState) {
@@ -1414,8 +1440,7 @@ class MainActivity : Activity() {
         val homeAction = HomeAccessAction.forState(state, pending != null)
         homeContextButton.text = homeAction.label
         homeContextButton.visibility = if (homeAction == HomeAccessAction.NONE) View.GONE else View.VISIBLE
-        // Referral wire is intentionally absent: never substitute installation/account IDs.
-        referralUi.render(PurchaseFlow.usableAccount(state.accountAccess?.projection), serverAccountCode = null)
+        referralUi.render(ReferralClientPresentation.model(state))
         accountStatus.text = listOfNotNull(RegistrationUi.statusText(state), TrialUi.statusText(state)).joinToString("\n")
         armStatusTick()
     }

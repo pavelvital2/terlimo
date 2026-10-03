@@ -40,6 +40,7 @@ internal class RecoveryCommitGate {
         fun foregroundCommand(type: String): Boolean = type in setOf(
             "device_sleep", "device_wake", "cancel", "select_node", "explicit_connect",
             "request_telegram_registration", "refresh_telegram_registration", "activate_trial",
+            "referral_info", "referral_candidate_set", "referral_candidate_clear",
             "plans_list", "quote_create", "payment_create", "payment_get", "usage_read",
             "announcements_list", "announcement_read", "devices_list", "device_delete",
             "cancel_catalog", "refresh_manual", "switch_node", "choose_node", "probe_node", "cancel_probe")

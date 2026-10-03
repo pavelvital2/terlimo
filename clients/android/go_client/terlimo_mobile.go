@@ -593,6 +593,8 @@ func (m *managedMobile) run(ctx context.Context, bridge *managedBridge) {
 				m.runner.Trigger(reason)
 			case op := <-bridge.registration:
 				m.handleRegistration(ctx, op)
+			case request := <-bridge.referrals:
+				m.handleReferralAction(ctx, request)
 			case action := <-bridge.payments:
 				m.handlePaymentAction(ctx, action)
 			case <-bridge.usage:

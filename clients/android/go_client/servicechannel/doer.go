@@ -349,8 +349,10 @@ func pathAllowed(method, path string) bool {
 		"/api/mobile/v1/trial/activate", "/api/mobile/v1/quotes", "/api/mobile/v1/payments":
 		return method == http.MethodPost
 	case "/api/mobile/v1/me", "/api/mobile/v1/gateways", "/api/mobile/v1/plans", "/api/mobile/v1/usage",
-		"/api/mobile/v1/announcements", "/api/mobile/v1/devices", "/api/mobile/v1/service-seed":
+		"/api/mobile/v1/announcements", "/api/mobile/v1/devices", "/api/mobile/v1/service-seed", "/api/mobile/v1/referral":
 		return method == http.MethodGet
+	case "/api/mobile/v1/referral/candidate":
+		return method == http.MethodPost || method == http.MethodDelete
 	}
 	// §18–19 device deletion: exactly one bounded opaque device id segment and DELETE only.
 	if strings.HasPrefix(path, mobileDevicesPrefix) {
@@ -394,15 +396,14 @@ const mobileAnnouncementsPrefix = "/api/mobile/v1/announcements/"
 const mobileDevicesPrefix = "/api/mobile/v1/devices/"
 
 // methodAllowed is the single method/path gate shared by Doer.Do and validateRequest.
-// GET/POST follow the fixed allowlist; DELETE is permitted ONLY for the bounded
-// /api/mobile/v1/devices/{id} device path (never a generic method expansion).
+// GET/POST follow the fixed allowlist; DELETE is permitted only for the bounded
+// device path and the exact installation referral candidate path.
 func methodAllowed(method, path string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost:
 		return pathAllowed(method, path)
 	case http.MethodDelete:
-		return strings.HasPrefix(path, mobileDevicesPrefix) &&
-			validDevicePathID(path[len(mobileDevicesPrefix):])
+		return pathAllowed(method, path)
 	default:
 		return false
 	}

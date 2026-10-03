@@ -58,7 +58,8 @@ internal data class ViewState(val phase: String = "Idle", val attempt: String? =
     // S5 §11 one-way announcements display state (server-owned; host owns read-marker keys).
     val announcements: AnnouncementsUi = AnnouncementsUi(),
     // §§18–19 connected-devices display state (server-owned; read/delete only).
-    val devices: DevicesUi? = null)
+    val devices: DevicesUi? = null,
+    val referral: ReferralClientState = ReferralClientState())
 
 class SessionService : Service() {
     private val recoveryCommitGate = RecoveryCommitGate()
@@ -244,6 +245,10 @@ class SessionService : Service() {
     private val devicesGate = DevicesColdGate()
     /** Explicit "already have account -> Telegram sign in" gate (existing registration flow). */
     private val loginGate = RegistrationLoginGate()
+    private val referralGate = ReferralTransportGate()
+    private var referralVerifiedAttempt: String? = null
+    private var referralRegistrationFence: ReferralRegistrationFence? = null
+    private fun referralJournal() = ReferralJournal(InstallationReferralStateStore(storage), storage.installationId())
     /** Durable host-owned idempotency keys for the purchase attempt; loaded lazily after storage. */
     private val purchaseAttempts by lazy { PurchaseAttempts(InstallationPurchaseAttemptStore(storage)) }
     /** Local correlation of the explicitly sent payment_create with its result (no wire pairing). */
@@ -481,6 +486,7 @@ class SessionService : Service() {
             storage = InstallationStore(this)
         }
         restorePurchaseHint(storage)
+        restoreReferralHint(storage)
         // Seed the last verified catalog/selection from durable storage when no
         // session is active, so an ordinary Disconnect survives Service recreation.
         if (view.nodes.isEmpty()) {
@@ -681,6 +687,8 @@ class SessionService : Service() {
             return START_NOT_STICKY
         }
         initializeStorage()
+        if (intent?.action !in setOf("referral_submit", "referral_clear", "referral_retry", "referral_info"))
+            referralGate.relinquishCold()
         // Foreground intent wins even while its actor item waits behind a queued persist.
         if (gate.active != null) recoveryCommitGate.advanceForeground()
         // Navigation-only commands (cancel a common ping / request announcements) must never
@@ -1039,6 +1047,10 @@ class SessionService : Service() {
                         pingAll = PingAllGate.cancel(view.pingAll)))
                 }
             }
+            "referral_submit", "referral_clear", "referral_retry", "referral_info" -> {
+                val action = intent.action.orEmpty()
+                submitControl { handleReferralAction(action) }
+            }
             "telegram_register", "telegram_login", "telegram_refresh" -> {
                 val action = when (intent.action) {
                     "telegram_register" -> RegistrationAction.REGISTER
@@ -1139,6 +1151,228 @@ class SessionService : Service() {
         }
         return START_NOT_STICKY
     }
+    private fun publishReferralJournal(loading: Boolean = view.referral.loading, error: String? = view.referral.error) {
+        runCatching { referralJournal().state() }.onSuccess {
+            publish(view.copy(referral = view.referral.copy(durable = it, loading = loading,
+                error = error, storageUnavailable = false)))
+        }.onFailure {
+            publish(view.copy(referral = view.referral.copy(loading = false, error = "REFERRAL_STATE_INVALID",
+                storageUnavailable = true)))
+        }
+    }
+
+    private fun referralError(code: String, key: String? = null) {
+        if (key != null) runCatching { referralJournal().recordError(key, code) }
+        publishReferralJournal(loading = false, error = code)
+    }
+
+    private fun handleReferralAction(action: String) {
+        if (referralGate.flight != null) return
+        if (stopping.get() || view.recoveryStatus == "RECOVERY_RUNNING") {
+            referralError("BUSY")
+            return
+        }
+        val journal = referralJournal()
+        val registration = runCatching {
+            val state = journal.state()
+            if (action in setOf("referral_registration", "referral_registration_refresh") ||
+                (action == "referral_retry" && (state.locked || state.registration?.expired == true))) {
+                check(state.operation == null && !state.legacyLocked) { "REFERRAL_STATE_INVALID" }
+                journal.retryRegistration() ?: journal.prepareRegistration(java.util.UUID.randomUUID().toString(),
+                    view.accountAccess?.projection?.account?.accountRef)
+            } else null
+        }.getOrElse { referralError("REFERRAL_STATE_INVALID"); return }
+        val op = runCatching {
+            when {
+                registration != null -> null
+                else -> when (action) {
+                "referral_submit" -> {
+                    check(!ReferralAccount.registered(view)) { "ACCESS_DENIED" }
+                    journal.beginPost(journal.state().draftCode, java.util.UUID.randomUUID().toString())
+                }
+                "referral_clear" -> journal.beginClear(java.util.UUID.randomUUID().toString())
+                "referral_retry" -> journal.retry() ?: error("REFERRAL_OPERATION_PENDING")
+                else -> null
+                }
+            }
+        }.getOrElse {
+            referralError(it.message?.takeIf { code -> code in ReferralContract.ERROR_CODES }
+                ?: "REFERRAL_STATE_INVALID")
+            return
+        }
+        val operation = if (registration != null) "registration" else if (op == null) "info" else if (op.kind == ReferralOperationKind.POST) "set" else "clear"
+        val attempt = gate.active
+        val account = view.accountAccess?.projection?.account?.accountRef
+        referralGate.begin(java.util.UUID.randomUUID().toString(), operation, registration?.idempotencyKey ?: op?.idempotencyKey, account, attempt,
+            openRegistrationLink = registration != null && action != "referral_registration_refresh")
+        if (operation == "info") publish(view.copy(referral = view.referral.copy(info = null)))
+        publishReferralJournal(loading = true, error = null)
+        if (attempt == null) {
+            if (retiringActors.get() != 0 || activeVpnConfig != null || preAdmissionConnect) {
+                finishReferral("BUSY")
+            } else {
+                cancelAutoConnect()
+                begin("")
+            }
+        } else {
+            armReferralTimeout(attempt)
+            dispatchReferral(attempt)
+        }
+    }
+
+    private fun armReferralTimeout(attempt: String) {
+        val requestId = referralGate.flight?.requestId ?: return
+        main.postDelayed({ enqueueActive(attempt) {
+            if (referralGate.flight?.requestId == requestId) finishReferral("TRANSPORT")
+        } }, PurchaseGate.COLD_WINDOW_MILLIS)
+    }
+
+    private fun dispatchReferral(attempt: String) {
+        if (referralVerifiedAttempt != attempt || gate.active != attempt || stopping.get()) return
+        val currentAccount = view.accountAccess?.projection?.account?.accountRef
+        val pending = referralGate.flight ?: return
+        if (pending.expectedAccount != null && pending.expectedAccount != currentAccount) {
+            finishReferral("ACCESS_DENIED")
+            return
+        }
+        if (pending.operation == "info" && !ReferralAccount.registered(view)) {
+            finishReferral("TELEGRAM_REQUIRED")
+            return
+        }
+        val flight = referralGate.dispatch(attempt, currentAccount) ?: return
+        val command = JSONObject().put("client_request_id", flight.requestId)
+        if (flight.operation == "info") {
+            command.put("type", "referral_info").put("account_ref", currentAccount)
+        } else if (flight.operation == "registration") {
+            val fence = runCatching { referralJournal().captureRegistration() }.getOrNull()
+            if (fence == null || fence.idempotencyKey != flight.key) {
+                finishReferral("REFERRAL_STATE_INVALID")
+                return
+            }
+            referralRegistrationFence = fence
+            command.put("type", "request_telegram_registration")
+                .put("idempotency_key", fence.idempotencyKey)
+                .put("referral_candidate_id", fence.candidateId)
+                .put("account_ref", currentAccount)
+        } else {
+            val op = runCatching { referralJournal().retry() }.getOrNull()
+            if (op == null || op.idempotencyKey != flight.key) {
+                finishReferral("REFERRAL_STATE_INVALID")
+                return
+            }
+            command.put("type", if (op.kind == ReferralOperationKind.POST) "referral_candidate_set" else "referral_candidate_clear")
+                .put("idempotency_key", op.idempotencyKey)
+            op.code?.let { command.put("code", it) }
+        }
+        if (native?.trySend(command) != true) finishReferral("TRANSPORT")
+    }
+
+    private fun finishReferral(error: String? = null) {
+        val flight = referralGate.finish() ?: return
+        val registrationFence = referralRegistrationFence
+        referralRegistrationFence = null
+        if (error != null && registrationFence != null) runCatching {
+            referralJournal().recordRegistrationError(registrationFence, error)
+        }
+        if (error != null) referralError(error, flight.key) else publishReferralJournal(loading = false, error = null)
+        if (flight.cold && registrationMayStop(flight.attempt ?: "")) stopAttempt(null, "referral_result")
+    }
+
+    private fun handleReferralResult(event: JSONObject, attempt: String) {
+        val account = view.accountAccess?.projection?.account?.accountRef
+        val flight = referralGate.flight ?: return
+        if (referralVerifiedAttempt != attempt || !referralGate.accepts(attempt, event.optString("client_request_id"), account)) return
+        if ((flight.operation == "info") != (event.optString("type") == "referral_info_result")) return
+        if (flight.key != null && (event.optString("idempotency_key") != flight.key ||
+                event.optString("operation") != flight.operation)) return
+        if (event.optString("state") == "error") {
+            val error = event.optString("code").takeIf { it in ReferralContract.ERROR_CODES } ?: "SERVICE_UNAVAILABLE"
+            if (flight.operation == "set" && event.opt("definitive_rejection") == true) {
+                runCatching {
+                    ReferralBridgeProof.rejection(event, storage.installationId(), checkNotNull(flight.key))
+                        ?.let { referralJournal().definitiveCandidateReject(it) }
+                }
+            }
+            finishReferral(error)
+            return
+        }
+        if (event.optString("state") != "ok") { finishReferral("SERVICE_UNAVAILABLE"); return }
+        val accepted = runCatching {
+            val payload = event.getJSONObject("payload")
+            when (flight.operation) {
+                "info" -> {
+                    val info = ReferralContract.parseInfo(payload).referral
+                    check(account != null && info.accountRef == account && flight.expectedAccount == account)
+                    publish(view.copy(referral = view.referral.copy(info = info)))
+                    // An account GET is not a correlated original-registration terminal receipt.
+                    true
+                }
+                "set" -> referralJournal().acceptPending(checkNotNull(flight.key), ReferralContract.parsePending(payload).candidate)
+                "clear" -> {
+                    ReferralContract.parseCleared(payload)
+                    referralJournal().acceptCleared(checkNotNull(flight.key))
+                }
+                else -> false
+            }
+        }.getOrDefault(false)
+        finishReferral(if (accepted) null else "SERVICE_UNAVAILABLE")
+    }
+
+    private fun handleReferralRegistrationResult(event: JSONObject, attempt: String) {
+        val flight = referralGate.flight ?: return
+        val fence = referralRegistrationFence ?: return
+        val account = view.accountAccess?.projection?.account?.accountRef
+        if (flight.operation != "registration" || referralVerifiedAttempt != attempt ||
+            !referralGate.acceptsRegistration(attempt, event.optString("client_request_id"), account,
+                event.opt("state") == "registered") ||
+            event.optString("idempotency_key") != flight.key ||
+            event.optString("referral_candidate_id") != fence.candidateId ||
+            storage.installationId() != fence.installationId) return
+        val journal = referralJournal()
+        if (event.optString("state") == "error") {
+            val expiry = ReferralRegistrationProof.expiryStatus(event)?.let { status ->
+                runCatching { ReferralContract.parseRegistrationExpiry(event.getJSONObject("payload"), status) }.getOrNull()
+            }
+            if (expiry != null && runCatching { journal.acceptRegistrationExpiry(fence, expiry) }.getOrDefault(false)) {
+                publish(view.copy(registration = (view.registration ?: RegistrationState()).copy(
+                    state = "none", error = "REGISTRATION_EXPIRED")))
+                finishReferral(null)
+            } else {
+                finishReferral(event.optString("code").takeIf {
+                    it in ReferralContract.ERROR_CODES && it != "REGISTRATION_EXPIRED"
+                } ?: "SERVICE_UNAVAILABLE")
+            }
+            return
+        }
+        var linkToOpen: String? = null
+        val accepted = runCatching {
+            when (val result = ReferralContract.parseRegistration(event.getJSONObject("payload"))) {
+                is ReferralRegistrationResult.Pending -> {
+                    check(event.opt("state") == "pending")
+                    journal.acceptRegistrationPending(fence, result.pending).also { saved ->
+                        if (saved) {
+                            if (flight.openRegistrationLink) linkToOpen = result.pending.deepLink
+                            publish(view.copy(registration = (view.registration ?: RegistrationState()).copy(
+                                state = "pending", error = null)))
+                        }
+                    }
+                }
+                is ReferralRegistrationResult.Registered -> {
+                    check(event.opt("state") == "registered")
+                    val freshAccount = checkNotNull(ReferralRegistrationProof.freshAccount(event, account))
+                    journal.acceptRegistrationReceipt(fence, result.receipt, freshAccount).also { saved ->
+                        if (saved) publish(view.copy(registration = (view.registration ?: RegistrationState()).copy(
+                            state = "registered", error = null),
+                            referral = view.referral.copy(verifiedRegistrationAccount = freshAccount)))
+                    }
+                }
+            }
+        }.getOrDefault(false)
+        // Opening Telegram is permitted only after immutable pending data reached durable storage.
+        if (accepted) linkToOpen?.let(::openExternalLink)
+        finishReferral(if (accepted) null else "SERVICE_UNAVAILABLE")
+    }
+
     private fun registrationError(code: String) {
         publish(view.copy(registration = (view.registration ?: RegistrationState()).copy(error = code)))
     }
@@ -1146,6 +1380,22 @@ class SessionService : Service() {
     private fun handleRegistrationAction(action: RegistrationAction) {
         // Resolve the current attempt on the actor: a queued tap cannot call begin over a
         // different flow which started in the meantime (begin failure tears down its owner).
+        val referral = runCatching { referralJournal().state() }.getOrElse {
+            referralError("REFERRAL_STATE_INVALID")
+            registrationError("REGISTRATION_DISABLED")
+            return
+        }
+        if (referral.operation != null || referral.legacyLocked) {
+            referralError("REFERRAL_OPERATION_PENDING")
+            return
+        }
+        if (referral.candidate != null || referral.locked) {
+            // Lifecycle refresh may replay a durable intent, never create a new one after expiry.
+            if (action == RegistrationAction.REFRESH &&
+                (referral.registration == null || referral.registration.expired)) return
+            handleReferralAction(if (action == RegistrationAction.REFRESH) "referral_registration_refresh" else "referral_registration")
+            return
+        }
         val attempt = gate.active
         when (loginGate.onTap(attempt, action, action.eligible(view))) {
             RegistrationLoginTapAction.START_SERVICE -> {
@@ -1290,6 +1540,7 @@ class SessionService : Service() {
             publish(view.copy(attempt = attempt))
             // S3-B: a tap without a live attempt starts this bounded service-only attempt and
             // arms a finite window for the fresh confirmed /me before activation is sent.
+            if (referralGate.started(attempt)) armReferralTimeout(attempt)
             if (trialGate.onAttemptStarted(attempt)) {
                 main.postDelayed({
                     if (gate.active == attempt && trialGate.onTimeout(attempt)) {
@@ -1368,6 +1619,7 @@ class SessionService : Service() {
                 // not arm a connect. A linked attempt keeps the credential mode so the
                 // existing paid/retained connect path is not gated during the refresh;
                 // a browse answer still switches the mode when rights are gone.
+                referral = view.referral.copy(info = null),
                 browseNodes = view.browseNodes, browseLoaded = view.browseLoaded,
                 browseSelectedId = view.browseSelectedId,
                 displayMode = if (mobileBaseUrl != null && activeLink.isEmpty()) CatalogDisplayMode.BROWSE
@@ -1522,9 +1774,14 @@ class SessionService : Service() {
                             // the account (previous == null), it is never an identity switch.
                             val previousAccountRef = view.accountAccess?.projection?.account?.accountRef
                             val accountChanged = previousAccountRef != updated.projection.account.accountRef
+                            referralVerifiedAttempt = attempt
                             publishActive(attempt, view.copy(
                                 devices = if (accountChanged) DevicesPolicy.reset() else view.devices,
                                 accountAccess = updated,
+                                referral = if (accountChanged) view.referral.copy(info = null,
+                                    verifiedRegistrationAccount = view.referral.verifiedRegistrationAccount?.takeIf {
+                                        it == updated.projection.account.accountRef
+                                    }) else view.referral,
                                 registration = RegistrationState(
                                     state = registration.state,
                                     withinHour = registration.withinHour,
@@ -1548,6 +1805,7 @@ class SessionService : Service() {
                                 storage.reconcileMobileSelection(view.copy(
                                     displayMode = CatalogDisplayMode.CREDENTIAL, accountAccess = updated), it)
                             }
+                            dispatchReferral(attempt)
                             when (val registrationAction = loginGate.onVerifiedRights(attempt) { it.eligible(view) }) {
                                 is RegistrationVerified.Send -> sendRegistrationAction(attempt, registrationAction.action)
                                 RegistrationVerified.Refused -> {
@@ -1727,7 +1985,12 @@ class SessionService : Service() {
                         }
                     }
                 }
+                "referral_info_result", "referral_candidate_result" -> handleReferralResult(event, attempt)
                 "telegram_registration" -> {
+                    if (event.optString("operation") == "registration") {
+                        handleReferralRegistrationResult(event, attempt)
+                        return
+                    }
                     if (!loginGate.expects(attempt, false)) {
                         // Refresh can also return a native fixed error; it must not open a link.
                         if (loginGate.expects(attempt, true) && event.optString("state") == "error") {
@@ -3430,6 +3693,11 @@ class SessionService : Service() {
         purchaseGate.reset()
         devicesGate.reset()
         loginGate.reset()
+        referralVerifiedAttempt = null
+        val referralInterrupted = referralGate.finish()
+        referralRegistrationFence?.let { fence -> runCatching { referralJournal().recordRegistrationError(fence, "TRANSPORT") } }
+        referralRegistrationFence = null
+        if (referralInterrupted != null) referralError("TRANSPORT", referralInterrupted.key)
         // Transport teardown fences the old native stream: any outstanding purchase request
         // is dropped here, and its late callbacks are excluded by the attempt gate.
         purchaseFlight.reset()
@@ -3589,6 +3857,17 @@ class SessionService : Service() {
                 val hint = PurchaseAttempts(InstallationPurchaseAttemptStore(storage)).recoveryState(null)
                 if (hint != null) publish(view.copy(purchase = hint))
             }
+        }
+
+        internal fun restoreReferralHint(storage: InstallationStore) {
+            runCatching { ReferralJournal(InstallationReferralStateStore(storage), storage.installationId()).state() }
+                .onSuccess { publish(view.copy(referral = view.referral.copy(durable = it, storageUnavailable = false))) }
+                .onFailure { publish(view.copy(referral = view.referral.copy(storageUnavailable = true))) }
+        }
+
+        internal fun saveReferralDraft(storage: InstallationStore, draft: String) {
+            val saved = ReferralJournal(InstallationReferralStateStore(storage), storage.installationId()).setDraft(draft)
+            publish(view.copy(referral = view.referral.copy(durable = saved, error = null, storageUnavailable = false)))
         }
 
         /** True while a SessionService instance exists; Off toggles never create one. */
