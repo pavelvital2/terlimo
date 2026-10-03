@@ -73,16 +73,7 @@ internal object RegistrationUi {
             return "Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить оплаченный доступ."
         }
         if (PurchaseFlow.usableAccount(state.accountAccess?.projection)) {
-            val accepted = state.accountAccess!!.projection.registration
-            return when {
-                accepted.trialReason == "hour_expired" ->
-                    "Вход через Telegram подтверждён. Час истёк: пробный доступ недоступен."
-                accepted.trialReason == "trial_already_used" ->
-                    "Вход через Telegram подтверждён. Пробный доступ уже использован."
-                accepted.trialAvailable ->
-                    "Вход через Telegram подтверждён. Пробный доступ на 7 дней будет доступен позже."
-                else -> "Вход через Telegram подтверждён."
-            }
+            return "Вход через Telegram подтверждён."
         }
         val status = registration ?: return if (registerVisible(state)) INTERNET_TEXT else null
         return when (status.state) {

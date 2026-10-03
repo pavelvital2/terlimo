@@ -103,23 +103,23 @@ class S3aRegistrationTest {
     }
 
     @Test
-    fun `status text explains pending registered and no-trial states without an issuance action`() {
+    fun `status text explains registration independently of trial eligibility`() {
         val pending = state(projection()).copy(registration = RegistrationState(state = "pending"))
         assertEquals("Завершите регистрацию в Telegram.", RegistrationUi.statusText(pending))
         assertEquals("Ожидаем подтверждение в Telegram", RegistrationUi.buttonText(pending))
 
         val expired = state(projection(registration = AccountAccessProjection.Registration("registered", false, false, "hour_expired", true))).copy(registration = RegistrationState(state = "registered",
             withinHour = false, trialAvailable = false, trialReason = "hour_expired", purchaseAvailable = true))
-        assertEquals("Вход через Telegram подтверждён. Час истёк: пробный доступ недоступен.",
+        assertEquals("Вход через Telegram подтверждён.",
             RegistrationUi.statusText(expired))
 
         val used = state(projection(registration = AccountAccessProjection.Registration("registered", false, false, "trial_already_used", true))).copy(registration = RegistrationState(state = "registered",
             withinHour = false, trialAvailable = false, trialReason = "trial_already_used", purchaseAvailable = true))
-        assertEquals("Вход через Telegram подтверждён. Пробный доступ уже использован.", RegistrationUi.statusText(used))
+        assertEquals("Вход через Telegram подтверждён.", RegistrationUi.statusText(used))
 
         val available = state(projection(registration = AccountAccessProjection.Registration("registered", true, true, "within_hour_no_prior_trial", true))).copy(registration = RegistrationState(state = "registered",
             withinHour = true, trialAvailable = true, trialReason = "within_hour_no_prior_trial", purchaseAvailable = true))
-        assertEquals("Вход через Telegram подтверждён. Пробный доступ на 7 дней будет доступен позже.",
+        assertEquals("Вход через Telegram подтверждён.",
             RegistrationUi.statusText(available))
 
         val disabled = state(projection()).copy(registration = RegistrationState(state = "none", error = "REGISTRATION_DISABLED"))
