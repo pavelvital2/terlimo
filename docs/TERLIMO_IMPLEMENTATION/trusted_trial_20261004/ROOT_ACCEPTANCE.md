@@ -1,0 +1,9 @@
+# Root SOURCE acceptance — account trial and T1
+
+Base f93c3300943e2a626bccb4bf697f55b4aaeae85e; candidate c8e7c111748ee8c405bbd49b9921edef1a900576. All278 supplied postimages/artifact hashes verified after applying full patch; correction delta reviewed separately. Three original product files add shared trial checks/insertion and trusted account activate/status, preserving mobile binding/within_hour/wire. Rules7/10, imported-used/history protection, no-installation trusted owner, explicit membership and frozen replay accepted within source scope.
+
+T1 closed: verified account SHARE now precedes paid-account/trial advisories; retained identity lock and final checks, membership outside transaction. Actual supplied wait graph shows old PostgreSQL40P01 and fixed completion of trial plus full paid credit. Two new parameterized old/fixed cases and one affected mobile/trusted concurrency PASS; prior23distinct checks remain executor evidence, not repeated by root. Temporary schema was42 migrations through0042; prior report through0041 corrected. Live TEST remains0041.
+
+Root packaging adjustment only: diagnostic old-module loader used executor-local Git commit/cwd. It now reads a tracked immutable text fixture with SHA2564eee2cc82a17b719cbf4d9f554079953e084536ffbe0981aaa09c05ab4d1db40, byte-identical to the executed old module. Hash/load/AST/diff checks performed; product and test SQL/assertions unchanged. PostgreSQL cases were not rerun for byte-identical source input relocation. Raw evidence remains in management archive.
+
+No runtime/provider/Telegram/phone/production changes or live enable. Trial logical identity/external_pending is not delivery proof. Typed external application, inviter rewards after proven delivery, inline caller trial/checkout and legacy ownership/history/expiry/callback cutover remain mandatory.

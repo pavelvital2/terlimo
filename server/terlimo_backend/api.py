@@ -38,6 +38,7 @@ from .payments import register_payment_routes
 from .s5_payments import register_s5_payment_routes
 from .telegram_binding import register_telegram_registration_routes
 from .trial_activation import register_trial_routes
+from .telegram_trial import register_trusted_trial_routes
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,7 @@ def create_app(settings: Settings, database: Database) -> web.Application:
     register_onboarding_routes(app)
     register_telegram_registration_routes(app, settings, database)
     register_trial_routes(app, settings, database)
+    register_trusted_trial_routes(app, settings, database)
     register_payment_routes(app, settings, database)
     register_s5_payment_routes(app, settings, database)
     register_announcement_routes(app, settings, database)

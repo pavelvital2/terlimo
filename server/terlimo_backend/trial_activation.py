@@ -235,15 +235,9 @@ async def activate_trial(
         )
         if type(telegram_id) is not int:
             raise ApiError("REGISTRATION_REQUIRED", http=403)
-        existing = await _trial_for_account(connection, account_id)
+        existing = await trial_eligibility(connection, account_id, telegram_id, moment)
         if existing is not None:
             return {"trial": _trial_projection(existing, moment)}
-        if await connection.fetchval("SELECT imported_trial_used FROM referral_benefits WHERE account_id=$1",account_id):
-            raise ApiError("TRIAL_ALREADY_USED", http=409)
-        if await _trial_history_for_telegram(connection, telegram_id, account_id):
-            raise ApiError("TRIAL_ALREADY_USED", http=409)
-        if await _active_commercial(connection, account_id, moment):
-            raise ApiError("SUBSCRIPTION_ACTIVE", http=409)
         registration = await _registration_snapshot(connection, installation_id)
         if registration is None:
             raise ApiError("REGISTRATION_REQUIRED", http=403)
@@ -261,28 +255,54 @@ async def activate_trial(
                 "CHANNEL_MEMBERSHIP_REQUIRED", http=403,
                 details={"reason": "subscribe_to_official_channel_then_retry"},
             )
-        from .mobile_account import BASE_LIMIT
-        from .referral_rewards import trial_bonus_days
-        bonus_days = await trial_bonus_days(connection, account_id)
-        days = TRIAL_DAYS + bonus_days
-        source_plan = dict(TRIAL_SOURCE_PLAN)
-        if bonus_days:
-            source_plan.update(plan_id="trial-10d", title="10 дней", duration_code="days:10", referral_bonus_days=bonus_days)
-
-        row = await connection.fetchrow(
-            """
-            INSERT INTO entitlements
-                (account_id, kind, status, starts_at, ends_at, device_limit, revision, source_plan)
-            VALUES ($1, 'trial', 'active', $2, $3, $4, 1, $5::jsonb)
-            RETURNING *
-            """,
-            account_id,
-            moment,
-            moment + timedelta(days=days),
-            BASE_LIMIT,
-            source_plan,
-        )
+        row = await insert_trial(connection, account_id, moment)
         return {"trial": _trial_projection(row, moment, replay=False), "account_state": "ACTIVE_TRIAL"}
+
+
+async def trial_eligibility(connection, account_id, telegram_id, moment, *,
+                            trusted=False, locked=True):
+    """Shared once-only/commercial checks. No mutation or external I/O."""
+    query = "SELECT * FROM entitlements WHERE account_id=$1 AND kind='trial'"
+    existing = await connection.fetchrow(query + (" FOR UPDATE" if locked else ""), account_id)
+    if existing is not None:
+        return existing
+    benefit = await connection.fetchrow(
+        "SELECT history_state,imported_trial_used FROM referral_benefits WHERE account_id=$1", account_id)
+    if benefit is not None and benefit['imported_trial_used']:
+        raise ApiError("TRIAL_ALREADY_USED", http=409)
+    if await _trial_history_for_telegram(connection, telegram_id, account_id):
+        raise ApiError("TRIAL_ALREADY_USED", http=409)
+    if await _active_commercial(connection, account_id, moment):
+        raise ApiError("SUBSCRIPTION_ACTIVE", http=409)
+    if trusted and (benefit is None or benefit['history_state'] != 'ready'):
+        raise ApiError("SERVICE_UNAVAILABLE", http=503, retryable=True)
+    return None
+
+
+async def insert_trial(connection, account_id, moment):
+    """Single trial insertion engine; caller holds paid-account then trial locks."""
+    from .mobile_account import BASE_LIMIT
+    from .referral_rewards import trial_bonus_days
+    bonus_days = await trial_bonus_days(connection, account_id)
+    days = TRIAL_DAYS + bonus_days
+    source_plan = dict(TRIAL_SOURCE_PLAN)
+    if bonus_days:
+        source_plan.update(plan_id="trial-10d", title="10 дней", duration_code="days:10", referral_bonus_days=bonus_days)
+
+    row = await connection.fetchrow(
+        """
+        INSERT INTO entitlements
+            (account_id, kind, status, starts_at, ends_at, device_limit, revision, source_plan)
+        VALUES ($1, 'trial', 'active', $2, $3, $4, 1, $5::jsonb)
+        RETURNING *
+        """,
+        account_id,
+        moment,
+        moment + timedelta(days=days),
+        BASE_LIMIT,
+        source_plan,
+    )
+    return row
 
 
 def register_trial_routes(app: web.Application, settings: Settings, database: Database) -> None:
