@@ -189,8 +189,12 @@ func (c *clientTestConn) SetDeadline(deadline time.Time) error {
 	return c.Conn.SetDeadline(deadline)
 }
 func clientReadBody(c net.Conn) (wlwire.ID, []byte, error) {
+	return clientReadBodyUntil(c, time.Now().Add(10*time.Second), nil)
+}
+
+// echo is available only before the first AUTH fragment; subsequent reads stay strict.
+func clientReadBodyUntil(c net.Conn, deadline time.Time, echo func() error) (wlwire.ID, []byte, error) {
 	var a wlwire.Assembler
-	deadline := time.Now().Add(10 * time.Second)
 	_ = c.SetReadDeadline(deadline)
 	defer c.SetReadDeadline(time.Time{})
 	b := make([]byte, 32+wlwire.Fragment+1)
@@ -199,6 +203,13 @@ func clientReadBody(c net.Conn) (wlwire.ID, []byte, error) {
 		if e != nil {
 			return wlwire.ID{}, nil, e
 		}
+		if echo != nil && isExactKeepalive(b[:n]) {
+			if e = echo(); e != nil {
+				return wlwire.ID{}, nil, e
+			}
+			continue
+		}
+		echo = nil
 		if n < 6 || b[5] != 0 {
 			return wlwire.ID{}, nil, wlwire.ErrMessage
 		}
@@ -208,6 +219,70 @@ func clientReadBody(c net.Conn) (wlwire.ID, []byte, error) {
 		}
 	}
 }
+
+// Snapshot only: never retain dbMutex across network I/O. WRAP cache admission
+// alone does not authorize echo, nor does echo authorize any VPN traffic.
+func clientTestEchoSnapshot(identity accessIdentity, expected ClientTestGrant) (int64, bool) {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+	if !identity.valid() || identity.isMain || identity.isService {
+		return 0, false
+	}
+	for _, bootstrap := range db.ClientBootstrap {
+		if bootstrap.Secret == identity.password {
+			return 0, false
+		}
+	}
+	entry := db.Passwords[identity.password]
+	if entry == nil || entry.IsDeactivated || entry.ClientTest == nil {
+		return 0, false
+	}
+	g := entry.ClientTest
+	return entry.ExpiresAt, clientTestExpiryActive(entry.ExpiresAt, time.Now().Unix()) &&
+		!g.Revoked && g.NodeID == clientTestNodeID && g.NodeID == expected.NodeID &&
+		g.GrantID == expected.GrantID && g.RegistrationID == expected.RegistrationID &&
+		g.Generation == expected.Generation && g.LeaseSeq == expected.LeaseSeq
+}
+
+func clientReadInitialBody(ctx context.Context, c net.Conn, identity accessIdentity, g ClientTestGrant) (wlwire.ID, []byte, error) {
+	deadline := time.Now().Add(10 * time.Second)
+	if until, ok := ctx.Deadline(); ok && until.Before(deadline) {
+		deadline = until
+	}
+	if expiry, _ := clientTestEchoSnapshot(identity, g); expiry != 0 && time.Unix(expiry, 0).Before(deadline) {
+		deadline = time.Unix(expiry, 0)
+	}
+	echoed := false
+	return clientReadBodyUntil(c, deadline, func() error {
+		if echoed {
+			return wlwire.ErrMessage
+		}
+		expiry, active := clientTestEchoSnapshot(identity, g)
+		if !active {
+			return errors.New("AUTH_REQUIRED")
+		}
+		until := deadline
+		if expiry != 0 && time.Unix(expiry, 0).Before(until) {
+			until = time.Unix(expiry, 0)
+		}
+		if ctx.Err() != nil || !time.Now().Before(until) {
+			return context.DeadlineExceeded
+		}
+		writeUntil := time.Now().Add(5 * time.Second)
+		if until.Before(writeUntil) {
+			writeUntil = until
+		}
+		_ = c.SetWriteDeadline(writeUntil)
+		defer c.SetWriteDeadline(time.Time{})
+		echoed = true
+		n, err := c.Write([]byte{0xff})
+		if err == nil && n != 1 {
+			err = io.ErrShortWrite
+		}
+		return err
+	})
+}
+
 func clientWriteBody(c net.Conn, id wlwire.ID, b []byte) error {
 	fs, e := wlwire.Frames(id, true, b)
 	if e != nil {
@@ -250,7 +325,13 @@ func clientTestAuthenticate(ctx context.Context, c *dtls.Conn, identity accessId
 	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
 	defer stop()
 	for attempt := 0; attempt < 3; attempt++ {
-		beginID, b, e := clientReadBody(c)
+		var beginID wlwire.ID
+		var b []byte
+		if attempt == 0 {
+			beginID, b, e = clientReadInitialBody(ctx, c, identity, g)
+		} else {
+			beginID, b, e = clientReadBody(c)
+		}
 		if e != nil {
 			return nil, e
 		}
