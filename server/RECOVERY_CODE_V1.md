@@ -54,7 +54,7 @@ The existing mobile response conventions are used:
 {
   "request_id": "<server-generated mobile request id>",
   "server_time": "<RFC3339 UTC>",
-  "schema_version": 1,
+  "schema_version": "1.0",
   "status": "ok",
   "recovery_code": "TR1.…"
 }
