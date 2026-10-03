@@ -1,0 +1,168 @@
+{
+  "note": "Exact illustrative synthetic fixture; dates/IDs vary at runtime. Configured200RUB, eligible account, no active paid target. Not published tariff.",
+  "method": "POST",
+  "path": "/api/mobile/v1/internal/telegram/billing",
+  "plans_request": {
+    "operation": "plans",
+    "telegram_id": 801
+  },
+  "quote_request": {
+    "operation": "quote",
+    "telegram_id": 801,
+    "plan_id": "terlimo-30d",
+    "duration_code": "days:30",
+    "method": "sbp"
+  },
+  "idempotency_key": "account-quote-key-001",
+  "quote_response": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-10-03T20:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "quote_id": "00000000-0000-4000-8000-000000000801",
+    "amount": {
+      "amount_minor": 10000,
+      "currency": "RUB"
+    },
+    "duration_code": "days:30",
+    "device_limit": 2,
+    "method": "sbp",
+    "expires_at": "2026-10-03T20:15:00Z",
+    "product": {
+      "kind": "subscription",
+      "plan_id": "terlimo-30d",
+      "device_delta": 0,
+      "target_entitlement_id": null,
+      "target_valid_until": null,
+      "valid_from": "2026-10-03T20:00:00Z",
+      "valid_until": "2026-11-02T20:00:00Z",
+      "renew_extra_slot_ids": [],
+      "base_amount_minor": 20000,
+      "extra_amount_minor": 0,
+      "device_limit": 2,
+      "extra_slots": []
+    },
+    "pricing": {
+      "base_amount_minor": 20000,
+      "discount_minor": 10000,
+      "payable_amount_minor": 10000,
+      "currency": "RUB",
+      "discount_kind": "referral_first_main",
+      "terms_version": "referral-20261003-v1"
+    }
+  },
+  "selection_digest": "fb5069c4646afadc9199b6e0c4dfd4e03f95a7e7d4c38c4ddea836252c0979fb",
+  "optional_selection_request": {
+    "operation": "quote",
+    "telegram_id": 801,
+    "plan_id": "terlimo-30d",
+    "duration_code": "days:30",
+    "method": "sbp",
+    "renew_extra_slot_ids": [
+      "00000000-0000-4000-8000-000000000802"
+    ]
+  },
+  "selection_note": "Slot must exist on this account active entitlement; illustrative ID does not grant access. Optional omission vs emptylist has distinct digest, same as mobile.",
+  "errors": {
+    "400": "BAD_MESSAGE",
+    "403": "REGISTRATION_AUTH / METHOD_UNAVAILABLE",
+    "409": "REGISTRATION_REQUIRED / IDEMPOTENCY_CONFLICT / PAYMENT_STATE_INVALID / REFERRAL_PRICE_UNSUPPORTED",
+    "503": "REFERRAL_HISTORY_PENDING (retryable) / SERVICE_UNAVAILABLE"
+  },
+  "plans_response": {
+    "request_id": "0123456789abcdef0123456789abcdef",
+    "server_time": "2026-10-03T20:00:00Z",
+    "schema_version": "1.0",
+    "status": "ok",
+    "plans": [
+      {
+        "plan_id": "terlimo-30d",
+        "title": "30 дней",
+        "duration_code": "days:30",
+        "base_device_limit": 2,
+        "amount": {
+          "amount_minor": 20000,
+          "currency": "RUB"
+        },
+        "methods": [
+          "sbp",
+          "card",
+          "crypto"
+        ],
+        "product": {
+          "kind": "subscription",
+          "plan_id": "terlimo-30d",
+          "device_delta": 0,
+          "target_entitlement_id": null,
+          "target_valid_until": null,
+          "valid_from": "2026-10-03T20:00:00Z",
+          "valid_until": "2026-11-02T20:00:00Z",
+          "renew_extra_slot_ids": [],
+          "base_amount_minor": 20000,
+          "extra_amount_minor": 0,
+          "device_limit": 2,
+          "extra_slots": []
+        }
+      },
+      {
+        "plan_id": "terlimo-3m",
+        "title": "3 месяца",
+        "duration_code": "months:3",
+        "base_device_limit": 2,
+        "amount": {
+          "amount_minor": 48000,
+          "currency": "RUB"
+        },
+        "methods": [
+          "sbp",
+          "card",
+          "crypto"
+        ],
+        "product": {
+          "kind": "subscription",
+          "plan_id": "terlimo-3m",
+          "device_delta": 0,
+          "target_entitlement_id": null,
+          "target_valid_until": null,
+          "valid_from": "2026-10-03T20:00:00Z",
+          "valid_until": "2027-01-03T20:00:00Z",
+          "renew_extra_slot_ids": [],
+          "base_amount_minor": 48000,
+          "extra_amount_minor": 0,
+          "device_limit": 2,
+          "extra_slots": []
+        }
+      },
+      {
+        "plan_id": "terlimo-6m",
+        "title": "6 месяцев",
+        "duration_code": "months:6",
+        "base_device_limit": 2,
+        "amount": {
+          "amount_minor": 84000,
+          "currency": "RUB"
+        },
+        "methods": [
+          "sbp",
+          "card",
+          "crypto"
+        ],
+        "product": {
+          "kind": "subscription",
+          "plan_id": "terlimo-6m",
+          "device_delta": 0,
+          "target_entitlement_id": null,
+          "target_valid_until": null,
+          "valid_from": "2026-10-03T20:00:00Z",
+          "valid_until": "2027-04-03T20:00:00Z",
+          "renew_extra_slot_ids": [],
+          "base_amount_minor": 84000,
+          "extra_amount_minor": 0,
+          "device_limit": 2,
+          "extra_slots": []
+        }
+      }
+    ],
+    "plans_revision": "898983972212800377"
+  }
+}

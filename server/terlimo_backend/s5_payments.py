@@ -252,6 +252,71 @@ def _payment_view(payment: dict[str, Any], *, credited_revision: int | None, nee
     }
 
 
+def quote_body_digest(body, *, contract2):
+    expected = {"plan_id", "duration_code", "method"}
+    if contract2 and "renew_extra_slot_ids" in body:
+        expected.add("renew_extra_slot_ids")
+    if set(body) != expected or not all(isinstance(body[item], str) for item in ("plan_id","duration_code","method")) or ("renew_extra_slot_ids" in body and (not isinstance(body["renew_extra_slot_ids"],list) or not all(isinstance(x,str) for x in body["renew_extra_slot_ids"]))):
+        raise ApiError("BAD_MESSAGE", http=400)
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return digest
+
+
+async def account_quote_snapshot(connection, settings, account_id, body, *, contract2):
+    """Shared commercial calculation only; caller supplies authenticated owner/replay."""
+    buyer = _buyer_settings(settings, account_id)
+    addon = body["plan_id"] == ADDON_PLAN
+    product = None
+    if addon and not contract2:
+        raise ApiError("BAD_MESSAGE",http=400)
+    if addon:
+        if body["method"] not in _methods(buyer):
+            raise ApiError("METHOD_UNAVAILABLE",http=403)
+        amount, device_limit, product = await quote_product(connection,buyer,account_id,addon=True,selected=body.get("renew_extra_slot_ids",[]),months=0,base_amount_minor=0)
+        if body["duration_code"] != "until:"+product["valid_until"]:
+            raise ApiError("BAD_MESSAGE",http=400)
+        if amount <= 0:
+            raise ApiError("PAYMENT_STATE_INVALID",http=409)
+        months = 0
+        plan = {"amount":{"amount_minor":amount,"currency":"RUB"},"methods":_methods(buyer)}
+    else:
+        plan = next((item for item in _plans(buyer) if item["plan_id"] == body["plan_id"]), None)
+        if plan is None or plan["duration_code"] != body["duration_code"]:
+            raise ApiError("BAD_MESSAGE", http=400)
+        if body["method"] not in plan["methods"]:
+            raise ApiError("METHOD_UNAVAILABLE", http=403)
+        months = PLAN_MONTHS[body["plan_id"]][0]
+        if contract2:
+            if account_id is None:
+                raise ApiError("ACCESS_DENIED",http=403)
+            amount, device_limit, product = await quote_product(connection,buyer,account_id,addon=False,selected=body.get("renew_extra_slot_ids",[]),months=months,base_amount_minor=plan["amount"]["amount_minor"])
+            plan["amount"]["amount_minor"] = amount
+    from .referral_pricing import quote_pricing
+    pricing = await quote_pricing(connection, account_id,
+        plan["amount"]["amount_minor"], main=not addon and (not product or product["kind"] == "subscription"),
+        main_base_minor=product["base_amount_minor"] if product else plan["amount"]["amount_minor"])
+    if pricing:
+        plan["amount"]["amount_minor"] = pricing["payable_amount_minor"]
+    listed = _plans(buyer)
+    expires = datetime.now(UTC) + QUOTE_LIFETIME
+    if addon:
+        target = await active_paid(connection,account_id)
+        expires = min(expires,target["ends_at"])
+    return (months, plan["amount"]["amount_minor"], plan["amount"]["currency"], buyer.payment_tariff_key, _plans_revision(listed), expires, json.dumps(product) if product else None, json.dumps(pricing) if pricing else None)
+
+
+async def account_plan_products(connection, buyer, account_id, listed):
+    target = await active_paid(connection,account_id)
+    if target:
+        extra_amount, extra_limit, product = await quote_product(connection,buyer,account_id,addon=True,selected=[],months=0,base_amount_minor=0)
+        if extra_amount > 0:
+            listed.append({"plan_id":ADDON_PLAN,"title":"Дополнительное устройство","duration_code":"until:"+product["valid_until"],"base_device_limit":BASE_LIMIT,"amount":{"amount_minor":extra_amount,"currency":"RUB"},"methods":_methods(buyer),"product":public_product(product)})
+    for item in listed:
+        if item["plan_id"] != ADDON_PLAN:
+            _, _, product = await quote_product(connection,buyer,account_id,addon=False,selected=[],months=PLAN_MONTHS[item["plan_id"]][0],base_amount_minor=item["amount"]["amount_minor"])
+            item["product"] = public_product(product)
+
+
 def register_s5_payment_routes(app: web.Application, settings: Settings, database: Database) -> None:
     async def plans(request: web.Request) -> web.Response:
         fallback = random_hex(16)
@@ -267,15 +332,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     item["product"] = None
             if _contract2(request) and request.headers.get("Authorization"):
                 async with database.acquire() as connection:
-                    target = await active_paid(connection,context.account_id)
-                    if target:
-                        extra_amount, extra_limit, product = await quote_product(connection,buyer,context.account_id,addon=True,selected=[],months=0,base_amount_minor=0)
-                        if extra_amount > 0:
-                            listed.append({"plan_id":ADDON_PLAN,"title":"Дополнительное устройство","duration_code":"until:"+product["valid_until"],"base_device_limit":BASE_LIMIT,"amount":{"amount_minor":extra_amount,"currency":"RUB"},"methods":_methods(buyer),"product":public_product(product)})
-                    for item in listed:
-                        if item["plan_id"] != ADDON_PLAN:
-                            _, _, product = await quote_product(connection,buyer,context.account_id,addon=False,selected=[],months=PLAN_MONTHS[item["plan_id"]][0],base_amount_minor=item["amount"]["amount_minor"])
-                            item["product"] = public_product(product)
+                    await account_plan_products(connection, buyer, context.account_id, listed)
             return _envelope({"plans": listed, "plans_revision": _plans_revision(listed)})
         except AuthError as error:
             return _error_response(fallback, ApiError(error.code, http=error.http, retryable=error.retryable))
@@ -288,12 +345,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
             token = _bearer(request)
             key = _idempotency_key(request)
             body = await _json_body(request)
-            expected = {"plan_id", "duration_code", "method"}
-            if _contract2(request) and "renew_extra_slot_ids" in body:
-                expected.add("renew_extra_slot_ids")
-            if set(body) != expected or not all(isinstance(body[item], str) for item in ("plan_id","duration_code","method")) or ("renew_extra_slot_ids" in body and (not isinstance(body["renew_extra_slot_ids"],list) or not all(isinstance(x,str) for x in body["renew_extra_slot_ids"]))):
-                raise ApiError("BAD_MESSAGE", http=400)
-            digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            digest = quote_body_digest(body, contract2=_contract2(request))
             async with database.acquire() as connection:
                 context = await authenticate_session(connection, settings, token)
                 await require_purchase_binding(connection, context)
@@ -307,44 +359,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     if product_of(existing) and not _contract2(request):
                         raise ApiError("BAD_MESSAGE",http=400)
                     return _envelope(_quote_view(existing,contract2=_contract2(request)))
-                buyer = _buyer_settings(settings, context.account_id)
-                addon = body["plan_id"] == ADDON_PLAN
-                product = None
-                if addon and not _contract2(request):
-                    raise ApiError("BAD_MESSAGE",http=400)
-                if addon:
-                    if body["method"] not in _methods(buyer):
-                        raise ApiError("METHOD_UNAVAILABLE",http=403)
-                    amount, device_limit, product = await quote_product(connection,buyer,context.account_id,addon=True,selected=body.get("renew_extra_slot_ids",[]),months=0,base_amount_minor=0)
-                    if body["duration_code"] != "until:"+product["valid_until"]:
-                        raise ApiError("BAD_MESSAGE",http=400)
-                    if amount <= 0:
-                        raise ApiError("PAYMENT_STATE_INVALID",http=409)
-                    months = 0
-                    plan = {"amount":{"amount_minor":amount,"currency":"RUB"},"methods":_methods(buyer)}
-                else:
-                    plan = next((item for item in _plans(buyer) if item["plan_id"] == body["plan_id"]), None)
-                    if plan is None or plan["duration_code"] != body["duration_code"]:
-                        raise ApiError("BAD_MESSAGE", http=400)
-                    if body["method"] not in plan["methods"]:
-                        raise ApiError("METHOD_UNAVAILABLE", http=403)
-                    months = PLAN_MONTHS[body["plan_id"]][0]
-                    if _contract2(request):
-                        if context.account_id is None:
-                            raise ApiError("ACCESS_DENIED",http=403)
-                        amount, device_limit, product = await quote_product(connection,buyer,context.account_id,addon=False,selected=body.get("renew_extra_slot_ids",[]),months=months,base_amount_minor=plan["amount"]["amount_minor"])
-                        plan["amount"]["amount_minor"] = amount
-                from .referral_pricing import quote_pricing
-                pricing = await quote_pricing(connection, context.account_id,
-                    plan["amount"]["amount_minor"], main=not addon and (not product or product["kind"] == "subscription"),
-                    main_base_minor=product["base_amount_minor"] if product else plan["amount"]["amount_minor"])
-                if pricing:
-                    plan["amount"]["amount_minor"] = pricing["payable_amount_minor"]
-                listed = _plans(buyer)
-                expires = datetime.now(UTC) + QUOTE_LIFETIME
-                if addon:
-                    target = await active_paid(connection,context.account_id)
-                    expires = min(expires,target["ends_at"])
+                snapshot = await account_quote_snapshot(connection, settings, context.account_id, body, contract2=_contract2(request))
                 row = await connection.fetchrow(
                     """
                     INSERT INTO s5_payment_quotes
@@ -354,9 +369,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     ON CONFLICT (installation_id,idempotency_key) DO NOTHING RETURNING *
                     """,
                     context.installation_id, key, digest, body["plan_id"],
-                    months, body["duration_code"], body["method"],
-                    plan["amount"]["amount_minor"], plan["amount"]["currency"],
-                    buyer.payment_tariff_key, _plans_revision(listed), expires, json.dumps(product) if product else None, json.dumps(pricing) if pricing else None,
+                    snapshot[0], body["duration_code"], body["method"], *snapshot[1:],
                 )
                 if row is None:
                     row = await connection.fetchrow(
