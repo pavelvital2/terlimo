@@ -1,0 +1,15 @@
+diff --git a/clients/android/testapp/build.gradle.kts b/clients/android/testapp/build.gradle.kts
+index cd25177..ce29efd 100644
+--- a/clients/android/testapp/build.gradle.kts
++++ b/clients/android/testapp/build.gradle.kts
+@@ -22,8 +22,8 @@ android {
+         buildConfigField("String", "UPDATE_MANIFEST_URL", updateLiteral("terlimoUpdateManifestUrl"))
+         buildConfigField("String", "UPDATE_CHANNEL", updateLiteral("terlimoUpdateChannel"))
+         buildConfigField("String", "UPDATE_PATH_PREFIX", updateLiteral("terlimoUpdatePathPrefix"))
+-        versionCode = 14
+-        versionName = "0.14-routing"
++        versionCode = 16
++        versionName = "0.16-update-test"
+         ndk { abiFilters += "arm64-v8a" }
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+     }
