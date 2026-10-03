@@ -3,10 +3,10 @@ package xyz.terlimo.test
 /**
  * Declarative five-tab bottom navigation (S5 §07.1). The label/order/target list is the
  * single source of truth shared by the Activity wiring and the focused unit test, so the
- * approved order Главная/Подписка/Маршрутизация/Настройки/Помощь cannot drift silently.
+ * approved order Главная/Подписка/Пригласить друга/Настройки/Помощь cannot drift silently.
  * Purely structural: it carries no state and never changes a screen.
  */
-internal enum class NavTarget { HOME, SUBSCRIPTION, ROUTING, SETTINGS, HELP }
+internal enum class NavTarget { HOME, SUBSCRIPTION, REFERRAL, SETTINGS, HELP }
 
 internal data class NavDestination(val label: String, val iconRes: Int, val target: NavTarget)
 
@@ -14,31 +14,22 @@ internal object BottomNavigation {
     val destinations: List<NavDestination> = listOf(
         NavDestination("Главная", R.drawable.ic_nav_home, NavTarget.HOME),
         NavDestination("Подписка", R.drawable.ic_nav_subscription, NavTarget.SUBSCRIPTION),
-        NavDestination("Маршрутизация", R.drawable.ic_nav_routing, NavTarget.ROUTING),
+        NavDestination("Пригласить друга", R.drawable.ic_nav_gift, NavTarget.REFERRAL),
         NavDestination("Настройки", R.drawable.ic_nav_settings, NavTarget.SETTINGS),
         NavDestination("Помощь", R.drawable.ic_nav_help, NavTarget.HELP),
     )
 
-    /** Targets that own an in-place surface inside MainActivity (everything but Routing). */
-    private val IN_PLACE = setOf(NavTarget.HOME, NavTarget.SUBSCRIPTION, NavTarget.SETTINGS, NavTarget.HELP)
+    /** All five destinations own an in-place surface; routing is a child of Settings. */
+    private val IN_PLACE = NavTarget.entries.toSet()
 
-    /**
-     * Selection state of the bottom bar. [visible] is the in-place surface currently shown;
-     * [selected] is the highlighted tab. Routing opens its own Activity and therefore never
-     * becomes [visible]/[selected]: tapping it keeps the real in-place tab highlighted, so
-     * returning with Back shows the same tab that is actually on screen.
-     */
+    /** The highlighted tab always follows its visible surface. */
     data class NavState(val visible: NavTarget = NavTarget.HOME, val selected: NavTarget = NavTarget.HOME)
 
     fun initial(): NavState = NavState()
 
     fun isInPlace(target: NavTarget): Boolean = target in IN_PLACE
 
-    /**
-     * §26.1: the tab restored after a theme recreate. Only an in-place tab can be restored;
-     * null or Routing keeps the current state (Routing opens its own Activity and must never
-     * become visible/selected this way).
-     */
+    /** Restore the parent tab across recreation and a child Activity. */
     fun restoreSelection(state: NavState, restored: NavTarget?): NavState =
         if (restored != null && isInPlace(restored)) NavState(visible = restored, selected = restored) else state
 

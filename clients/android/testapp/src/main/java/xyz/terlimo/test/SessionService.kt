@@ -76,28 +76,19 @@ class SessionService : Service() {
     private val autoConnectController = AutoConnectController()
     private val autoConnectGeneration = java.util.concurrent.atomic.AtomicLong(0)
     private var autoConnectUserToken = 0L
-    @Volatile private var systemStartToken: String? = null
-    @Volatile private var systemAccountAttempt: String? = null
     private val autoConnect = AutoConnectAdapter(autoConnectController, object : AutoConnectPorts {
         override fun activeGeneration(): Long = autoConnectGeneration.get()
-        override fun prefEnabled(generation: Long): Boolean {
-            val system = systemStartToken
-            return generation != 0L && generation == autoConnectGeneration.get() && !stopping.get() &&
-                AutoConnectOriginPolicy.allowed(system != null,
-                    system?.let { SafeGoBackend.isSystemStartCurrent(it) } ?: false,
-                    system == null && AutoConnectPrefs.isEnabled(this@SessionService),
-                    system == null && autoConnectUserToken != 0L &&
-                        autoConnectUserToken == AutoConnectPrefs.generation(this@SessionService))
-        }
+        override fun prefEnabled(generation: Long): Boolean =
+            generation != 0L && generation == autoConnectGeneration.get() && !stopping.get() &&
+                AutoConnectPrefs.isEnabled(this@SessionService) && autoConnectUserToken != 0L &&
+                autoConnectUserToken == AutoConnectPrefs.generation(this@SessionService)
         override fun gateActive(): String? = gate.active
         override fun stopping(): Boolean = stopping.get()
         override fun phase(): String = view.phase
         override fun nodes(): List<NodeLabel> = view.nodes
         override fun selectedNodeId(): String = view.selectedNodeId
         override fun pendingNodeId(): String? = view.pendingNodeId
-        override fun accountRef(): String? =
-            if (systemStartToken != null && (gate.active == null || systemAccountAttempt != gate.active)) null
-            else view.accountAccess?.projection?.account?.accountRef
+        override fun accountRef(): String? = view.accountAccess?.projection?.account?.accountRef
         override fun entitlementUsable(): Boolean = usableDataRight()
         override fun vpnConsentGranted(): Boolean = VpnService.prepare(this@SessionService) == null
         override fun dataIntentActive(): Boolean {
@@ -126,14 +117,13 @@ class SessionService : Service() {
                 view.pendingNodeId == null &&
                 nodeId == NodeSelection.connectableNodeId(view.nodes, view.selectedNodeId) &&
                 connectDeadline.deadline(attempt) != Long.MAX_VALUE) {
-                if (!AutoConnectOriginPolicy.explicitBusinessConnect(systemStartToken != null)) {
-                    explicitConnect.clear()
-                } else explicitConnect.arm(ExplicitConnectGate.Entry.SELECT, attempt)
+                explicitConnect.arm(ExplicitConnectGate.Entry.SELECT, attempt)
                 retention.loadForConnection()
                 val remaining = (connectDeadline.deadline(attempt) - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                 retention.transitionFor(remaining)
                 armConnectDeadline(attempt, remaining)
-                send(AutoConnectOriginPolicy.selectCommand(nodeId, systemStartToken != null))
+                send(JSONObject().put("type", "select_node").put("node_id", nodeId)
+                    .put("explicit_connect", true))
             }
         }
         override fun startDeadline(attempt: String, now: Long): Boolean = connectDeadline.start(attempt, now)
@@ -143,17 +133,7 @@ class SessionService : Service() {
                 if (gate.active == attempt && !stopping.get()) onTimeout()
             }, delayMillis)
         }
-        override fun publishError(code: String) {
-            publish(view.copy(error = code))
-            if (systemStartToken != null) {
-                val generation = autoConnectGeneration.get()
-                val attempt = gate.active
-                submitControl {
-                    if (autoConnectGeneration.get() == generation && gate.active == attempt && !stopping.get())
-                        stopAttempt(code, "system_auto_refused")
-                }
-            }
-        }
+        override fun publishError(code: String) = publish(view.copy(error = code))
         override fun terminateAutoAttempt(attempt: String) {
             if (gate.active == attempt && !stopping.get()) handleAttemptTerminal(attempt, "VPN_SETUP_TIMEOUT")
         }
@@ -500,9 +480,6 @@ class SessionService : Service() {
         withUnlockedStorage(getSystemService(UserManager::class.java).isUserUnlocked) {
             storage = InstallationStore(this)
         }
-        // onCreate cannot yet know the start origin. Only load existing state here;
-        // a user begin may create a first identity as before.
-        if (runCatching { storage.requireExistingIdentity() }.isFailure) return
         restorePurchaseHint(storage)
         // Seed the last verified catalog/selection from durable storage when no
         // session is active, so an ordinary Disconnect survives Service recreation.
@@ -526,10 +503,10 @@ class SessionService : Service() {
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, MainActivity::class.java).putExtra(AnnouncementDeepLink.EXTRA_OPEN_ANNOUNCEMENTS, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val stop = AlwaysOnUi.action(this)
+        val stop = PendingIntent.getService(this, 1, Intent(this, SessionService::class.java).setAction("cancel"), PendingIntent.FLAG_IMMUTABLE)
         startForeground(1, Notification.Builder(this, "test-vpn").setContentTitle("TERLIMO")
             .setContentText("VPN-подключение").setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentIntent(open).addAction(Notification.Action.Builder(null, AlwaysOnUi.actionLabel(), stop).build())
+            .setContentIntent(open).addAction(Notification.Action.Builder(null, "Отключить", stop).build())
             .setOngoing(true).build())
         updateForegroundState(view)
     }
@@ -540,14 +517,13 @@ class SessionService : Service() {
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, MainActivity::class.java).putExtra(AnnouncementDeepLink.EXTRA_OPEN_ANNOUNCEMENTS, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val stop = AlwaysOnUi.action(this)
+        val stop = PendingIntent.getService(this, 1, Intent(this, SessionService::class.java).setAction("cancel"), PendingIntent.FLAG_IMMUTABLE)
         val accountUsage = state.serverUsage
         val usageSegment = if (state.phase == "Connected") {
             if (accountUsage != null) ServerUsageText.notificationSegment(accountUsage, SystemClock.elapsedRealtime())
             else if (state.serverUsageUnavailable) "Зачёт: нет данных" else null
         } else null
-        val base = listOfNotNull(if (AlwaysOnUi.managed()) "Постоянный VPN · управление в Android" else null,
-            UserStatusText.phase(state.phase),
+        val base = listOfNotNull(UserStatusText.phase(state.phase),
             NotificationText.serverLabel(state.nodes.singleOrNull { it.id == state.selectedNodeId }?.name),
             ChannelsDisplay.line(state.phase == "Connected", state.channels, state.wakeRecovery),
             AccountAccessPolicy.notificationLine(state.accountAccess, SystemClock.elapsedRealtime()),
@@ -563,10 +539,9 @@ class SessionService : Service() {
         lastNotificationBase = base
         if (trafficPart.isNotEmpty()) lastTrafficNotifyMs = now
         val text = if (trafficPart.isEmpty()) base else "$base · $trafficPart"
-        SafeGoBackend.refreshSystemNotification(text)
         getSystemService(NotificationManager::class.java).notify(1, Notification.Builder(this, "test-vpn")
             .setContentTitle("TERLIMO").setContentText(text).setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentIntent(open).addAction(Notification.Action.Builder(null, AlwaysOnUi.actionLabel(), stop).build())
+            .setContentIntent(open).addAction(Notification.Action.Builder(null, "Отключить", stop).build())
             .setOnlyAlertOnce(true).setOngoing(true).build())
     }
     override fun onBind(intent: Intent?): android.os.IBinder = binder
@@ -727,47 +702,10 @@ class SessionService : Service() {
             catalogGate.markAttemptManual(gate.active)
         }
         if (intent?.action != "cancel" && retiringActors.get() > 0) {
-            if (intent?.action == ACTION_SYSTEM_ALWAYS_ON) {
-                intent.getStringExtra(EXTRA_SYSTEM_GENERATION)?.let {
-                    SafeGoBackend.systemAttemptFinished(it, "Предыдущее подключение завершается. Откройте приложение позже.")
-                }
-                if (gate.active == null && native == null && !stopping.get()) stopAttempt("CLEANUP_PENDING", "system_retiring")
-            }
             if (intent?.action == "switch") SwitchDiagnostics.log("service_reject", "retiring")
             return START_NOT_STICKY
         }
         when (intent?.action) {
-            ACTION_SYSTEM_ALWAYS_ON -> {
-                val token = intent.getStringExtra(EXTRA_SYSTEM_GENERATION) ?: return START_NOT_STICKY
-                submitControl {
-                    // The VPN-service generation is rechecked at consumption, after unlock and
-                    // any queued teardown. Never join/reset another active native or sleeping TUN.
-                    if (stopping.get()) return@submitControl
-                    if (gate.active != null || native != null || activeVpnConfig != null || sleepPaused || systemStartToken != null) {
-                        updateForegroundState(view)
-                        return@submitControl
-                    }
-                    if (!SafeGoBackend.isSystemStartCurrent(token) || retiringActors.get() > 0) {
-                        SafeGoBackend.systemAttemptFinished(token, "Системное подключение сейчас недоступно. Откройте приложение.")
-                        stopAttempt("ALWAYS_ON_CANCELLED", "system_generation_stale")
-                        return@submitControl
-                    }
-                    systemStartToken = token
-                    autoConnectGeneration.incrementAndGet()
-                    try {
-                        withUnlockedStorage(getSystemService(UserManager::class.java).isUserUnlocked) {
-                            storage.requireExistingIdentity()
-                        }
-                        if (VpnService.prepare(this) != null) {
-                            stopAttempt(AutoConnectCode.CONSENT, "system_consent_missing")
-                            return@submitControl
-                        }
-                        autoConnect.onLaunch(autoConnectGeneration.get())
-                    } catch (_: Exception) {
-                        stopAttempt("ALWAYS_ON_SETUP_REQUIRED", "system_setup_unavailable")
-                    }
-                }
-            }
             "import" -> {
                 val link = intent.getStringExtra("link").orEmpty()
                 // §26.2: a subscription import is an identity change; the previous identity's
@@ -809,7 +747,7 @@ class SessionService : Service() {
                 // the active generation, so a stale or revoked token can never choose/select
                 // and can never corrupt a newer launch.
                 val generation = intent.getLongExtra(AutoConnectPrefs.EXTRA_GENERATION, 0L)
-                if (systemStartToken != null || generation == 0L || generation <= autoConnectUserToken ||
+                if (generation == 0L || generation <= autoConnectUserToken ||
                     !autoConnectAllowed(generation)) return START_NOT_STICKY
                 autoConnectUserToken = generation
                 autoConnectGeneration.incrementAndGet()
@@ -819,7 +757,6 @@ class SessionService : Service() {
                 gate.active?.takeIf { view.phase == "CatalogReady" }?.let { autoConnect.onCatalog(it) }
             }
             "autoconnect_cancel" -> {
-                if (systemStartToken != null) return START_NOT_STICKY
                 // §26.2 Off / Disconnect / import: drop only the auto-connect sequence. The
                 // manual retained connect (connectOnCatalog) belongs to another owner.
                 cancelAutoConnect()
@@ -1193,11 +1130,6 @@ class SessionService : Service() {
                     }
                     return START_NOT_STICKY
                 }
-                if (SafeGoBackend.alwaysOnMode() == true) {
-                    updateForegroundState(view)
-                    if (gate.active == null && native == null) stopAttempt(null, "obsolete_system_disconnect")
-                    return START_NOT_STICKY
-                }
                 PowerDiagnostics.line("svc.cancel.enter",
                     "phase" to view.phase,
                     "attemptLive" to (gate.active != null).toString(),
@@ -1286,10 +1218,6 @@ class SessionService : Service() {
                 "network_not_vpn" to false, "network_validated" to false, "network_default_match" to false)
             if (stopping.get()) return
             withUnlockedStorage(getSystemService(UserManager::class.java).isUserUnlocked) { Unit }
-            if (systemStartToken != null) {
-                check(SafeGoBackend.isSystemStartCurrent(systemStartToken!!)) { "ALWAYS_ON_CANCELLED" }
-                storage.requireExistingIdentity()
-            }
             check(retiringActors.get() == 0) { "CLEANUP_PENDING" }
             check(gate.active == null) { "ATTEMPT_ACTIVE" }
             val issuers = JSONObject(assets.open("issuers.json").bufferedReader().use { it.readText() })
@@ -1358,8 +1286,7 @@ class SessionService : Service() {
             recoveryCommitGate.begin(attempt, storage.installationId())
             // Existing owner classification excludes job-only refresh. Physical recovery is
             // not a new user connection; repeated /me in this attempt is deduplicated below.
-            updateConnectionGate.begin(attempt, AutoConnectOriginPolicy.userUpdate(
-                systemStartToken != null, catalogGate.isJobOnly(attempt), recoveryGeneration != null))
+            updateConnectionGate.begin(attempt, !catalogGate.isJobOnly(attempt) && recoveryGeneration == null)
             publish(view.copy(attempt = attempt))
             // S3-B: a tap without a live attempt starts this bounded service-only attempt and
             // arms a finite window for the fresh confirmed /me before activation is sent.
@@ -1501,8 +1428,6 @@ class SessionService : Service() {
                 catalogCycle = null
                 catalogTimer.clear()
             }
-            if (systemStartToken != null) check(SafeGoBackend.isSystemStartCurrent(systemStartToken!!) &&
-                VpnService.prepare(this) == null) { "VPN_PERMISSION_REVOKED" }
             if (catalogRequestId == null) {
                 child.start(start)
             } else if (!catalogGate.dispatch(attempt, catalogRequestId) { child.start(start); true }) {
@@ -1664,17 +1589,12 @@ class SessionService : Service() {
                             // §26.2: a freshly accepted account projection (including the first
                             // /me after a cold start) resolves the scoped last server; a real
                             // identity switch drops the previous identity's last server.
-                            if (systemStartToken != null) systemAccountAttempt = attempt
                             if (AutoConnectAccountFence.isIdentitySwitch(
                                     previousAccountRef, updated.projection.account.accountRef)) {
                                 // A real identity change invalidates the old launch token,
                                 // pending consent and the old account's last server.
                                 cancelAutoConnect()
                                 AutoConnectPrefs.invalidate(this)
-                                if (systemStartToken != null) {
-                                    stopAttempt(AutoConnectCode.ACCOUNT, "system_account_changed")
-                                    return
-                                }
                                 runCatching { storage.clearLastConnectedNode() }
                             } else {
                                 autoConnect.onAccount(attempt, autoConnectGeneration.get())
@@ -2025,10 +1945,6 @@ class SessionService : Service() {
                         send(JSONObject().put("type", "select_node").put("node_id", recovery.nodeId))
                     } else {
                         autoConnectRetained(attempt, updated)
-                        if (systemStartToken != null && systemAccountAttempt != attempt) {
-                            stopAttempt("ALWAYS_ON_SETUP_REQUIRED", "system_fresh_account_missing")
-                            return
-                        }
                         autoConnect.onCatalog(attempt)
                     }
                 }
@@ -3378,8 +3294,6 @@ class SessionService : Service() {
 
     /** A valid data right: the confirmed onboarding hour or an active subscription. */
     private fun usableDataRight(snapshot: AccountAccessSnapshot? = view.accountAccess): Boolean {
-        if (systemStartToken != null) return systemAccountAttempt == gate.active && gate.active != null &&
-            AlwaysOnAccess.usable(snapshot, SystemClock.elapsedRealtime())
         val data = snapshot?.projection?.grant?.dataAccess ?: return false
         return when (data) {
             "subscription_data" -> true
@@ -3523,17 +3437,12 @@ class SessionService : Service() {
         purchaseRequestAccountRef = null
         // Attempt teardown: no pending create result may correlate into a dead attempt.
         paymentCreates.clear()
-        // Both origins fence queued choose/select before teardown can race a result.
+        // Fence queued choose/select before teardown can race a result.
         cancelAutoConnect()
         if (!stopping.compareAndSet(false, true)) {
             android.util.Log.w("WDTT/Teardown", "stage=stop_cas_fail")
             return
         }
-        // Only the teardown owner reports terminal state. A later onDestroy must not
-        // overwrite its failure reason with a generic completion notification.
-        systemStartToken?.let { SafeGoBackend.systemAttemptFinished(it,
-            if (code == null) "Подключение завершено. Управление в настройках VPN."
-            else UserStatusText.error(code)) }
         // Ownership of the teardown is established: no in-flight devices token may survive
         // its attempt (a stuck token would block every later send). A previously published
         // refusal/timeout/transport/malformed error is preserved.
@@ -3654,15 +3563,6 @@ class SessionService : Service() {
         super.onDestroy()
     }
     companion object {
-        const val ACTION_SYSTEM_ALWAYS_ON = "xyz.terlimo.test.SYSTEM_ALWAYS_ON"
-        const val EXTRA_SYSTEM_GENERATION = "system_vpn_generation"
-        @JvmStatic fun onSystemVpnStopped(token: String) {
-            val service = runningService ?: return
-            service.main.post {
-                if (runningService === service && service.systemStartToken == token && !service.stopping.get())
-                    service.stopAttempt("VPN_PERMISSION_REVOKED", "system_vpn_stopped")
-            }
-        }
         @Volatile internal var completedDiagnostics: String? = null
             private set
         @Volatile internal var lastReadiness: Map<String, Any> = emptyMap()
@@ -3692,7 +3592,6 @@ class SessionService : Service() {
         }
 
         /** True while a SessionService instance exists; Off toggles never create one. */
-        internal fun refreshSystemMode() { runningService?.let { it.updateForegroundState(view) } }
         internal fun isRunning(): Boolean = runningService != null
 
         /** Live attempt with a native child: the only state announcements can be asked from. */

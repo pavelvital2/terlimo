@@ -44,9 +44,9 @@ class RoutingSettingsActivity : Activity() {
             setPadding(dp(32), dp(32), dp(32), 0)
         })
         root.addView(Button(this).apply {
-            text = "Работа с выключенным экраном"; minHeight = dp(48)
+            text = "Назад в настройки"; minHeight = dp(48)
             setPadding(dp(32), 0, dp(32), 0)
-            setOnClickListener { startActivity(android.content.Intent(this@RoutingSettingsActivity, RetentionSettingsActivity::class.java)) }
+            setOnClickListener { finish() }
         })
         root.addView(Switch(this).apply {
             text = "Показать системные приложения"
@@ -75,9 +75,6 @@ class RoutingSettingsActivity : Activity() {
 
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(32), 0, dp(32), dp(16)) }
         content.addView(TextView(this).apply { text = "Настройки применятся при следующем подключении. Активный туннель не изменяется." })
-        content.addView(TextView(this).apply {
-            text = "Если в Android включена блокировка подключений без VPN, исключённые приложения не получают прямой доступ к сети. Блокировкой управляет Android."
-        })
         content.addView(TextView(this).apply { text = "Приложения"; textSize = 18f })
         appMode = RadioGroup(this).apply {
             orientation = RadioGroup.VERTICAL

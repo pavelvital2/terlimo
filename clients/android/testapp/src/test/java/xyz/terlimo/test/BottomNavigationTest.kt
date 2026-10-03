@@ -9,11 +9,11 @@ class BottomNavigationTest {
     fun `five tabs in the approved order with the approved targets`() {
         val destinations = BottomNavigation.destinations
         assertEquals(
-            listOf("Главная", "Подписка", "Маршрутизация", "Настройки", "Помощь"),
+            listOf("Главная", "Подписка", "Пригласить друга", "Настройки", "Помощь"),
             destinations.map { it.label },
         )
         assertEquals(
-            listOf(NavTarget.HOME, NavTarget.SUBSCRIPTION, NavTarget.ROUTING, NavTarget.SETTINGS, NavTarget.HELP),
+            listOf(NavTarget.HOME, NavTarget.SUBSCRIPTION, NavTarget.REFERRAL, NavTarget.SETTINGS, NavTarget.HELP),
             destinations.map { it.target },
         )
     }

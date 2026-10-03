@@ -75,7 +75,7 @@ internal class OrbitHomeHeader(
         addView(label("Серверы", 20f, bold = true), section(dp(18)))
     }
 
-    fun render(state: ViewState, pendingChoice: Boolean = false, systemManaged: Boolean = false) {
+    fun render(state: ViewState, pendingChoice: Boolean = false) {
         // Owner contract 5: whenever the current display is browse, the first connect needs a
         // current row selection (loading, empty and offline states included); until then the
         // power action is disabled with an honest hint.
@@ -113,8 +113,7 @@ internal class OrbitHomeHeader(
             state.selectedNodeId.isBlank() -> "Выберите сервер и подключитесь"
             else -> state.nodes.singleOrNull { it.id == state.selectedNodeId }?.name ?: "Выберите доступный сервер"
         }
-        if (systemManaged) subtitle.text = "Постоянный VPN: управление в настройках Android"
-        power.contentDescription = if (systemManaged) "Открыть настройки VPN Android" else if (recovering) "Отменить восстановление" else if (connected || connecting || blocked) "Отключить VPN" else "Подключить VPN"
+        power.contentDescription = if (recovering) "Отменить восстановление" else if (connected || connecting || blocked) "Отключить VPN" else "Подключить VPN"
         power.setImageResource(when {
             connected -> R.drawable.ic_vpn_connected
             connecting -> R.drawable.ic_vpn_connecting
@@ -122,7 +121,7 @@ internal class OrbitHomeHeader(
         })
         val verifiedConnectable = NodeSelection.connectableNodeId(
             BrowseCatalogCodec.verifiedNodes(state), state.selectedNodeId)
-        power.isEnabled = systemManaged || preAdmissionConnect || connected || connecting || blocked || verifiedConnectable != null
+        power.isEnabled = preAdmissionConnect || connected || connecting || blocked || verifiedConnectable != null
         val accent = when {
             connected -> TerlimoCatalogBrandTokens.ACCENT.toInt()
             blocked -> TerlimoCatalogBrandTokens.ERROR.toInt()

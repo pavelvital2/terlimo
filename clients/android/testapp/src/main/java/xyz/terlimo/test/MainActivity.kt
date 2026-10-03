@@ -33,6 +33,10 @@ class MainActivity : Activity() {
     private lateinit var registerTelegramButton: Button
     private lateinit var loginTelegramButton: Button
     private lateinit var trialButton: Button
+    private lateinit var homeContextButton: Button
+    private lateinit var referralUi: ReferralUi
+    private lateinit var accountStatus: TextView
+    private lateinit var homeAnnouncements: LinearLayout
     private lateinit var recoveryErrorButton: Button
     private lateinit var captchaButton: Button
     private lateinit var subscription: TextView
@@ -111,8 +115,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private lateinit var alwaysOnStatus: TextView
-    private var lastRenderedSystemMode: Boolean? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(AppTheme.platformTheme())
@@ -215,7 +217,7 @@ class MainActivity : Activity() {
             announcementsList = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                addView(TextView(this@MainActivity).apply { text = "Уведомления"; textSize = 20f },
+                addView(TextView(this@MainActivity).apply { text = "Новости и уведомления"; textSize = 20f },
                     LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
                 addView(announcementsBadge)
             })
@@ -315,9 +317,7 @@ class MainActivity : Activity() {
                     "pendChoice" to (pendingChoiceId != null).toString(),
                     "pendNode" to (projected.pendingNodeId != null).toString(),
                     "attempt" to (!projected.attempt.isNullOrEmpty()).toString())
-                if (AlwaysOnUi.managed()) {
-                    openSystemVpnSettings()
-                } else if (state.recoveryStatus == "RECOVERY_RUNNING") {
+                if (state.recoveryStatus == "RECOVERY_RUNNING") {
                     cancelAutoConnectLaunch()
                     selectedForConsent = null
                     startService(Intent(this, SessionService::class.java).setAction("cancel"))
@@ -340,12 +340,47 @@ class MainActivity : Activity() {
             },
         )
         mainPanel.addView(orbitHeader)
+        homeContextButton = Button(this).apply {
+            visibility = View.GONE
+            setOnClickListener {
+                when (HomeAccessAction.forState(projectedState(), pendingChoiceId != null)) {
+                    HomeAccessAction.HOUR -> activateHourButton.performClick()
+                    HomeAccessAction.REGISTER -> openTab?.invoke(NavTarget.SUBSCRIPTION)
+                    HomeAccessAction.TRIAL -> trialButton.performClick()
+                    HomeAccessAction.PURCHASE -> openTab?.invoke(NavTarget.SUBSCRIPTION)
+                    HomeAccessAction.NONE -> Unit
+                }
+            }
+        }
+        mainPanel.addView(homeContextButton)
+        referralUi = ReferralUi(this,
+            onCopy = { code ->
+                (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("Код приглашения", code))
+                Toast.makeText(this, "Код скопирован", Toast.LENGTH_SHORT).show()
+            },
+            onShare = { code ->
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, "Мой код приглашения TERLIMO: $code")
+                }, "Поделиться кодом"))
+            })
+        mainPanel.addView(referralUi.invitationPanel())
+        homeAnnouncements = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        mainPanel.addView(homeAnnouncements)
+        val accountPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply { text = "Аккаунт и начало доступа"; textSize = 20f })
+        }
+        accountStatus = TextView(this)
+        accountPanel.addView(accountStatus)
+        subscriptionPanel.addView(accountPanel, 1)
         activateHourButton = Button(this).apply {
             text = "Активировать 1 час для регистрации"
             visibility = View.GONE
             setOnClickListener { requestPreAdmissionConsent(projectedState()) }
         }
-        mainPanel.addView(activateHourButton)
+        accountPanel.addView(activateHourButton)
         registerTelegramButton = Button(this).apply {
             text = "Зарегистрироваться в Telegram"
             visibility = View.GONE
@@ -354,7 +389,7 @@ class MainActivity : Activity() {
                     .setAction("telegram_register"))
             }
         }
-        mainPanel.addView(registerTelegramButton)
+        accountPanel.addView(registerTelegramButton)
         loginTelegramButton = Button(this).apply {
             text = "Уже есть аккаунт? Войти через Telegram"
             visibility = View.GONE
@@ -363,7 +398,7 @@ class MainActivity : Activity() {
                     .setAction("telegram_login"))
             }
         }
-        mainPanel.addView(loginTelegramButton)
+        accountPanel.addView(loginTelegramButton)
         trialButton = Button(this).apply {
             text = "Получить 7 дней"
             visibility = View.GONE
@@ -372,7 +407,7 @@ class MainActivity : Activity() {
                     .setAction("trial_activate"))
             }
         }
-        mainPanel.addView(trialButton)
+        accountPanel.addView(trialButton)
         catalogView = ServerCatalogView(this,
             onRefresh = { startForegroundService(Intent(this, SessionService::class.java).setAction("refresh")) },
             onSelect = { requestNodeSelection(it) },
@@ -389,11 +424,6 @@ class MainActivity : Activity() {
             onSupport = { openHelpLink(HelpContent.SUPPORT_URL) },
         )
         mainPanel.addView(catalogView)
-        subscriptionPanel.addView(Button(this).apply {
-            text = "Маршрутизация приложений"
-            minHeight = 48
-            setOnClickListener { startActivity(Intent(this@MainActivity, RoutingSettingsActivity::class.java)) }
-        })
         mainPanel.addView(TextView(this).apply { text = "Доступные серверы:"; visibility = View.GONE })
         nodes = Spinner(this)
         nodes.visibility = View.GONE // retained only for the existing deterministic device harness
@@ -447,7 +477,6 @@ class MainActivity : Activity() {
             text = "Отменить / отключить"
             visibility = View.GONE
             setOnClickListener {
-                if (AlwaysOnUi.managed()) { openSystemVpnSettings(); return@setOnClickListener }
                 cancelAutoConnectLaunch()
                 selectedForConsent = null
                 startService(Intent(this@MainActivity, SessionService::class.java).setAction("cancel"))
@@ -482,6 +511,11 @@ class MainActivity : Activity() {
             subscriptionPanel.visibility = View.VISIBLE
             addView(subscriptionPanel)
         }
+        val referralSurface = ScrollView(this).apply {
+            isFillViewport = true
+            visibility = View.GONE
+            addView(referralUi.panel())
+        }
         val helpSurface = ScrollView(this).apply {
             isFillViewport = true
             setBackgroundColor(TerlimoCatalogBrandTokens.BACKGROUND.toInt())
@@ -489,38 +523,42 @@ class MainActivity : Activity() {
             helpPanel.visibility = View.VISIBLE
             addView(helpPanel)
         }
-        // S5 §07.1: the Settings tab is its own real surface. It currently exposes only the
-        // already-working retention entry; more settings topics are later slices (no stubs).
+        // Settings owns routing, recovery and the existing local settings.
         val settingsPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 48)
             addView(TextView(this@MainActivity).apply { text = "Настройки"; textSize = 24f })
+            addView(Button(this@MainActivity).apply {
+                text = "Маршрутизация"
+                setOnClickListener {
+                    // The parent surface remains Settings, including across recreation/Back.
+                    openTab?.invoke(NavTarget.SETTINGS)
+                    startActivity(Intent(this@MainActivity, RoutingSettingsActivity::class.java))
+                }
+            })
             addView(appUpdateUi.panel())
             addView(Button(this@MainActivity).apply {
                 text = "Восстановить подключение"
                 setOnClickListener { openRecoveryEditor() }
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = FirstReleaseLinks.RECOVERY_UNAVAILABLE_TEXT
+            })
+            addView(Button(this@MainActivity).apply {
+                text = "Получить в Telegram"
+                isEnabled = FirstReleaseLinks.recoveryBotUrl() != null
+                setOnClickListener { FirstReleaseLinks.recoveryBotUrl()?.let(::openHelpLink) }
+            })
+            addView(Button(this@MainActivity).apply {
+                text = "Получить на сайте"
+                isEnabled = FirstReleaseLinks.recoverySiteUrl() != null
+                setOnClickListener { FirstReleaseLinks.recoverySiteUrl()?.let(::openHelpLink) }
             })
             addView(helpLink("Открыть Telegram-бота", HelpContent.BOT_URL))
             addView(Button(this@MainActivity).apply {
                 text = "Работа с выключенным экраном"
                 minHeight = dp(48)
                 setOnClickListener { startActivity(Intent(this@MainActivity, RetentionSettingsActivity::class.java)) }
-            })
-            // §26.3: Android owns enable/disable; this app only reports its current mode.
-            addView(TextView(this@MainActivity).apply {
-                text = "VPN после перезагрузки телефона"
-                textSize = 18f
-                setPadding(0, dp(20), 0, 0)
-            })
-            alwaysOnStatus = TextView(this@MainActivity).apply {
-                text = AlwaysOnUi.status()
-                textSize = 14f
-            }
-            addView(alwaysOnStatus)
-            addView(Button(this@MainActivity).apply {
-                text = "Настроить"
-                minHeight = dp(48)
-                setOnClickListener { openSystemVpnSettings() }
             })
             // §26.4: honest battery-optimization warning with a system-settings entry. The
             // app changes nothing; the user chooses "Без ограничений / Не оптимизировать".
@@ -654,7 +692,7 @@ class MainActivity : Activity() {
                 destinations += this
                 setOnClickListener { action() }
             }
-            val surfaces = listOf(mainSurface, subscriptionSurface, settingsSurface, helpSurface)
+            val surfaces = listOf(mainSurface, subscriptionSurface, referralSurface, settingsSurface, helpSurface)
             fun showSurface(visible: View) = surfaces.forEach {
                 it.visibility = if (it === visible) View.VISIBLE else View.GONE
             }
@@ -667,7 +705,7 @@ class MainActivity : Activity() {
                     NavTarget.SUBSCRIPTION -> subscriptionSurface
                     NavTarget.SETTINGS -> settingsSurface
                     NavTarget.HELP -> helpSurface
-                    NavTarget.ROUTING -> mainSurface
+                    NavTarget.REFERRAL -> referralSurface
                 }
                 showSurface(visibleView)
                 destinationButtons.forEach { (tab, button) ->
@@ -679,9 +717,6 @@ class MainActivity : Activity() {
                     // no running ping never wakes the service.
                     startService(Intent(this@MainActivity, SessionService::class.java)
                         .setAction(NavigationServiceCommands.CANCEL_COMMON_PING))
-                }
-                if (target == NavTarget.ROUTING) {
-                    startActivity(Intent(this@MainActivity, RoutingSettingsActivity::class.java))
                 }
                 if (NavigationServiceCommands.shouldRequestAnnouncements(
                         target == NavTarget.HELP, SessionService.hasLiveAttempt())) {
@@ -708,6 +743,7 @@ class MainActivity : Activity() {
             if (restoredState !== navState) {
                 navState = restoredState
                 val visibleView = when (restoredState.visible) {
+                    NavTarget.REFERRAL -> referralSurface
                     NavTarget.SUBSCRIPTION -> subscriptionSurface
                     NavTarget.SETTINGS -> settingsSurface
                     NavTarget.HELP -> helpSurface
@@ -726,6 +762,7 @@ class MainActivity : Activity() {
         }
         val content = FrameLayout(this).apply {
             addView(mainSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            addView(referralSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(subscriptionSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(helpSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             addView(settingsSurface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -823,18 +860,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun openSystemVpnSettings() {
-        val actions = listOf(Settings.ACTION_VPN_SETTINGS, Settings.ACTION_SETTINGS)
-        for (action in actions) {
-            try {
-                startActivity(Intent(action))
-                return
-            } catch (_: ActivityNotFoundException) {
-            } catch (_: SecurityException) {
-            }
-        }
-        Toast.makeText(this, "Системные настройки VPN недоступны на этом устройстве", Toast.LENGTH_LONG).show()
-    }
     private fun Button.configureBottomNavigationButton(icon: Int) {
         minWidth = 0
         minHeight = dp(48)
@@ -996,48 +1021,57 @@ class MainActivity : Activity() {
         // §28: the unread red dot also lives on the persistent Help tab button.
         helpTabButton?.text = BottomNavigation.unreadLabel("Помощь", NavTarget.HELP, unread)
         announcementsList.removeAllViews()
+        homeAnnouncements.removeAllViews()
         for (announcement in visible) {
-            val read = announcement.id in state.announcements.readIds || !announcement.unread
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, dp(12), 0, dp(12))
+            announcementsList.addView(announcementRow(announcement, state))
+            if (AnnouncementActions.task(announcement.action.type) == AnnouncementTask.REFRESH_CATALOG) {
+                homeAnnouncements.addView(announcementRow(announcement, state))
             }
-            row.addView(TextView(this).apply { text = announcement.title; textSize = 16f })
-            row.addView(TextView(this).apply { text = announcement.text })
-            row.addView(TextView(this).apply { text = AnnouncementsText.dateText(announcement.validUntil); textSize = 12f })
-            if (!read) {
-                if (AnnouncementsCodec.unreservedPathId(announcement.id)) {
-                    row.addView(Button(this).apply {
-                        text = "Отметить прочитанным"
-                        minHeight = dp(48)
-                        setOnClickListener {
-                            startService(Intent(this@MainActivity, SessionService::class.java)
-                                .setAction("announcement_read")
-                                .putExtra("announcement_id", announcement.id))
-                        }
-                    })
-                } else {
-                    row.addView(TextView(this).apply { text = AnnouncementsText.unreadableNote() })
-                }
-            }
-            val label = AnnouncementsText.actionLabel(announcement.action)
-            val task = AnnouncementActions.task(announcement.action.type)
-            if (label != null && task != AnnouncementTask.NONE) {
+        }
+    }
+
+    private fun announcementRow(announcement: Announcement, state: ViewState): View {
+
+        val read = announcement.id in state.announcements.readIds || !announcement.unread
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
+        }
+        row.addView(TextView(this).apply { text = announcement.title; textSize = 16f })
+        row.addView(TextView(this).apply { text = announcement.text })
+        row.addView(TextView(this).apply { text = AnnouncementsText.dateText(announcement.validUntil); textSize = 12f })
+        if (!read) {
+            if (AnnouncementsCodec.unreservedPathId(announcement.id)) {
                 row.addView(Button(this).apply {
-                    text = label
+                    text = "Отметить прочитанным"
                     minHeight = dp(48)
-                    isEnabled = AnnouncementActions.enabled(task, paymentsSurface = true, supportSurface = false)
                     setOnClickListener {
-                        when (task) {
-                            AnnouncementTask.REFRESH_CATALOG -> startService(Intent(this@MainActivity, SessionService::class.java).setAction("refresh"))
-                            AnnouncementTask.OPEN_PAYMENTS -> openTab?.invoke(NavTarget.SUBSCRIPTION)
-                            else -> Unit
-                        }
+                        startService(Intent(this@MainActivity, SessionService::class.java)
+                            .setAction("announcement_read")
+                            .putExtra("announcement_id", announcement.id))
                     }
                 })
+            } else {
+                row.addView(TextView(this).apply { text = AnnouncementsText.unreadableNote() })
             }
-            announcementsList.addView(row)
         }
+        val label = AnnouncementsText.actionLabel(announcement.action)
+        val task = AnnouncementActions.task(announcement.action.type)
+        if (label != null && task != AnnouncementTask.NONE) {
+            row.addView(Button(this).apply {
+                text = label
+                minHeight = dp(48)
+                isEnabled = AnnouncementActions.enabled(task, paymentsSurface = true, supportSurface = false)
+                setOnClickListener {
+                    when (task) {
+                        AnnouncementTask.REFRESH_CATALOG -> startService(Intent(this@MainActivity, SessionService::class.java).setAction("refresh"))
+                        AnnouncementTask.OPEN_PAYMENTS -> openTab?.invoke(NavTarget.SUBSCRIPTION)
+                        else -> Unit
+                    }
+                }
+            })
+        }
+        return row
     }
 
     /** Live view, or the durable retained catalog projected for a fresh process. */
@@ -1202,8 +1236,6 @@ class MainActivity : Activity() {
         // §26.4: refresh the battery warning on every return from the system settings so a
         // lifted restriction disappears immediately.
         if (::batteryMessage.isInitialized) renderBatteryOptimization()
-        if (::alwaysOnStatus.isInitialized) alwaysOnStatus.text = AlwaysOnUi.status()
-        SessionService.refreshSystemMode()
         if (SessionService.view.registration?.state == "pending") {
             startForegroundService(Intent(this, SessionService::class.java).setAction("telegram_refresh"))
         }
@@ -1304,20 +1336,17 @@ class MainActivity : Activity() {
     }
 
     private fun render(passed: ViewState) {
-        if (::alwaysOnStatus.isInitialized) alwaysOnStatus.text = AlwaysOnUi.status()
         // Live view, or the durable retained catalog when the Service is not running
         // (fresh process). Display-only; the Service is started by the Connect action.
         val state = projectedState()
         // A traffic-only change updates just the header metrics: never a full screen rebuild.
         val previous = lastRenderedState
-        val systemManaged = AlwaysOnUi.managed()
-        if (previous != null && lastRenderedSystemMode == systemManaged && previous.copy(traffic = state.traffic) == state) {
+        if (previous != null && previous.copy(traffic = state.traffic) == state) {
             orbitHeader.setTraffic(state.traffic)
             lastRenderedState = state
             return
         }
         lastRenderedState = state
-        lastRenderedSystemMode = systemManaged
         val selectable = state.phase in setOf("CatalogReady", "Connected", "SwitchingServer", "KillSwitch")
         if (!selectable) consentDenied = false
         if (!selectable) {
@@ -1374,7 +1403,7 @@ class MainActivity : Activity() {
         if (nodes.selectedItemPosition != target) nodes.setSelection(target, false)
         catalogView.render(state, state.pings)
         renderAnnouncements(state)
-        orbitHeader.render(state, pending != null, systemManaged)
+        orbitHeader.render(state, pending != null)
         activateHourButton.visibility = if (PreAdmissionConnect.eligible(state) && PreAdmissionConnect.connectable(state, pending != null))
             View.VISIBLE else View.GONE
         registerTelegramButton.visibility = if (RegistrationUi.registerVisible(state)) View.VISIBLE else View.GONE
@@ -1382,6 +1411,12 @@ class MainActivity : Activity() {
         loginTelegramButton.visibility = if (RegistrationUi.loginVisible(state)) View.VISIBLE else View.GONE
         trialButton.visibility = if (TrialUi.activateVisible(state)) View.VISIBLE else View.GONE
         trialButton.text = TrialUi.buttonText(state)
+        val homeAction = HomeAccessAction.forState(state, pending != null)
+        homeContextButton.text = homeAction.label
+        homeContextButton.visibility = if (homeAction == HomeAccessAction.NONE) View.GONE else View.VISIBLE
+        // Referral wire is intentionally absent: never substitute installation/account IDs.
+        referralUi.render(PurchaseFlow.usableAccount(state.accountAccess?.projection), serverAccountCode = null)
+        accountStatus.text = listOfNotNull(RegistrationUi.statusText(state), TrialUi.statusText(state)).joinToString("\n")
         armStatusTick()
     }
 
@@ -1629,8 +1664,6 @@ class MainActivity : Activity() {
         // Owner warning shown before the first hour can start; display-only, no new flow.
         PreAdmissionConnect.HOUR_WARNING.takeIf { PreAdmissionConnect.eligible(state) },
         state.recoveryStatus?.let(RecoveryCodeUi::textForStatus),
-        RegistrationUi.statusText(state),
-        TrialUi.statusText(state),
     ).joinToString("\n")
 
     private fun pendingSelectionStatus(state: ViewState): String? {

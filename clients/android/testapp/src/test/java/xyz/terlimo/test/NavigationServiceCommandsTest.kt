@@ -58,11 +58,13 @@ class NavigationServiceCommandsTest {
     @Test fun sessionServiceSkipsIdleCommandsBeforePromotingForeground() {
         val service = source("SessionService.kt")
         val onStart = service.substringAfter("override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {")
-        val guard = onStart.indexOf("NavigationServiceCommands.isIdleCommand")
-        val promote = onStart.indexOf("promoteToForeground()")
+        // The locked-CE branch terminates before normal initialized-storage work.
+        val ordinaryStart = onStart.substringAfter("initializeStorage()")
+        val guard = ordinaryStart.indexOf("NavigationServiceCommands.isIdleCommand")
+        val promote = ordinaryStart.indexOf("promoteToForeground()")
         assertTrue("idle guard must exist in onStartCommand", guard >= 0)
         assertTrue("idle guard must run before promotion", promote >= 0 && guard < promote)
-        assertTrue("idle guard must require no live work", onStart.substring(guard, promote)
+        assertTrue("idle guard must require no live work", ordinaryStart.substring(guard, promote)
             .contains("gate.active == null && native == null"))
         // Announcements and common-ping state helpers stay the single source of truth.
         assertTrue(service.contains("internal fun hasLiveAttempt()"))

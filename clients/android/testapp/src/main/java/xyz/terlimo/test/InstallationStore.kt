@@ -27,12 +27,6 @@ internal class InstallationStore(context: Context) {
     private val signingAlias = "terlimo.test.installation.p256.v1"
     private val encryptionAlias = "terlimo.test.storage.aes.v1"
 
-    /** System start must not create a replacement or first installation identity. */
-    fun requireExistingIdentity() = synchronized(LOCK) {
-        check(marker.baseFile.exists() && stateFile.baseFile.exists() &&
-            store.containsAlias(signingAlias) && store.containsAlias(encryptionAlias)) { "ALWAYS_ON_SETUP_REQUIRED" }
-    }
-
     fun ensureIdentity() = synchronized(LOCK) {
         if (marker.baseFile.exists() || stateFile.baseFile.exists()) {
             check(store.containsAlias(signingAlias) && store.containsAlias(encryptionAlias)) { "KEY_UNAVAILABLE" }
@@ -274,4 +268,10 @@ internal object SubscriptionStateReplacement {
 
     fun withLink(current: JSONObject, link: String): JSONObject =
         JSONObject(current.toString()).put("link", link)
+}
+
+/** Guard runs before storage construction/read; callers cannot interpret locked CE as empty. */
+internal inline fun <T> withUnlockedStorage(unlocked: Boolean, access: () -> T): T {
+    check(unlocked) { "USER_UNLOCK_REQUIRED" }
+    return access()
 }

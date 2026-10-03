@@ -67,8 +67,6 @@ internal object UserStatusText {
         "CLEANUP_PENDING" to "Предыдущее отключение ещё завершается. Дождитесь завершения и повторите попытку.",
         "CLEANUP_FAILED" to "Не удалось полностью отключить VPN. Проверьте состояние TERLIMO в системных настройках VPN и сообщите в поддержку; не запускайте новое подключение до проверки.",
         "USER_UNLOCK_REQUIRED" to "Разблокируйте телефон для подключения VPN",
-        "ALWAYS_ON_SETUP_REQUIRED" to "Сначала настройте подключение в приложении",
-        "ALWAYS_ON_CANCELLED" to "Системное подключение отменено",
         "VPN_PERMISSION_REVOKED" to "Разрешение VPN отозвано в Android",
         "AUTOCONNECT_ACCOUNT_CHANGED" to "Аккаунт изменился. Выберите сервер вручную.",
         "AUTOCONNECT_NO_LAST" to "Сохранённый сервер не найден. Выберите сервер в списке.",
