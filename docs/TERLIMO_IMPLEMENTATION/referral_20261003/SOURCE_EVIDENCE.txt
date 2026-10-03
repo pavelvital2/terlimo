@@ -1,0 +1,1743 @@
+Deployed backend container terlimo-production-backend-1; image sha256:0ab3638956e157ec4572d88ee5342dbd9febb42c5cc649bc732669eab020220d; running hostPID622025, start2026-10-03T03:09:28.592135848Z. /app/backend/main_backend.py → bot.main_bot.run_bot. No source bindmount; /app/data volume + readonly adapter socket only. Frontend image sha256:4be1aabb938a5f7677f73282074c5c997a65ae7a863d6638d495032ebddc0f96 /usr/share/nginx/html. Capture2026-10-03. No personal records.
+
+FILE /app/backend/bot/services/wdtt_direct.py FULL_SHA256 658b2d660923cd6fb46877891527fef589f5997741036cac7d09da86bbc162c9
+40: logger = logging.getLogger(__name__)
+41: 
+42: PROVIDER: Final = "terlimo_wdtt"
+43: TRIAL_PROVIDER: Final = "terlimo_wdtt_trial"
+44: DIRECT_DEVICE_COMPENSATION_KEY: Final = "_direct_device_compensation"
+45: REFERRAL_INTENT_PROVIDER: Final = "terlimo_wdtt_referral_intent"
+46: PURCHASE_REFERRAL_PROVIDERS: Final = {
+47:     1: "terlimo_wdtt_referral_purchase_1m",
+48:     3: "terlimo_wdtt_referral_purchase_3m",
+49:     6: "terlimo_wdtt_referral_purchase_6m",
+50: }
+51: _ALL_REFERRAL_PROVIDERS: Final = {
+52:     REFERRAL_INTENT_PROVIDER,
+53:     *PURCHASE_REFERRAL_PROVIDERS.values(),
+54: }
+55: _PANEL_PREFIX: Final = "wdtt:"
+56: _TRIAL_PENDING_PREFIX: Final = "wdtt-trial-pending:"
+57: _TRIAL_PENDING_STATUS: Final = "TRIAL_PENDING"
+58: _DIRECT_PENDING_STATUS: Final = "DIRECT_PENDING"
+59: _DIRECT_PENDING_NOTE_PREFIX: Final = "direct-payment-v2"
+60: _TRIAL_NAMESPACE: Final = UUID("edac4f50-8974-53cc-94a4-a6f0203ab12c")
+61: _DIRECT_PENDING_NAMESPACE: Final = UUID("9d8ef37e-6710-5485-8e61-2c92ab7cf918")
+62: _REFERRAL_NAMESPACE: Final = UUID("0fd8f33f-a003-5f60-a8aa-26f553b96d8c")
+63: _PURCHASE_REFERRAL_NAMESPACE: Final = UUID("fb16bac3-e4d7-5ab6-8f1a-ea35c2a0ec51")
+64: _REFERRAL_PREFIX: Final = "wdtt-referral:"
+65: _REFERRAL_DAYS: Final = 7
+66: _REFERRAL_STATES: Final = {
+67:     "WAITING",
+68:     "PENDING_REMOTE",
+69:     "REMOTE_APPLIED",
+70:     "APPLIED",
+71: }
+72: _EXPIRY_TICK_SECONDS: Final = 60
+485:         end_date=end_date,
+486:     )
+487:     if not grants:
+488:         raise WDTTAdapterError("device_binding_invalid")
+489:     rows = await direct_device_rows(session, int(existing.subscription_id), lock=True)
+490:     primary = rows[0]
+491:     if not primary.panel_grant_uuid:
+492:         raise WDTTAdapterError("device_binding_invalid")
+493:     panel_identity = f"{_PANEL_PREFIX}{primary.panel_grant_uuid}"
+494:     existing.panel_user_uuid = panel_identity
+495:     existing.panel_subscription_uuid = panel_identity
+496:     existing.start_date = existing.start_date or now
+497:     existing.end_date = end_date
+498:     existing.duration_months = months
+499:     existing.is_active = True
+500:     existing.status_from_panel = "ACTIVE"
+501:     existing.traffic_limit_bytes = 0
+502:     existing.provider = PROVIDER
+503:     existing.skip_notifications = False
+504:     existing.suppress_early_expiry_notifications = True
+505:     existing.auto_renew_enabled = False
+506:     existing.tariff_key = configured_tariff
+507:     existing.tariff_binding_source = "payment"
+508:     existing.tariff_bound_at = now
+509:     existing.tariff_binding_note = "direct_wdtt_payment"
+510:     existing.effective_monthly_price_rub = quote.total_price_rub / months
+511:     existing.hwid_device_limit = device_count
+512:     existing.extra_hwid_devices = max(0, device_count - DIRECT_INCLUDED_DEVICES)
+513:     await session.flush()
+514:     if payment is not None:
+515:         await _schedule_purchase_referral_intent(
+516:             settings=settings,
+517:             session=session,
+518:             invitee_id=int(user_id),
+519:             invitee_row=existing,
+520:             payment=payment,
+521:             months=months,
+522:         )
+523:     subscription_url = next(
+524:         (
+525:             grant.artifact
+526:             for grant in grants
+788: async def activate_direct_trial(
+789:     *,
+790:     settings: Any,
+791:     session: AsyncSession,
+792:     user_id: int,
+793: ) -> dict[str, Any]:
+794:     """Persist one immutable seven-day intent, then recover it through the Adapter."""
+795: 
+796:     try:
+797:         tariff_key = validate_direct_trial_scope(settings, user_id=user_id)
+798:     except WDTTAdapterError:
+799:         return {
+800:             "eligible": False,
+801:             "activated": False,
+802:             "message_key": "trial_feature_disabled",
+803:         }
+804: 
+805:     db_user = await user_dal.lock_user_by_id(session, int(user_id))
+806:     if db_user is None:
+807:         return {
+808:             "eligible": False,
+809:             "activated": False,
+810:             "message_key": "user_not_found_for_trial",
+811:         }
+812: 
+813:     existing = await _direct_trial_subscription(
+814:         session,
+815:         user_id=user_id,
+816:         tariff_key=tariff_key,
+817:         lock=True,
+818:     )
+819:     if existing is not None:
+820:         if not _recoverable_pending_trial(existing):
+821:             if (
+822:                 _locally_active_direct(existing)
+823:                 and getattr(settings, "REFERRAL_PROGRAM_ENABLED", False) is True
+824:             ):
+825:                 expected_identity = str(existing.panel_subscription_uuid or "")
+826:                 expected_expiry = _required_utc(existing.end_date)
+827:                 await session.commit()
+828:                 try:
+829:                     recovered_grant = await WDTTAdapterClient(
+830:                         str(settings.TERLIMO_WDTT_SOCKET_PATH)
+831:                     ).get(direct_subscription_key(user_id, tariff_key))
+832:                     if (
+833:                         recovered_grant.state == "active"
+834:                         and recovered_grant.expires_at == expected_expiry
+835:                         and expected_identity == f"{_PANEL_PREFIX}{recovered_grant.grant_id}"
+836:                     ):
+837:                         await ensure_direct_referral_intent(
+838:                             settings=settings,
+839:                             session=session,
+840:                             invitee_id=int(user_id),
+841:                             invitee_grant=recovered_grant,
+842:                         )
+843:                 except WDTTAdapterError as exc:
+844:                     await session.rollback()
+845:                     logger.error("Direct WDTT referral recovery failed: %s", exc.code)
+846:                 except Exception:
+847:                     await session.rollback()
+848:                     logger.error("Direct WDTT referral recovery failed unexpectedly.")
+849:             return {
+850:                 "eligible": False,
+851:                 "activated": False,
+852:                 "message_key": "trial_already_had_subscription_or_trial",
+853:             }
+854:         start_date = _required_utc(existing.start_date)
+855:         end_date = _required_utc(existing.end_date)
+980:             "eligible": True,
+981:             "activated": False,
+982:             "message_key": "trial_activation_failed_db",
+983:         }
+984: 
+985:     try:
+986:         await ensure_direct_referral_intent(
+987:             settings=settings,
+988:             session=session,
+989:             invitee_id=int(user_id),
+990:             invitee_grant=primary_grant,
+991:         )
+992:     except WDTTAdapterError as exc:
+993:         await session.rollback()
+994:         logger.error("Direct WDTT referral scheduling failed: %s", exc.code)
+995:     except Exception:
+996:         await session.rollback()
+997:         logger.error("Direct WDTT referral scheduling failed unexpectedly.")
+998: 
+999:     return {
+1000:         "eligible": True,
+1485: 
+1486: 
+1487: def direct_referral_intent_identity(invitee_grant_id: UUID) -> str:
+1488:     return f"{_REFERRAL_PREFIX}{uuid5(_REFERRAL_NAMESPACE, str(invitee_grant_id))}"
+1489: 
+1490: 
+1491: def direct_purchase_referral_intent_identity(invitee_id: int, payment_id: int) -> str:
+1492:     value = f"{int(invitee_id)}:{int(payment_id)}"
+1493:     return f"wdtt-referral-purchase:{uuid5(_PURCHASE_REFERRAL_NAMESPACE, value)}"
+1494: 
+1495: 
+1496: async def _schedule_purchase_referral_intent(
+1497:     *,
+1498:     settings: Any,
+1499:     session: AsyncSession,
+1500:     invitee_id: int,
+1501:     invitee_row: Subscription,
+1502:     payment: Payment,
+1503:     months: int,
+1504: ) -> Subscription | None:
+1505:     """Schedule the invitee's first confirmed-purchase reward in the payment transaction."""
+1506: 
+1507:     if getattr(settings, "REFERRAL_PROGRAM_ENABLED", False) is not True:
+1508:         return None
+1509:     if bool(payment.is_auto_renew):
+1510:         return None
+1511:     provider = PURCHASE_REFERRAL_PROVIDERS.get(int(months))
+1512:     if provider is None:
+1513:         raise WDTTAdapterError("referral_intent_invalid")
+1514:     invitee = await user_dal.get_user_by_id(session, int(invitee_id))
+1515:     inviter_id = int(getattr(invitee, "referred_by_id", 0) or 0) if invitee else 0
+1516:     if not inviter_id:
+1517:         return None
+1518:     if inviter_id == int(invitee_id):
+1519:         return None
+1520:     if await user_dal.get_user_by_id(session, inviter_id) is None:
+1521:         return None
+1522:     if int(payment.user_id) != int(invitee_id):
+1523:         raise WDTTAdapterError("direct_payment_invalid")
+1524: 
+1525:     existing_statement = (
+1526:         select(Subscription)
+1527:         .where(
+1528:             Subscription.user_id == int(invitee_id),
+1529:             Subscription.provider.in_(tuple(PURCHASE_REFERRAL_PROVIDERS.values())),
+1530:         )
+1531:         .limit(2)
+1532:         .with_for_update()
+1533:     )
+1534:     existing = list((await session.execute(existing_statement)).scalars().all())
+1535:     if len(existing) > 1:
+1536:         raise WDTTAdapterError("referral_intent_ambiguous")
+1537:     prior_payment = (
+1538:         await session.execute(
+1539:             select(Payment.payment_id)
+1540:             .where(
+1541:                 Payment.user_id == int(invitee_id),
+1542:                 Payment.provider == PROVIDER,
+1543:                 Payment.status == "succeeded",
+1544:                 Payment.payment_id != int(payment.payment_id),
+1545:             )
+1546:             .limit(1)
+1547:         )
+1548:     ).scalar_one_or_none()
+1549:     identity = direct_purchase_referral_intent_identity(invitee_id, int(payment.payment_id))
+1550:     if existing:
+1551:         prior_intent = existing[0]
+1552:         if str(prior_intent.panel_subscription_uuid or "") == identity:
+1553:             if (
+1554:                 str(prior_intent.panel_user_uuid or "") != identity
+1555:                 or str(prior_intent.provider or "") != provider
+1556:                 or str(prior_intent.status_from_panel or "").strip().upper() not in _REFERRAL_STATES
+1557:                 or _required_utc(prior_intent.start_date) != _required_utc(invitee_row.end_date)
+1558:                 or _required_utc(prior_intent.end_date) != _required_utc(invitee_row.end_date)
+1559:             ):
+1560:                 raise WDTTAdapterError("referral_intent_ambiguous")
+1561:             return prior_intent
+1562:         if prior_payment is None:
+1563:             raise WDTTAdapterError("referral_intent_ambiguous")
+1564:         return None
+1565:     if prior_payment is not None:
+1566:         return None
+1567:     if not _locally_enabled_direct(invitee_row):
+1568:         raise WDTTAdapterError("referral_invitee_invalid")
+1569: 
+1570:     invitee_expiry = _required_utc(invitee_row.end_date)
+1571:     return await subscription_dal.upsert_subscription(
+1572:         session,
+1573:         {
+1574:             "user_id": int(invitee_id),
+1575:             "panel_user_uuid": identity,
+1576:             "panel_subscription_uuid": identity,
+1577:             "start_date": invitee_expiry,
+1578:             "end_date": invitee_expiry,
+1579:             "duration_months": 0,
+1580:             "is_active": False,
+1581:             "status_from_panel": "WAITING",
+1582:             "traffic_limit_bytes": 0,
+1583:             "traffic_used_bytes": 0,
+1584:             "provider": provider,
+1585:             "skip_notifications": True,
+1586:             "suppress_early_expiry_notifications": True,
+1587:             "auto_renew_enabled": False,
+1588:             "tariff_key": str(invitee_row.tariff_key or ""),
+1589:             "tariff_binding_source": "direct_referral",
+1590:             "tariff_binding_note": _referral_binding_note(invitee_row),
+1591:             "effective_monthly_price_rub": 0,
+1592:         },
+1593:     )
+1594: 
+1595: 
+1596: async def ensure_direct_referral_intent(
+1597:     *,
+1598:     settings: Any,
+1599:     session: AsyncSession,
+1600:     invitee_id: int,
+1601:     invitee_grant: WDTTGrant,
+1602: ) -> Subscription | None:
+1603:     """Persist exactly one reward intent after the first exact direct grant."""
+1604: 
+1605:     if (
+1606:         getattr(settings, "TERLIMO_WDTT_ENABLED", False) is not True
+1607:         or getattr(settings, "REFERRAL_PROGRAM_ENABLED", False) is not True
+1608:     ):
+1609:         return None
+1610:     identity = direct_referral_intent_identity(invitee_grant.grant_id)
+1611:     invitee = await user_dal.get_user_by_id(session, int(invitee_id))
+1612:     inviter_id = int(getattr(invitee, "referred_by_id", 0) or 0) if invitee else 0
+1613:     if not inviter_id:
+1614:         return None
+1615:     if inviter_id == int(invitee_id):
+1616:         raise WDTTAdapterError("referral_attribution_invalid")
+1617: 
+1618:     users = await _lock_referral_users(session, invitee_id, inviter_id)
+1619:     locked_invitee = users.get(int(invitee_id))
+1620:     if (
+1621:         locked_invitee is None
+1622:         or int(getattr(locked_invitee, "referred_by_id", 0) or 0) != inviter_id
+1623:         or users.get(inviter_id) is None
+1624:     ):
+1625:         raise WDTTAdapterError("referral_attribution_invalid")
+1626: 
+1627:     existing = await _referral_intent(
+1628:         session,
+1629:         invitee_id,
+1630:         provider=REFERRAL_INTENT_PROVIDER,
+1631:         lock=True,
+1632:     )
+1633:     invitee_row = await _direct_row_for_user(session, invitee_id, lock=True)
+1634:     if invitee_row is None or not _grant_matches_subscription(invitee_grant, invitee_row):
+1635:         raise WDTTAdapterError("referral_invitee_invalid")
+1636:     if existing is not None:
+1637:         if str(existing.panel_subscription_uuid or "") != identity:
+1638:             raise WDTTAdapterError("referral_intent_ambiguous")
+1639:         await session.rollback()
+1640:         return existing
+1641: 
+1642:     invitee_expiry = _required_utc(invitee_row.end_date)
+1643:     intent = await subscription_dal.upsert_subscription(
+1644:         session,
+1645:         {
+1646:             "user_id": int(invitee_id),
+1647:             "panel_user_uuid": identity,
+1648:             "panel_subscription_uuid": identity,
+1649:             "start_date": invitee_expiry,
+1650:             "end_date": invitee_expiry,
+1651:             "duration_months": 0,
+1652:             "is_active": False,
+1653:             "status_from_panel": "WAITING",
+1654:             "traffic_limit_bytes": 0,
+1655:             "traffic_used_bytes": 0,
+1656:             "provider": REFERRAL_INTENT_PROVIDER,
+1657:             "skip_notifications": True,
+1658:             "suppress_early_expiry_notifications": True,
+1659:             "auto_renew_enabled": False,
+1660:             "tariff_key": None,
+1661:             "tariff_binding_source": "direct_referral",
+1662:             "tariff_binding_note": _referral_binding_note(invitee_row),
+1663:             "effective_monthly_price_rub": 0,
+1664:         },
+1665:     )
+1666:     await session.commit()
+1667:     await reconcile_direct_referral_intent(
+1668:         settings=settings,
+1669:         session=session,
+1670:         invitee_id=int(invitee_id),
+1671:         intent_provider=REFERRAL_INTENT_PROVIDER,
+1672:         bot=None,
+1673:     )
+1674:     return intent
+1675: 
+1676: 
+1677: async def reconcile_direct_referral_intents(
+1678:     *, settings: Any, session_factory: Any, bot: Any | None = None
+1679: ) -> int:
+1680:     if (
+1681:         getattr(settings, "TERLIMO_WDTT_ENABLED", False) is not True
+1682:         or getattr(settings, "REFERRAL_PROGRAM_ENABLED", False) is not True
+1683:     ):
+1684:         return 0
+1685:     async with session_factory() as session:
+1686:         statement = (
+1687:             select(Subscription.user_id, Subscription.provider)
+1688:             .where(
+1689:                 Subscription.provider.in_(tuple(_ALL_REFERRAL_PROVIDERS)),
+1690:                 Subscription.status_from_panel.in_(tuple(_REFERRAL_STATES - {"APPLIED"})),
+1691:             )
+1692:             .order_by(Subscription.subscription_id)
+1693:             .limit(25)
+1694:         )
+1695:         intents = [(int(row[0]), str(row[1])) for row in (await session.execute(statement)).all()]
+1696:     reconciled = 0
+1697:     for invitee_id, intent_provider in intents:
+1698:         async with session_factory() as session:
+1708: 
+1709: 
+1710: async def reconcile_direct_referral_intent(
+1711:     *,
+1712:     settings: Any,
+1713:     session: AsyncSession,
+1714:     invitee_id: int,
+1715:     intent_provider: str = REFERRAL_INTENT_PROVIDER,
+1716:     bot: Any | None = None,
+1717: ) -> bool:
+1718:     """Advance one fixed reward without ever creating inviter access."""
+1719: 
+1720:     invitee = await user_dal.get_user_by_id(session, int(invitee_id))
+1721:     inviter_id = int(getattr(invitee, "referred_by_id", 0) or 0) if invitee else 0
+1722:     if not inviter_id or inviter_id == int(invitee_id):
+1723:         raise WDTTAdapterError("referral_attribution_invalid")
+1724:     users = await _lock_referral_users(session, invitee_id, inviter_id)
+1725:     locked_invitee = users.get(int(invitee_id))
+1726:     inviter = users.get(inviter_id)
+1727:     if (
+1728:         locked_invitee is None
+1729:         or inviter is None
+1730:         or int(getattr(locked_invitee, "referred_by_id", 0) or 0) != inviter_id
+1731:     ):
+1732:         raise WDTTAdapterError("referral_attribution_invalid")
+1733: 
+1734:     if intent_provider not in _ALL_REFERRAL_PROVIDERS:
+1735:         raise WDTTAdapterError("referral_intent_invalid")
+1736:     reward_days = _referral_reward_days(intent_provider)
+1737:     intent = await _referral_intent(
+1738:         session,
+1739:         invitee_id,
+1740:         provider=intent_provider,
+1741:         lock=True,
+1742:     )
+1743:     if intent is None:
+1744:         return False
+1745:     state = str(intent.status_from_panel or "").strip().upper()
+1746:     if state not in _REFERRAL_STATES:
+1747:         raise WDTTAdapterError("referral_intent_invalid")
+1748:     if state == "APPLIED":
+1749:         return False
+1750:     if state == "REMOTE_APPLIED":
+1751:         inviter_row = await _direct_row_for_user(session, inviter_id, lock=True)
+1752:         if inviter_row is None or _referral_binding_note(inviter_row) != str(
+1753:             intent.tariff_binding_note or ""
+1754:         ):
+1755:             raise WDTTAdapterError("referral_inviter_invalid")
+1756:         _validate_direct_binding_scope(settings, inviter_id, inviter_row)
+1757:         return await _notify_direct_referral(
+1758:             session=session,
+1759:             intent=intent,
+1760:             inviter=inviter,
+1761:             bot=bot,
+1762:         )
+1763: 
+1764:     inviter_row = await _direct_row_for_user(session, inviter_id, lock=True)
+1765:     if inviter_row is None:
+1766:         if state != "WAITING":
+1767:             raise WDTTAdapterError("referral_inviter_invalid")
+1768:         await session.rollback()
+1769:         return False
+1770:     if state == "WAITING" and not _locally_active_direct(inviter_row):
+1771:         await session.rollback()
+1772:         return False
+1773:     if state == "PENDING_REMOTE" and not _locally_enabled_direct(inviter_row):
+1774:         raise WDTTAdapterError("referral_inviter_invalid")
+1775:     _validate_direct_binding_scope(settings, inviter_id, inviter_row)
+1776: 
+1777:     if state == "WAITING":
+1778:         client = WDTTAdapterClient(str(settings.TERLIMO_WDTT_SOCKET_PATH))
+1779:         await read_direct_devices(
+1780:             session=session,
+1781:             client=client,
+1782:             subscription=inviter_row,
+1783:         )
+1784:         base = _required_utc(inviter_row.end_date)
+1785:         target = base + timedelta(days=reward_days)
+1786:         intent.start_date = base
+1787:         intent.end_date = target
+1788:         intent.tariff_key = str(inviter_row.tariff_key or "")
+1789:         intent.tariff_binding_source = "direct_referral"
+1790:         intent.tariff_binding_note = _referral_binding_note(inviter_row)
+1791:         intent.status_from_panel = "PENDING_REMOTE"
+1792:         await session.flush()
+1793:         await session.commit()
+1794:     else:
+1795:         base = _required_utc(intent.start_date)
+1796:         target = _required_utc(intent.end_date)
+1797:         if (
+1798:             target - base != timedelta(days=reward_days)
+1799:             or _required_utc(inviter_row.end_date) not in {base, target}
+1800:             or _referral_binding_note(inviter_row) != str(intent.tariff_binding_note or "")
+1801:         ):
+1802:             raise WDTTAdapterError("referral_intent_invalid")
+1803: 
+1804:     # The PENDING commit above deliberately releases the first lock set.  Take
+1805:     # the same user -> intent -> direct-row locks again, then keep them through
+1806:     # Adapter read/ensure/readback and the local target commit.  Direct renew
+1807:     # and disable use the same user lock, so an interleaving renewal can only
+1808:     # finish before this section (and is rejected as a third expiry) or after
+1809:     # the referral target is committed; the referral can never shorten it.
+1810:     users = await _lock_referral_users(session, invitee_id, inviter_id)
+1811:     locked_invitee = users.get(int(invitee_id))
+1812:     inviter = users.get(inviter_id)
+1813:     intent = await _referral_intent(
+1814:         session,
+1815:         invitee_id,
+1816:         provider=intent_provider,
+1817:         lock=True,
+1818:     )
+1819:     inviter_row = await _direct_row_for_user(session, inviter_id, lock=True)
+1820:     if (
+1821:         locked_invitee is None
+1822:         or int(getattr(locked_invitee, "referred_by_id", 0) or 0) != inviter_id
+1823:     ):
+1824:         raise WDTTAdapterError("referral_attribution_invalid")
+1825:     if (
+1826:         inviter is None
+1827:         or intent is None
+1828:         or inviter_row is None
+1829:         or str(intent.status_from_panel or "").strip().upper() != "PENDING_REMOTE"
+1830:         or _required_utc(intent.start_date) != base
+1831:         or _required_utc(intent.end_date) != target
+1832:         or _referral_binding_note(inviter_row) != str(intent.tariff_binding_note or "")
+1833:     ):
+1834:         raise WDTTAdapterError("referral_intent_changed")
+1835:     _validate_direct_binding_scope(settings, inviter_id, inviter_row)
+1836:     client = WDTTAdapterClient(str(settings.TERLIMO_WDTT_SOCKET_PATH))
+1837:     local_expiry = _required_utc(inviter_row.end_date)
+1838:     if local_expiry not in {base, target}:
+1839:         raise WDTTAdapterError("referral_expiry_conflict")
+1840:     await extend_active_direct_devices(
+1841:         session=session,
+1842:         client=client,
+1843:         subscription=inviter_row,
+1844:         base=base,
+1845:         target=target,
+1846:     )
+1847: 
+1848:     inviter_row.end_date = target
+1849:     intent.status_from_panel = "REMOTE_APPLIED"
+1850:     await session.flush()
+1851:     await session.commit()
+1852: 
+1853:     users = await _lock_referral_users(session, invitee_id, inviter_id)
+1854:     locked_invitee = users.get(int(invitee_id))
+1855:     intent = await _referral_intent(
+1856:         session,
+1857:         invitee_id,
+1858:         provider=intent_provider,
+1859:         lock=True,
+1860:     )
+1861:     inviter = users.get(inviter_id)
+1862:     if (
+1863:         locked_invitee is None
+1864:         or int(getattr(locked_invitee, "referred_by_id", 0) or 0) != inviter_id
+1865:     ):
+1866:         raise WDTTAdapterError("referral_attribution_invalid")
+1867:     if intent is None or inviter is None:
+1868:         raise WDTTAdapterError("referral_intent_changed")
+1869:     return (
+1870:         await _notify_direct_referral(
+1871:             session=session,
+1872:             intent=intent,
+1873:             inviter=inviter,
+1874:             bot=bot,
+1875:         )
+1876:         or True
+1877:     )
+1878: 
+1879: 
+1880: async def _notify_direct_referral(
+1881:     *, session: AsyncSession, intent: Subscription, inviter: Any, bot: Any | None
+1882: ) -> bool:
+1883:     if bot is None:
+1884:         await session.rollback()
+1885:         return False
+1886:     telegram_id = int(getattr(inviter, "telegram_id", 0) or 0)
+1887:     if telegram_id <= 0:
+1888:         await session.rollback()
+1889:         return False
+1890:     if str(intent.status_from_panel or "").strip().upper() != "REMOTE_APPLIED":
+1891:         raise WDTTAdapterError("referral_intent_invalid")
+1892:     days = _referral_reward_days(str(intent.provider or ""))
+1893:     language = str(getattr(inviter, "language_code", "ru") or "ru").strip().lower()
+1894:     notification = get_i18n_instance().gettext(
+1895:         language,
+1896:         "terlimo_direct_referral_reward",
+1897:         days=days,
+1898:     )
+1899:     await bot.send_message(telegram_id, notification)
+1900:     intent.status_from_panel = "APPLIED"
+1901:     await session.flush()
+1902:     await session.commit()
+1903:     return True
+1904: 
+1905: 
+1906: async def _lock_referral_users(
+1907:     session: AsyncSession, invitee_id: int, inviter_id: int
+1908: ) -> dict[int, Any]:
+1909:     users: dict[int, Any] = {}
+1910:     for user_id in sorted({int(invitee_id), int(inviter_id)}):
+1920:     *,
+1921:     provider: str,
+1922:     lock: bool,
+1923: ) -> Subscription | None:
+1924:     if provider not in _ALL_REFERRAL_PROVIDERS:
+1925:         raise WDTTAdapterError("referral_intent_invalid")
+1926:     statement = select(Subscription).where(
+1927:         Subscription.user_id == int(invitee_id),
+1928:         Subscription.provider == provider,
+1929:     )
+1930:     if lock:
+1931:         statement = statement.with_for_update()
+1932:     rows = list((await session.execute(statement.limit(2))).scalars().all())
+1933:     if len(rows) > 1:
+1934:         raise WDTTAdapterError("referral_intent_ambiguous")
+1935:     return rows[0] if rows else None
+1936: 
+1937: 
+1938: def _referral_reward_days(provider: str) -> int:
+1939:     if provider == REFERRAL_INTENT_PROVIDER:
+1940:         return _REFERRAL_DAYS
+1941:     for months, candidate in PURCHASE_REFERRAL_PROVIDERS.items():
+1942:         if provider == candidate:
+1943:             return {1: 7, 3: 14, 6: 30}[months]
+1944:     raise WDTTAdapterError("referral_intent_invalid")
+1945: 
+1946: 
+1947: async def _direct_row_for_user(
+1948:     session: AsyncSession, user_id: int, *, lock: bool
+1949: ) -> Subscription | None:
+1950:     statement = select(Subscription).where(
+1951:         Subscription.user_id == int(user_id),
+1952:         Subscription.provider.in_((PROVIDER, TRIAL_PROVIDER)),
+1953:         or_(
+1954:             Subscription.is_active.is_(True),
+1955:             Subscription.status_from_panel == _DIRECT_PENDING_STATUS,
+1956:         ),
+1957:     )
+1958:     if lock:
+1959:         statement = statement.with_for_update()
+1960:     rows = list((await session.execute(statement.limit(2))).scalars().all())
+1961:     if len(rows) > 1:
+1962:         raise WDTTAdapterError("local_binding_ambiguous")
+1963:     return rows[0] if rows else None
+1964: 
+1965: 
+1966: def _validate_direct_binding_scope(settings: Any, user_id: int, row: Subscription) -> None:
+1967:     provider = str(row.provider or "").strip().lower()
+1968:     tariff_key = str(row.tariff_key or "").strip()
+1969:     if provider == PROVIDER:
+1970:         validate_direct_scope(
+
+FILE /app/backend/bot/services/referral_service.py FULL_SHA256 1fb3bd73dda1f0e00ba8f71b84027a3c7bd6a8b63dfcf72ae66061a57b8b6026
+46:     async def apply_referral_bonuses_for_payment(
+47:         self,
+48:         session: AsyncSession,
+49:         referee_user_id: int,
+50:         purchased_subscription_months: int,
+51:         current_payment_db_id: int | None = None,
+52:         skip_if_active_before_payment: bool = True,
+53:         tariff_key: str | None = None,
+54:     ) -> dict[str, Any]:
+55: 
+56:         referee_final_end_date: datetime | None = None
+57:         referee_bonus_applied_days: int | None = None
+58:         inviter_bonus_successfully_applied = False
+59:         inviter_bonus_end_date: datetime | None = None
+60:         inviter_bonus_kind: str | None = None
+61: 
+62:         try:
+63:             referee_user_model = await user_dal.get_user_by_id(session, referee_user_id)
+64:             if not referee_user_model:
+65:                 return {"referee_bonus_applied_days": None, "referee_new_end_date": None}
+66: 
+67:             inviter_user_id = (
+68:                 referee_user_model.referred_by_id
+69:                 if referral_program_enabled(self.settings)
+70:                 else None
+71:             )
+72:             partner_client_bonus = False
+73:             if inviter_user_id is None:
+74:                 partner_client_bonus = await PartnerProgramService(
+75:                     self.settings
+76:                 ).client_payment_bonus_eligible(
+77:                     session,
+78:                     user_id=referee_user_id,
+79:                 )
+80:             if inviter_user_id is None and not partner_client_bonus:
+81:                 logger.debug(
+82:                     "User %s has no eligible referral or partner-client benefit. No bonuses.",
+83:                     referee_user_id,
+84:                 )
+85:                 return {"referee_bonus_applied_days": None, "referee_new_end_date": None}
+86: 
+87:             one_bonus_per_client = bool(
+88:                 getattr(self.settings, "REFERRAL_ONE_BONUS_PER_REFEREE", True)
+89:             )
+90:             if partner_client_bonus:
+91:                 one_bonus_per_client = bool(
+92:                     getattr(self.settings.partner_settings, "one_bonus_per_client", True)
+93:                 )
+94: 
+95:             # The payment finalizer holds the user row lock while this prior-payment
+96:             # check and the resulting bonus are committed, so concurrent payments for
+97:             # one user cannot both win the one-time bonus.
+98:             if one_bonus_per_client:
+99:                 try:
+100:                     succeeded_count = await payment_dal.count_user_succeeded_payments(
+101:                         session, referee_user_id, exclude_payment_id=current_payment_db_id
+102:                     )
+103:                     if succeeded_count and succeeded_count > 0:
+104:                         logger.info(
+105:                             "Referral bonuses skipped for user %s: already has %s succeeded "
+106:                             "payments.",
+107:                             referee_user_id,
+108:                             succeeded_count,
+109:                         )
+110:                         return {"referee_bonus_applied_days": None, "referee_new_end_date": None}
+111:                 except Exception as e_cnt:
+112:                     logger.error(
+113:                         "Failed counting succeeded payments for user %s: %s", referee_user_id, e_cnt
+114:                     )
+115: 
+116:             # Additionally, do not award referral bonuses if the user was active at payment time
+117:             # (has an active subscription now). This avoids giving bonuses to already active users.
+118:             if skip_if_active_before_payment:
+119:                 try:
+120:                     if await self.subscription_service.has_active_subscription(
+121:                         session, referee_user_id
+122:                     ):
+123:                         logger.info(
+124:                             "Referral bonuses skipped for user %s: user currently has an active "
+125:                             "subscription.",
+126:                             referee_user_id,
+127:                         )
+128:                         return {"referee_bonus_applied_days": None, "referee_new_end_date": None}
+129:                 except Exception as e_sub:
+130:                     logger.error(
+131:                         "Failed to check active subscription for %s: %s", referee_user_id, e_sub
+132:                     )
+170:             if inviter_user_id is not None and inviter_bonus_days and inviter_bonus_days > 0:
+171:                 if not inviter_user_model:
+172:                     logger.warning(
+173:                         "Inviter user %s not found in local DB. Cannot apply inviter bonus.",
+174:                         inviter_user_id,
+175:                     )
+176:                 else:
+177:                     inviter_active_sub = (
+178:                         await subscription_dal.get_active_subscription_by_user_id(
+179:                             session,
+180:                             inviter_user_id,
+181:                             inviter_user_model.panel_user_uuid,
+182:                         )
+183:                         if inviter_user_model.panel_user_uuid
+184:                         else None
+185:                     )
+186:                     new_end_date_inviter = (
+187:                         await self.subscription_service.extend_active_subscription_days(
+188:                             session=session,
+189:                             user_id=inviter_user_id,
+190:                             bonus_days=inviter_bonus_days,
+191:                             reason=f"referral bonus from {referee_name_for_msg}",
+192:                             **({"tariff_key": tariff_key} if tariff_key else {}),
+193:                         )
+194:                     )
+195: 
+196:                     if new_end_date_inviter:
+197:                         inviter_bonus_successfully_applied = True
+198:                         inviter_bonus_end_date = new_end_date_inviter
+199:                         inviter_bonus_kind = "extended" if inviter_active_sub else "new_sub"
+200:                         logger.info(
+201:                             "Bonus of %s days successfully applied/extended for inviter %s.",
+202:                             inviter_bonus_days,
+203:                             inviter_user_id,
+204:                         )
+205:                     else:
+206:                         logger.warning(
+207:                             "Failed to apply inviter referral bonus for inviter %s after payment "
+208:                             "%s. Bonus not marked successful.",
+209:                             inviter_user_id,
+210:                             current_payment_db_id,
+211:                         )
+212: 
+213:             if referee_bonus_days and referee_bonus_days > 0:
+214:                 referee_reason = (
+215:                     "partner client payment bonus"
+216:                     if partner_client_bonus
+217:                     else f"referee bonus (invited by {inviter_name_for_referee_msg})"
+218:                 )
+219:                 new_end_date_referee = (
+220:                     await self.subscription_service.extend_active_subscription_days(
+221:                         session=session,
+222:                         user_id=referee_user_id,
+223:                         bonus_days=referee_bonus_days,
+224:                         reason=referee_reason,
+225:                         **({"tariff_key": tariff_key} if tariff_key else {}),
+226:                     )
+227:                 )
+228:                 if new_end_date_referee:
+229:                     referee_final_end_date = new_end_date_referee
+230:                     referee_bonus_applied_days = referee_bonus_days
+231:                     logger.info(
+232:                         "Bonus of %s days successfully applied to referee %s.",
+233:                         referee_bonus_days,
+234:                         referee_user_id,
+235:                     )
+236:                 else:
+237:                     logger.warning(
+238:                         "Failed to apply referee bonus for %s (could not extend their new "
+239:                         "subscription).",
+240:                         referee_user_id,
+241:                     )
+242: 
+243:             if referee_bonus_applied_days or inviter_bonus_successfully_applied:
+244:                 referral_event_payload = ReferralBonusGrantedPayload(
+245:                     referee_user_id=referee_user_id,
+246:                     referee_bonus_days=referee_bonus_applied_days,
+247:                     referee_new_end_date=referee_final_end_date,
+248:                     inviter_bonus_applied=inviter_bonus_successfully_applied,
+249:                     inviter_user_id=(
+250:                         inviter_user_id if inviter_bonus_successfully_applied else None
+251:                     ),
+252:                     inviter_bonus_days=(
+253:                         inviter_bonus_days if inviter_bonus_successfully_applied else None
+254:                     ),
+255:                     inviter_bonus_end_date=inviter_bonus_end_date,
+256:                     inviter_bonus_kind=inviter_bonus_kind,
+257:                     referee_name=referee_name_for_msg,
+258:                     payment_db_id=current_payment_db_id,
+259:                     purchased_subscription_months=purchased_subscription_months,
+260:                     tariff_key=tariff_key,
+261:                     one_bonus_per_referee=one_bonus_per_client,
+262:                     reason="payment",
+263:                 ).to_payload()
+264:             else:
+265:                 referral_event_payload = None
+266: 
+267:             return {
+268:                 "referee_bonus_applied_days": referee_bonus_applied_days,
+269:                 "referee_new_end_date": referee_final_end_date,
+270:                 "inviter_bonus_applied_flag": inviter_bonus_successfully_applied,
+271:                 "referee_bonus_source": "partner" if partner_client_bonus else "referral",
+272:                 "event_payload": referral_event_payload,
+273:             }
+281:     def _referral_bonus_days_for_payment(
+282:         self,
+283:         purchased_subscription_months: int,
+284:         *,
+285:         tariff_key: str | None = None,
+286:     ) -> tuple[int | None, int | None]:
+287:         months = int(purchased_subscription_months)
+288:         tariffs_config = getattr(self.settings, "tariffs_config", None)
+289:         if tariff_key and tariffs_config:
+290:             try:
+291:                 tariff = tariffs_config.require(str(tariff_key))
+292:             except Exception:
+293:                 logger.warning(
+294:                     "Referral bonuses skipped: tariff %s was not found.",
+295:                     tariff_key,
+296:                 )
+297:                 return None, None
+298:             if tariff.billing_model != "period":
+299:                 return None, None
+300:             return (
+301:                 tariff.referral_inviter_bonus_days(months),
+302:                 tariff.referral_referee_bonus_days(months),
+303:             )
+304: 
+305:         return (
+306:             self.settings.referral_bonus_inviter.get(months),
+307:             self.settings.referral_bonus_referee.get(months),
+308:         )
+339:     async def get_referral_stats(self, session: AsyncSession, user_id: int) -> dict:
+340:         """Get referral statistics for a user"""
+341: 
+342:         try:
+343:             # Count total invited users (referrals)
+344:             invited_count_result = await session.execute(
+345:                 text("SELECT COUNT(*) FROM users WHERE referred_by_id = :user_id"),
+346:                 {"user_id": user_id},
+347:             )
+348:             invited_count = invited_count_result.scalar() or 0
+349: 
+350:             # Count users who made successful payments (purchased subscription)
+351:             purchased_count_result = await session.execute(
+352:                 text("""
+353:                     SELECT COUNT(DISTINCT u.user_id)
+354:                     FROM users u
+355:                     JOIN payments p ON u.user_id = p.user_id
+356:                     WHERE u.referred_by_id = :user_id
+357:                     AND p.status = 'succeeded'
+358:                 """),
+359:                 {"user_id": user_id},
+360:             )
+361:             purchased_count = purchased_count_result.scalar() or 0
+362: 
+363:             return {"invited_count": invited_count, "purchased_count": purchased_count}
+
+FILE /app/backend/bot/handlers/user/referral.py FULL_SHA256 2e4dfdad649b4d09fc934db0a648a9dafd51df68544dfaaea5d58d9a8fd58dbc
+100:     if settings.traffic_sale_mode:
+101:         bonus_details_str = _("referral_not_available_for_traffic")
+102:     else:
+103:         bonus_details_str = _build_referral_bonus_details_text(settings, _, current_lang)
+104: 
+105:     referral_stats = await referral_service.get_referral_stats(session, inviter_user_id)
+106: 
+107:     webapp_referral_link = await _generate_webapp_referral_link(
+108:         session,
+109:         settings,
+110:         inviter_user_id,
+111:     )
+112:     webapp_link_section = (
+113:         _(
+114:             "referral_webapp_link_line",
+115:             webapp_referral_link=webapp_referral_link,
+116:         )
+117:         if webapp_referral_link
+118:         else ""
+119:     )
+120: 
+121:     text = _(
+122:         "referral_program_info_new",
+123:         referral_link=referral_link,
+124:         webapp_link_section=webapp_link_section,
+125:         bonus_details=bonus_details_str,
+126:         invited_count=referral_stats["invited_count"],
+127:         purchased_count=referral_stats["purchased_count"],
+128:     )
+129: 
+130:     from bot.keyboards.inline.user_keyboards import get_referral_link_keyboard
+131: 
+132:     reply_markup_val = get_referral_link_keyboard(
+133:         current_lang,
+134:         i18n,
+135:         back_callback=back_callback,
+136:         settings=settings,
+137:     )
+138: 
+139:     if isinstance(event, types.Message):
+140:         await event.answer(text, reply_markup=reply_markup_val, disable_web_page_preview=True)
+247: def _tariff_period_bonus_entries(tariff: Any) -> list[dict[str, int | None]]:
+248:     entries: list[dict[str, int | None]] = []
+249:     for months in sorted(int(month) for month in getattr(tariff, "enabled_periods", [])):
+250:         inviter_days = tariff.referral_inviter_bonus_days(months)
+251:         referee_days = tariff.referral_referee_bonus_days(months)
+252:         if inviter_days is None and referee_days is None:
+253:             continue
+254:         entries.append(
+255:             {
+256:                 "months": months,
+257:                 "inviter_days": inviter_days,
+258:                 "referee_days": referee_days,
+259:             }
+260:         )
+261:     return entries
+262: 
+263: 
+264: def _legacy_period_bonus_entries(settings: Settings) -> list[dict[str, int | None]]:
+265:     entries: list[dict[str, int | None]] = []
+266:     for months, _price in sorted(settings.subscription_options.items()):
+267:         inviter_days = settings.referral_bonus_inviter.get(months)
+268:         referee_days = settings.referral_bonus_referee.get(months)
+269:         if inviter_days is None and referee_days is None:
+270:             continue
+271:         entries.append(
+272:             {
+273:                 "months": int(months),
+274:                 "inviter_days": inviter_days,
+275:                 "referee_days": referee_days,
+276:             }
+277:         )
+278:     return entries
+279: 
+280: 
+281: def _bonus_days_range(translator: Translator, values: list[int]) -> str:
+282:     return translator(
+283:         "referral_bonus_days_range",
+284:         min_days=min(values),
+285:         max_days=max(values),
+286:     )
+287: 
+288: 
+289: def _with_direct_trial_bonus(
+290:     settings: Settings,
+291:     translator: Translator,
+292:     paid_bonus_details: str,
+293: ) -> str:
+294:     if (
+295:         getattr(settings, "TERLIMO_PUBLIC_UI_ENABLED", False) is True
+296:         and getattr(settings, "TERLIMO_WDTT_TRIAL_ENABLED", False) is True
+297:     ):
+298:         return translator("referral_bonus_direct_trial") + paid_bonus_details
+299:     return paid_bonus_details
+300: 
+301: 
+302: def _build_referral_bonus_details_text(
+303:     settings: Settings, translator: Translator, current_lang: str
+304: ) -> str:
+305:     tariffs_config = settings.tariffs_config
+306:     if not tariffs_config:
+307:         bonus_info_parts = [
+308:             _period_bonus_text(
+309:                 translator,
+310:                 months=int(entry["months"] or 0),
+311:                 inviter_days=entry["inviter_days"],
+312:                 referee_days=entry["referee_days"],
+313:             )
+314:             for entry in _legacy_period_bonus_entries(settings)
+315:         ]
+316:         paid_bonus_details = (
+317:             "\n".join(bonus_info_parts)
+318:             if bonus_info_parts
+319:             else translator("referral_no_bonuses_configured")
+320:         )
+321:         return _with_direct_trial_bonus(settings, translator, paid_bonus_details)
+322: 
+323:     period_tariffs = [
+324:         tariff for tariff in tariffs_config.enabled_tariffs if tariff.billing_model == "period"
+325:     ]
+326:     if len(period_tariffs) <= 1:
+327:         entries = _tariff_period_bonus_entries(period_tariffs[0]) if period_tariffs else []
+328:         bonus_info_parts = [
+329:             _period_bonus_text(
+330:                 translator,
+331:                 months=int(entry["months"] or 0),
+332:                 inviter_days=entry["inviter_days"],
+333:                 referee_days=entry["referee_days"],
+334:             )
+335:             for entry in entries
+336:         ]
+337:         paid_bonus_details = (
+338:             "\n".join(bonus_info_parts)
+339:             if bonus_info_parts
+340:             else translator("referral_no_bonuses_configured")
+341:         )
+342:         return _with_direct_trial_bonus(settings, translator, paid_bonus_details)
+343: 
+344:     bonus_info_parts = []
+345:     for tariff in period_tariffs:
+346:         entries = _tariff_period_bonus_entries(tariff)
+347:         if not entries:
+348:             continue
+349:         inviter_values = [int(entry["inviter_days"] or 0) for entry in entries]
+350:         referee_values = [int(entry["referee_days"] or 0) for entry in entries]
+351:         bonus_info_parts.append(
+352:             translator(
+353:                 "referral_bonus_tariff_range",
+354:                 tariff_name=tariff.name(current_lang),
+355:                 inviter_bonus_range=_bonus_days_range(translator, inviter_values),
+356:                 referee_bonus_range=_bonus_days_range(translator, referee_values),
+357:             )
+358:         )
+359:     paid_bonus_details = (
+360:         "\n".join(bonus_info_parts)
+361:         if bonus_info_parts
+362:         else translator("referral_no_bonuses_configured")
+363:     )
+364:     return _with_direct_trial_bonus(settings, translator, paid_bonus_details)
+
+FILE /app/backend/bot/handlers/user/start_flow.py FULL_SHA256 5c6f69ab067d914667558dd2e4cc297200965b613b4171eeea6552f5dc9adc90
+260:                 raw_ref_value,
+261:                 settings=settings,
+262:                 current_user_id=user_id,
+263:             )
+264:     else:
+265:         invite_check = await evaluate_registration_invite(
+266:             session,
+267:             raw_ref_value,
+268:             settings=settings,
+269:             current_user_id=user_id,
+270:             source="telegram_start",
+271:         )
+272:         if invite_check.requires_invite:
+273:             await emit_bot_started(
+274:                 user_id=user_id,
+275:                 returning=False,
+276:                 source=start_source,
+277:                 start_param=start_param,
+278:             )
+279:             await message.answer(_("registration_invite_required"))
+280:             return
+281:         referred_by_user_id = invite_check.referrer_user_id
+282:         partner_code = invite_check.partner_code
+283: 
+284:     if not db_user:
+285:         user_data_to_create = {
+286:             "user_id": user_id,
+287:             "telegram_id": user_id,
+288:             "username": sanitized_username,
+289:             "first_name": sanitized_first_name,
+290:             "last_name": sanitized_last_name,
+291:             "language_code": current_lang,
+292:             "referred_by_id": referred_by_user_id,
+425:             update_payload["language_code"] = current_lang
+426:         if db_user.telegram_id != user_id:
+427:             update_payload["telegram_id"] = user_id
+428:         if db_user.telegram_notifications_status != TELEGRAM_NOTIFICATIONS_ENABLED:
+429:             update_payload["telegram_notifications_status"] = TELEGRAM_NOTIFICATIONS_ENABLED
+430:             update_payload["telegram_notifications_checked_at"] = notification_status_now
+431:             update_payload["telegram_notifications_enabled_at"] = notification_status_now
+432:             update_payload["telegram_notifications_blocked_at"] = None
+433:         # Set referral only if not already set AND user is not currently active.
+434:         # This allows previously subscribed but currently inactive users to be attributed.
+435:         if referred_by_user_id and db_user.referred_by_id is None:
+436:             try:
+437:                 is_active_now = await subscription_service.has_active_subscription(session, user_id)
+438:             except Exception:
+439:                 is_active_now = False
+440:             if not is_active_now:
+441:                 update_payload["referred_by_id"] = referred_by_user_id
+442:         if sanitized_username != db_user.username:
+443:             update_payload["username"] = sanitized_username
+444:         if sanitized_first_name != db_user.first_name:
+445:             update_payload["first_name"] = sanitized_first_name
+446:         if sanitized_last_name != db_user.last_name:
+447:             update_payload["last_name"] = sanitized_last_name
+448: 
+449:         if update_payload:
+450:             try:
+451:                 await user_dal.update_user(session, user_id, update_payload)
+
+FILE /app/backend/bot/app/web/webapp/auth_referral.py FULL_SHA256 cfabbe692ebf9dc9b8ab1462dfe19ab6814133e2908d5346b6ea83cf4cd7b793
+66: async def _apply_referral_to_existing_user(
+67:     request: web.Request,
+68:     session: AsyncSession,
+69:     user: User,
+70:     raw_referral_param: str | None,
+71: ) -> bool:
+72:     if not raw_referral_param or user.referred_by_id is not None:
+73:         return False
+74: 
+75:     locked_user = await user_dal.lock_user_by_id(session, int(user.user_id))
+76:     if not locked_user or locked_user.referred_by_id is not None:
+77:         return False
+78:     user = locked_user
+79: 
+80:     referred_by_id = await _resolve_referrer_id(
+81:         session,
+82:         raw_referral_param,
+83:         current_user_id=int(user.user_id),
+84:         settings=get_settings(request),
+85:     )
+86:     if not referred_by_id:
+87:         return False
+88: 
+89:     subscription_service: SubscriptionService = get_subscription_service(request)
+90:     try:
+91:         is_active_now = await subscription_service.has_active_subscription(
+92:             session,
+93:             int(user.user_id),
+94:         )
+95:     except Exception:
+96:         is_active_now = False
+97:     if is_active_now:
+98:         return False
+99: 
+100:     user.referred_by_id = referred_by_id
+101:     await session.flush()
+102:     return True
+103: 
+104: 
+105: async def _apply_referral_welcome_bonus_if_needed(
+106:     request: web.Request,
+107:     session: AsyncSession,
+108:     user: User,
+109:     raw_referral_param: str | None,
+110: ) -> datetime | None:
+111:     if not raw_referral_param:
+112:         return None
+113: 
+114:     settings: Settings = get_settings(request)
+115:     if _referral_welcome_telegram_required_reason(settings, user):
+116:         return None
+117: 
+118:     return await _grant_referral_welcome_bonus_if_eligible(request, session, user)
+119: 
+120: 
+121: async def _grant_referral_welcome_bonus_if_eligible(
+122:     request: web.Request,
+123:     session: AsyncSession,
+124:     user: User,
+125: ) -> datetime | None:
+126:     locked_user = await user_dal.lock_user_by_id(session, int(user.user_id))
+127:     if not locked_user:
+128:         return None
+129:     user = locked_user
+130: 
+131:     # One-time grant: once a user has claimed the welcome bonus, never grant it
+132:     # again. Without this marker the bonus could be re-claimed every time the
+133:     # previous grant expired (has_active_subscription alone is not enough).
+134:     if getattr(user, "referral_welcome_bonus_claimed_at", None) is not None:
+135:         return None
+136: 
+137:     settings: Settings = get_settings(request)
+138:     eligible_source = referral_program_enabled(settings) and bool(user.referred_by_id)
+139:     if not eligible_source:
+140:         eligible_source = await PartnerProgramService(settings).client_welcome_bonus_eligible(
+141:             session,
+142:             user_id=int(user.user_id),
+143:         )
+144:     if not eligible_source:
+145:         return None
+146: 
+147:     if await subscription_dal.has_any_subscription_for_user(session, int(user.user_id)):
+148:         return None
+149: 
+150:     referral_welcome_days = max(0, int(settings.referral_settings.welcome_bonus_days))
+151:     if referral_welcome_days <= 0:
+152:         return None
+153: 
+154:     subscription_service: SubscriptionService = get_subscription_service(request)
+155:     welcome_tariff_key = referral_welcome_bonus_tariff_key_for_settings(settings)
+156:     end_date = await subscription_service.extend_active_subscription_days(
+157:         session,
+158:         int(user.user_id),
+159:         referral_welcome_days,
+160:         reason="referral_welcome_bonus",
+161:         tariff_key=welcome_tariff_key,
+162:     )
+163:     if end_date:
+164:         # Persisted together with the grant on the caller's commit (the extend
+165:         # call does not commit on its own), so the bonus and its claimed-marker
+166:         # stay atomic.
+167:         user.referral_welcome_bonus_claimed_at = datetime.now(UTC)
+168:         await events.emit_model(
+169:             ReferralBonusGrantedPayload(
+170:                 referee_user_id=int(user.user_id),
+171:                 referee_bonus_days=referral_welcome_days,
+172:                 referee_new_end_date=end_date,
+173:                 inviter_bonus_applied=False,
+174:                 payment_db_id=None,
+175:                 reason="welcome",
+176:             ),
+177:             exclude_unset=True,
+178:         )
+179:     return end_date
+265:     db_user = await user_dal.get_user_by_telegram_id(session, user_id)
+266:     if not db_user:
+267:         db_user = await user_dal.get_user_by_id(session, user_id)
+268:     if not db_user:
+269:         invite_check = await evaluate_registration_invite(
+270:             session,
+271:             referral_param or telegram_user.get("start_param"),
+272:             current_user_id=user_id,
+273:             settings=settings,
+274:             source="webapp",
+275:         )
+276:         if invite_check.requires_invite:
+277:             raise RegistrationInviteRequiredError(invite_check.status)
+278: 
+279:         db_user, created = await user_dal.create_user(
+280:             session,
+281:             {
+282:                 "user_id": user_id,
+283:                 **profile_data,
+284:                 "language_code": telegram_language_code,
+285:                 "referred_by_id": invite_check.referrer_user_id,
+286:                 "registration_date": datetime.now(UTC),
+287:             },
+288:         )
+289:         if created and invite_check.partner_code:
+290:             await PartnerProgramService(settings).attribute_user(
+291:                 session,
+292:                 user=db_user,
+293:                 partner_code=invite_check.partner_code,
+294:                 source="partner_web_link",
+295:                 registered_via_partner_link=True,
+296:             )
+297:         db_user._webapp_created = bool(created)
+298:         return db_user
+
+FILE /app/backend/bot/payment_providers/shared/success.py FULL_SHA256 f458932683f05181ddaeb274fcbc27954ef9c00d106c88730232c0499fc63219
+400:         float(req.months) if is_traffic_sale_base(sale_mode_base(req.sale_mode)) else None
+401:     )
+402:     base = sale_mode_base(req.sale_mode)
+403:     invoice_tariff_key = str(getattr(locked_payment, "tariff_key", "") or "").strip() or (
+404:         sale_mode_tariff_key(req.sale_mode) or ""
+405:     )
+406:     active_subscription = None
+407:     if base == "subscription" and is_direct_tariff(req.settings, invoice_tariff_key):
+408:         # The payment processor remains stored on the payment row while the
+409:         # server-created tariff selects the direct WDTT entitlement backend.
+410:         req.provider_subscription = WDTT_DIRECT_PROVIDER
+411:     elif base in {"hwid_device", "hwid_devices"} and stored_provider.lower() == "platega":
+412:         active_subscription = await subscription_dal.get_active_subscription_by_user_id_for_update(
+413:             req.session,
+414:             req.user_id,
+415:         )
+416:         if is_direct_topup_binding(
+417:             req.settings,
+418:             user_id=req.user_id,
+419:             tariff_key=invoice_tariff_key,
+420:             subscription=active_subscription,
+421:         ):
+422:             # The locked invoice and locked active row select WDTT; the stored
+423:             # payment provider remains the Platega processor.
+424:             req.provider_subscription = WDTT_DIRECT_PROVIDER
+425: 
+426:     tribute_subscription_event = base == "subscription" and stored_provider.lower() == "tribute"
+427:     wdtt_direct_event = req.provider_subscription.lower() == WDTT_DIRECT_PROVIDER
+428:     if (
+429:         base in {"subscription", "tariff_upgrade"}
+430:         and not tribute_subscription_event
+431:         and not wdtt_direct_event
+432:     ):
+548:                 traffic_gb_for_activation,
+549:                 effective_tariff_key,
+550:                 activation_keys,
+551:             )
+552:             await _mark_activation_failed(req, payment_id)
+553:             return None
+554:         referral_bonus = None
+555:         if is_subscription and not req.skip_referral_bonus and not wdtt_direct_event:
+556:             try:
+557:                 referral_savepoint = await req.session.begin_nested()
+558:                 try:
+559:                     referral_bonus = await req.referral_service.apply_referral_bonuses_for_payment(
+560:                         req.session,
+561:                         req.user_id,
+562:                         activation_months or 1,
+563:                         current_payment_db_id=payment_id,
+564:                         skip_if_active_before_payment=False,
+565:                         tariff_key=effective_tariff_key,
+566:                     )
+567:                 except Exception:
+568:                     await referral_savepoint.rollback()
+569:                     raise
+570:                 else:
+571:                     await referral_savepoint.commit()
+572:             except Exception:
+573:                 referral_bonus = None
+574:                 logger.exception(
+575:                     "%s: referral bonus failed for payment %s; keeping the paid entitlement.",
+576:                     req.log_prefix,
+577:                     payment_id,
+578:                 )
+
+FILE /app/backend/bot/app/web/webapp/serializers.py FULL_SHA256 3eceaf12acd6fc3bd401dab010f11375263ae7fc87f50f5fe751ddf086ffc351
+319:             "bot_link": referral_link,
+320:             "webapp_link": webapp_referral_link,
+321:             "invited_count": referral_stats.get("invited_count", 0),
+322:             "purchased_count": referral_stats.get("purchased_count", 0),
+323:             "welcome_bonus_days": referral_welcome_days,
+324:             "welcome_bonus_without_telegram_enabled": bool(
+325:                 referral_settings.welcome_bonus_without_telegram_enabled
+326:             ),
+327:             "welcome_bonus_requires_telegram": bool(
+328:                 referral_welcome_telegram_required_reason and not telegram_linked
+329:             ),
+330:             "welcome_bonus_block_reason": referral_welcome_telegram_required_reason,
+331:             "one_bonus_per_referee": bool(referral_settings.one_bonus_per_referee),
+332:             "direct_first_access_bonus_days": (
+333:                 7 if settings.TERLIMO_PUBLIC_UI_ENABLED is True else 0
+334:             ),
+335:             "bonus_details": _serialize_referral_bonus_details(settings, lang),
+336:         },
+337:         "plans": plans_payload,
+392: def _legacy_referral_bonus_periods(settings: Settings) -> list[int]:
+393:     if settings.traffic_sale_mode:
+394:         return []
+395: 
+396:     return sorted(int(months) for months in settings.subscription_options)
+397: 
+398: 
+399: def _serialize_tariff_period_referral_bonus_details(tariff: Any, lang: str) -> list[dict[str, Any]]:
+400:     details: list[dict[str, Any]] = []
+401:     for months in sorted(int(month) for month in tariff.enabled_periods):
+402:         inviter_days = tariff.referral_inviter_bonus_days(months)
+403:         friend_days = tariff.referral_referee_bonus_days(months)
+404:         if inviter_days is None and friend_days is None:
+405:             continue
+406:         details.append(
+407:             {
+408:                 "id": f"{tariff.key}:{months}",
+409:                 "tariff_key": tariff.key,
+410:                 "tariff_name": tariff.name(lang),
+411:                 "months": int(months),
+412:                 "title": _format_months_title(int(months), lang),
+413:                 "inviter_days": int(inviter_days or 0),
+414:                 "friend_days": int(friend_days or 0),
+415:             }
+416:         )
+417:     return details
+418: 
+419: 
+420: def _serialize_tariff_referral_bonus_details(settings: Settings, lang: str) -> list[dict[str, Any]]:
+421:     tariffs_config = settings.tariffs_config
+422:     if not tariffs_config:
+423:         return []
+424: 
+425:     period_tariffs = [
+426:         tariff for tariff in tariffs_config.enabled_tariffs if tariff.billing_model == "period"
+427:     ]
+428:     if len(period_tariffs) <= 1:
+429:         return (
+430:             _serialize_tariff_period_referral_bonus_details(period_tariffs[0], lang)
+431:             if period_tariffs
+432:             else []
+433:         )
+434: 
+435:     summaries: list[dict[str, Any]] = []
+436:     for tariff in period_tariffs:
+437:         details = _serialize_tariff_period_referral_bonus_details(tariff, lang)
+438:         if not details:
+439:             continue
+440:         inviter_values = [int(item["inviter_days"]) for item in details]
+441:         friend_values = [int(item["friend_days"]) for item in details]
+442:         summaries.append(
+443:             {
+444:                 "id": f"tariff:{tariff.key}",
+445:                 "type": "tariff_summary",
+446:                 "tariff_key": tariff.key,
+447:                 "tariff_name": tariff.name(lang),
+448:                 "title": tariff.name(lang),
+449:                 "inviter_min_days": min(inviter_values),
+450:                 "inviter_max_days": max(inviter_values),
+451:                 "friend_min_days": min(friend_values),
+452:                 "friend_max_days": max(friend_values),
+453:                 "details": details,
+454:             }
+455:         )
+456:     return summaries
+457: 
+458: 
+459: def _serialize_referral_bonus_details(settings: Settings, lang: str) -> list[dict[str, Any]]:
+460:     if settings.tariffs_config:
+461:         return _serialize_tariff_referral_bonus_details(settings, lang)
+462: 
+463:     details: list[dict[str, Any]] = []
+464:     for months in _legacy_referral_bonus_periods(settings):
+465:         inviter_days = settings.referral_bonus_inviter.get(months)
+466:         friend_days = settings.referral_bonus_referee.get(months)
+467:         if inviter_days is None and friend_days is None:
+468:             continue
+469:         details.append(
+470:             {
+471:                 "months": int(months),
+472:                 "title": _format_months_title(int(months), lang),
+473:                 "inviter_days": int(inviter_days or 0),
+474:                 "friend_days": int(friend_days or 0),
+475:             }
+476:         )
+477:     return details
+
+FILE /app/backend/db/models.py FULL_SHA256 a591e5d68afb3173e1b0c6dd4937f0c4b2a358bc7c8aee724e6cac84cca665ea
+38:     first_name = Column(String, nullable=True)
+39:     last_name = Column(String, nullable=True)
+40:     language_code = Column(String, default="ru")
+41:     registration_date = Column(DateTime(timezone=True), server_default=func.now())
+42:     is_banned = Column(Boolean, default=False)
+43:     panel_user_uuid = Column(String, nullable=True, unique=True, index=True)
+44:     referral_code = Column(String(64), nullable=True, unique=True, index=True)
+45:     referred_by_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=True)
+46:     lifetime_used_traffic_bytes = Column(BigInteger, nullable=True)
+47:     lifetime_used_traffic_synced_at = Column(DateTime(timezone=True), nullable=True)
+48:     trial_eligibility_reset_at = Column(DateTime(timezone=True), nullable=True)
+49:     referral_welcome_bonus_claimed_at = Column(DateTime(timezone=True), nullable=True)
+50:     channel_subscription_verified = Column(Boolean, nullable=True)
+
+FILE /app/backend/bot/services/subscription_service_impl/lifecycle_extension.py FULL_SHA256 0cee4e44783d8167374301caff354f5f68e05b48c98f1d5d17689ee9f8d6bb08
+20: class SubscriptionLifecycleExtensionMixin(SubscriptionServiceMixinContract):
+21:     async def extend_active_subscription_days(
+22:         self,
+23:         session: AsyncSession,
+24:         user_id: int,
+25:         bonus_days: int,
+26:         reason: str = "bonus",
+27:         extend_hwid_devices: bool = True,
+28:         tariff_key: str | None = None,
+29:         apply_tariff_hwid_limit: bool = False,
+30:     ) -> datetime | None:
+31:         reason_lower = (reason or "").lower()
+32:         apply_main_traffic_limit = any(
+33:             keyword in reason_lower for keyword in ("admin", "promo code", "referral", "bonus")
+34:         )
+35: 
+36:         user = await user_dal.get_user_by_id(session, user_id)
+37:         if not user:
+38:             logger.warning("Cannot extend subscription for user %s: user not found.", user_id)
+39:             return None
+40: 
+41:         previous_panel_user_uuid = getattr(user, "panel_user_uuid", None)
+42:         active_sub = await subscription_dal.get_active_subscription_by_user_id(session, user_id)
+43:         if active_sub and str(getattr(active_sub, "provider", "") or "").strip().lower() in {
+44:             WDTT_OWNER_PROVIDER,
+45:             WDTT_TRIAL_PROVIDER,
+46:         }:
+47:             logger.warning("Direct WDTT subscriptions cannot be manually extended.")
+48:             return None
+49:         rollback_payload: dict[str, Any] | None = None
+50:         hwid_extension_context: tuple[int, datetime, datetime] | None = None
+51:         pending_tariff_change_payload: dict[str, Any] | None = None
+52:         requested_tariff = None
+53:         if tariff_key and self._tariffs_config():
+54:             try:
+55:                 requested_tariff = self._resolve_tariff(tariff_key, "period")
+56:             except Exception:
+57:                 logger.warning(
+58:                     "Unable to resolve requested tariff %s for %s extension of user %s.",
+59:                     tariff_key,
+60:                     reason,
+61:                     user_id,
+62:                     exc_info=True,
+63:                 )
+64:                 if "admin" in reason_lower:
+65:                     return None
+66: 
+67:         admin_tariff = requested_tariff if active_sub and "admin" in reason_lower else None
+68:         preserve_tariff_limits = bool(
+69:             active_sub and active_sub.tariff_key and self._tariffs_config() and not admin_tariff
+70:         )
+71:         bonus_tariff = None
+72:         if not active_sub and requested_tariff:
+73:             bonus_tariff = requested_tariff
+74:         now_utc = datetime.now(UTC)
+75:         created_new_subscription = not active_sub or not active_sub.end_date
+76:         if created_new_subscription:
+77:             start_date = now_utc
+78:             new_end_date_obj = start_date + timedelta(days=bonus_days)
+79:             initial_traffic_limit = (
+80:                 self._traffic_limit_for_period_tariff(bonus_tariff)
+81:                 if bonus_tariff
+82:                 else self.settings.user_traffic_limit_bytes
+83:                 if apply_main_traffic_limit
+84:                 else self.settings.trial_traffic_limit_bytes
+85:             )
+86:             initial_hwid_limit = (
+87:                 self._base_hwid_limit_for_tariff(bonus_tariff) if bonus_tariff else None
+88:             )
+89:             initial_tariff = bonus_tariff
+90:         else:
+91:             current_end_date = active_sub.end_date
+92:             start_point_for_bonus = current_end_date if current_end_date > now_utc else now_utc
+93:             new_end_date_obj = start_point_for_bonus + timedelta(days=bonus_days)
+94:             initial_traffic_limit = int(active_sub.traffic_limit_bytes or 0)
+95:             initial_hwid_limit = self._effective_hwid_limit(
+96:                 getattr(active_sub, "hwid_device_limit", None),
+97:                 int(getattr(active_sub, "extra_hwid_devices", 0) or 0),
+98:             )
+99:             initial_tariff = admin_tariff
+100:             if initial_tariff is None and active_sub.tariff_key and self._tariffs_config():
+101:                 try:
+102:                     initial_tariff = self._resolve_tariff(active_sub.tariff_key, "period")
+
+FILE /app/backend/bot/utils/referral_links.py FULL_SHA256 95a8d5755e6e1e669128dbcef7681bf4f6e5adda5b8f9c8ee3c7dd8632215957
+1: """Pure builders for referral deep links.
+2: 
+3: Both the bot handler and :class:`ReferralService` used to hold their own copies
+4: of these formats; a service module must not import from ``bot.handlers``, so the
+5: canonical builders live here and both callers re-point to them. Keep the URL
+6: shapes byte-stable — they are shared with the Mini App ``?ref=u<code>`` parser.
+7: """
+8: 
+9: from __future__ import annotations
+10: 
+11: from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+12: 
+13: 
+14: def build_bot_referral_link(bot_username: str | None, referral_code: str | None) -> str | None:
+15:     """Bot deep link ``https://t.me/<bot>?start=ref_u<code>``."""
+16:     username = str(bot_username or "").strip().lstrip("@")
+17:     code = str(referral_code or "").strip()
+18:     if not username or not code:
+19:         return None
+20:     return f"https://t.me/{username}?start=ref_u{code}"
+21: 
+22: 
+23: def build_webapp_referral_link(base_url: str | None, referral_code: str | None) -> str | None:
+24:     """Mini App referral URL ``<base>?ref=u<code>`` (existing query keys preserved)."""
+25:     if not base_url or not referral_code:
+26:         return None
+27:     parts = urlsplit(base_url)
+28:     query = dict(parse_qsl(parts.query, keep_blank_values=True))
+29:     query["ref"] = f"u{referral_code}"
+30:     return urlunsplit(
+31:         (
+32:             parts.scheme,
+33:             parts.netloc,
+34:             parts.path or "/",
+35:             urlencode(query),
+36:             parts.fragment,
+37:         )
+38:     )
+
+FILE /app/backend/bot/services/registration_invite_gate.py FULL_SHA256 effb74181beb056b2c1dd9ae1e11e3cab51b10b6f280a202530040ee16720244
+155:     if not remnashop_compat:
+156:         normalized = normalize_webapp_referral_param(raw)
+157:         return [normalized] if normalized else []
+158: 
+159:     value = strip_referral_param_prefix(raw, preserve_current_u_prefix=True)
+160:     if not value or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value):
+161:         return []
+162: 
+163:     candidates = [value]
+164:     if value and value[0].lower() == "u":
+165:         candidates.append(value[1:])
+166:     return _unique_nonempty(candidates)
+167: 
+168: 
+169: def telegram_start_referral_lookup_candidates(
+170:     raw_ref_value: str | None,
+171:     *,
+172:     remnashop_compat: bool,
+173: ) -> list[str]:
+174:     value = str(raw_ref_value or "").strip()
+175:     if not value:
+176:         return []
+177: 
+178:     candidates = [value]
+179:     if value and value[0].lower() == "u":
+180:         stripped_current_prefix = value[1:]
+181:         if remnashop_compat:
+182:             candidates.append(stripped_current_prefix)
+183:         else:
+184:             candidates = [stripped_current_prefix]
+185:     return _unique_nonempty(candidates)
+186: 
+187: 
+188: def _unique_nonempty(candidates: list[str]) -> list[str]:
+189:     unique: list[str] = []
+190:     for candidate in candidates:
+191:         candidate = candidate.strip()
+192:         if candidate and candidate not in unique:
+193:             unique.append(candidate)
+194:     return unique
+195: 
+196: 
+197: def _is_self_referrer(user: User, current_user_id: int | None) -> bool:
+198:     return current_user_id is not None and int(user.user_id) == int(current_user_id)
+199: 
+200: 
+201: async def _lookup_referrer_by_user_id(
+202:     session: AsyncSession,
+203:     raw_user_id: str,
+204:     *,
+205:     current_user_id: int | None,
+206: ) -> tuple[int | None, bool]:
+207:     ref_user = await user_dal.get_user_by_id(session, int(raw_user_id))
+208:     if not ref_user:
+209:         return None, False
+210:     if _is_self_referrer(ref_user, current_user_id):
+211:         return None, True
+212:     return int(ref_user.user_id), False
+213: 
+214: 
+215: async def _lookup_referrer_by_code(
+216:     session: AsyncSession,
+217:     code: str,
+218:     *,
+219:     current_user_id: int | None,
+220:     include_legacy: bool,
+221: ) -> tuple[int | None, bool]:
+222:     ref_user = await user_dal.get_user_by_referral_code(
+223:         session,
+224:         code,
+225:         include_legacy=include_legacy,
+226:     )
+227:     if not ref_user:
+228:         return None, False
+229:     if _is_self_referrer(ref_user, current_user_id):
+230:         return None, True
+240:     source: ReferralLookupSource,
+241: ) -> _ReferralLookupResult:
+242:     value = str(raw_referral_param or "").strip()
+243:     if not value:
+244:         return _ReferralLookupResult(RegistrationInviteStatus.MISSING)
+245:     if not referral_program_enabled(settings):
+246:         return _ReferralLookupResult(RegistrationInviteStatus.INVALID)
+247: 
+248:     remnashop_compat = _remnashop_referral_compat_enabled(settings)
+249:     legacy_refs_enabled = _legacy_refs_enabled(settings)
+250:     self_referral_seen = False
+251: 
+252:     if source == "telegram_start":
+253:         if value.isdigit() and legacy_refs_enabled:
+254:             referrer_id, is_self = await _lookup_referrer_by_user_id(
+255:                 session,
+256:                 value,
+257:                 current_user_id=current_user_id,
+258:             )
+259:             if referrer_id is not None:
+260:                 return await _resolved_referrer_result(
+261:                     session,
+262:                     settings=settings,
+263:                     referrer_user_id=referrer_id,
+264:                 )
+265:             self_referral_seen = self_referral_seen or is_self
+266:         candidates = telegram_start_referral_lookup_candidates(
+267:             value,
+268:             remnashop_compat=remnashop_compat,
+269:         )
+270:     else:
+271:         candidates = webapp_referral_lookup_candidates(
+272:             value,
+273:             remnashop_compat=remnashop_compat,
+274:         )
+275: 
+276:     if not candidates:
+277:         return _ReferralLookupResult(RegistrationInviteStatus.INVALID)
+278: 
+279:     for candidate in candidates:
+280:         if (
+281:             source == "webapp"
+282:             and candidate.isdigit()
+283:             and legacy_refs_enabled
+284:             and not remnashop_compat
+285:         ):
+286:             referrer_id, is_self = await _lookup_referrer_by_user_id(
+287:                 session,
+288:                 candidate,
+289:                 current_user_id=current_user_id,
+290:             )
+291:             if referrer_id is not None:
+292:                 return await _resolved_referrer_result(
+293:                     session,
+294:                     settings=settings,
+295:                     referrer_user_id=referrer_id,
+296:                 )
+297:             self_referral_seen = self_referral_seen or is_self
+298: 
+299:         referrer_id, is_self = await _lookup_referrer_by_code(
+300:             session,
+301:             candidate,
+302:             current_user_id=current_user_id,
+303:             include_legacy=remnashop_compat,
+304:         )
+305:         if referrer_id is not None:
+306:             return await _resolved_referrer_result(
+307:                 session,
+308:                 settings=settings,
+309:                 referrer_user_id=referrer_id,
+310:             )
+311:         self_referral_seen = self_referral_seen or is_self
+312: 
+313:         if source == "webapp" and candidate.isdigit() and legacy_refs_enabled and remnashop_compat:
+314:             referrer_id, is_self = await _lookup_referrer_by_user_id(
+315:                 session,
+316:                 candidate,
+317:                 current_user_id=current_user_id,
+318:             )
+319:             if referrer_id is not None:
+320:                 return await _resolved_referrer_result(
+321:                     session,
+322:                     settings=settings,
+323:                     referrer_user_id=referrer_id,
+324:                 )
+325:             self_referral_seen = self_referral_seen or is_self
+326: 
+327:     if self_referral_seen:
+328:         return _ReferralLookupResult(RegistrationInviteStatus.SELF_REFERRAL)
+329:     return _ReferralLookupResult(RegistrationInviteStatus.INVALID)
+330: 
+331: 
+332: async def resolve_referrer_user_id(
+333:     session: AsyncSession,
+334:     raw_referral_param: str | None,
+335:     *,
+336:     settings: Settings,
+337:     current_user_id: int | None,

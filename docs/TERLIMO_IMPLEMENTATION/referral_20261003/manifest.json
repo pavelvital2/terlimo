@@ -1,0 +1,30 @@
+{
+  "REFERRAL_RULES.md": {
+    "sha256": "1452d050b978355afd7a9f5e6bdea5406c8bbf1edefdcb37f47de48fd9f11047",
+    "size": 19745
+  },
+  "SOURCE_EVIDENCE.txt": {
+    "sha256": "a56c8fcb68ff9c171c83dd9a9e661086683e7782cb3a41c2abc5b56d086a24e0",
+    "size": 78833
+  },
+  "USER_TEXTS.json": {
+    "sha256": "5c6803a1573b1ea0eae9f4d918f34519e191d1cfc7cca6091833598b2d64339c",
+    "size": 6238
+  },
+  "config-text.safe.json": {
+    "sha256": "d457289c39a317a2bfb095e0182d09a5cf4a4a0e476aa5fa5ef3a6b60f3ba4cf",
+    "size": 20020
+  },
+  "locale-db.safe.txt": {
+    "sha256": "c4ae2b3857b33c9eed68860021409e69a80375ec7dd2d1a46025d2827f81deee",
+    "size": 108
+  },
+  "InviteScreen.js": {
+    "sha256": "ef99c8b09517a5a67c520bcaf4877c30416dabb05914a380a54dcc183009cd8a",
+    "size": 9363
+  },
+  "bot-identity.safe.json": {
+    "sha256": "653b0a3cdbee8f5a918b8ef54d1f2fe76bd7bb654ebbc51604dfae68af154fba",
+    "size": 54
+  }
+}

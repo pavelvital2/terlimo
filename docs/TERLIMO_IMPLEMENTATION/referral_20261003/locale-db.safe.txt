@@ -1,0 +1,3 @@
+BEGIN
+{"table" : "users", "constraint" : "FOREIGN KEY (referred_by_id) REFERENCES users(user_id)"}
+ROLLBACK
