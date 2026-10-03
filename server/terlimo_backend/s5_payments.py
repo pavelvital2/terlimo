@@ -147,6 +147,9 @@ def _quote_view(row: Any, *, contract2: bool = False) -> dict[str, Any]:
         "duration_code": row["duration_code"], "device_limit": product["device_limit"] if product else BASE_LIMIT,
         "method": row["method"], "expires_at": rfc3339(row["expires_at"]),
     }
+    from .referral_pricing import pricing_of
+    if pricing_of(row):
+        result["pricing"] = pricing_of(row)
     if contract2:
         result["product"] = public_product(product) if product else None
     return result
@@ -161,8 +164,35 @@ def _quote_selection_proven(row, product) -> bool:
     if not product or product.get("plan_id") != row["plan_id"] or row["method"] not in S5_METHODS:
         return False
     base, extra = product.get("base_amount_minor"), product.get("extra_amount_minor")
-    if type(base) is not int or type(extra) is not int or base + extra != int(row["amount_minor"]):
+    if type(base) is not int or type(extra) is not int:
         return False
+    pricing = row.get("pricing")
+    try:
+        while isinstance(pricing, str):
+            pricing = json.loads(pricing)
+    except (ValueError, TypeError):
+        return False
+    if pricing is None:
+        # Historical non-discounted quotes keep their original gross proof.
+        if base + extra != int(row["amount_minor"]):
+            return False
+    else:
+        from .referral_pricing import DISCOUNT_MINOR, TERMS
+        fields = {"base_amount_minor", "discount_minor", "payable_amount_minor",
+                  "currency", "discount_kind", "terms_version"}
+        if (not isinstance(pricing, dict) or set(pricing) != fields
+                or any(type(pricing[field]) is not int for field in
+                       ("base_amount_minor", "discount_minor", "payable_amount_minor"))
+                or product.get("kind") != "subscription"
+                or base <= DISCOUNT_MINOR or extra < 0
+                or pricing["base_amount_minor"] != base + extra
+                or pricing["discount_minor"] != DISCOUNT_MINOR
+                or pricing["payable_amount_minor"] != base + extra - DISCOUNT_MINOR
+                or pricing["payable_amount_minor"] != int(row["amount_minor"])
+                or pricing["currency"] != row["currency"] or pricing["currency"] != "RUB"
+                or pricing["discount_kind"] != "referral_first_main"
+                or pricing["terms_version"] != TERMS):
+            return False
     if product.get("kind") == "subscription":
         plan = PLAN_MONTHS.get(row["plan_id"])
         return plan is not None and (int(row["months"]), row["duration_code"]) == plan[:2]
@@ -172,6 +202,13 @@ def _quote_selection_proven(row, product) -> bool:
 
 
 def _with_product(payload, order, contract2):
+    quote_snapshot = order["quote"] if order else None
+    while isinstance(quote_snapshot,str):
+        quote_snapshot = json.loads(quote_snapshot)
+    if quote_snapshot and quote_snapshot.get("pricing"):
+        payload["pricing"] = quote_snapshot["pricing"]
+        payload["referral_discount_state"] = ("consumed" if order["status"] == "succeeded" else
+            "reconciling" if order["status"] in ("canceled","expired","failed") else "reserved")
     if contract2:
         product = order_product(order)
         value = public_product(product) if product else None
@@ -297,6 +334,12 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                             raise ApiError("ACCESS_DENIED",http=403)
                         amount, device_limit, product = await quote_product(connection,buyer,context.account_id,addon=False,selected=body.get("renew_extra_slot_ids",[]),months=months,base_amount_minor=plan["amount"]["amount_minor"])
                         plan["amount"]["amount_minor"] = amount
+                from .referral_pricing import quote_pricing
+                pricing = await quote_pricing(connection, context.account_id,
+                    plan["amount"]["amount_minor"], main=not addon and (not product or product["kind"] == "subscription"),
+                    main_base_minor=product["base_amount_minor"] if product else plan["amount"]["amount_minor"])
+                if pricing:
+                    plan["amount"]["amount_minor"] = pricing["payable_amount_minor"]
                 listed = _plans(buyer)
                 expires = datetime.now(UTC) + QUOTE_LIFETIME
                 if addon:
@@ -306,14 +349,14 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     """
                     INSERT INTO s5_payment_quotes
                         (installation_id,idempotency_key,request_digest,plan_id,months,duration_code,
-                         method,amount_minor,currency,tariff_key,plans_revision,expires_at,product)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+                         method,amount_minor,currency,tariff_key,plans_revision,expires_at,product,pricing)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)
                     ON CONFLICT (installation_id,idempotency_key) DO NOTHING RETURNING *
                     """,
                     context.installation_id, key, digest, body["plan_id"],
                     months, body["duration_code"], body["method"],
                     plan["amount"]["amount_minor"], plan["amount"]["currency"],
-                    buyer.payment_tariff_key, _plans_revision(listed), expires, json.dumps(product) if product else None,
+                    buyer.payment_tariff_key, _plans_revision(listed), expires, json.dumps(product) if product else None, json.dumps(pricing) if pricing else None,
                 )
                 if row is None:
                     row = await connection.fetchrow(
@@ -375,6 +418,9 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                     if product and durable is None and (not context.binding or context.binding["status"] != "active" or product["owner_account_id"] != str(context.account_id)):
                         raise ApiError("PAYMENT_NOT_FOUND",http=404)
                     buyer = _quoted_settings(settings, context.account_id, row, durable=durable is not None)
+                    if durable is None and row.get("referral_create_resolution_reason"):
+                        from .referral_pricing import no_order_error
+                        raise no_order_error(quote_id,key,row["referral_create_resolution_reason"])
                     if row["expires_at"] <= datetime.now(UTC) and durable is None:
                         proven = (context.account_id is not None and context.binding is not None
                                   and context.binding["status"] == "active"

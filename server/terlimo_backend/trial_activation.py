@@ -173,6 +173,11 @@ async def trial_status(
         state = projection["state"]
         reason = None if state == "active" else "trial_already_used"
         return {**projection, "state": state, "can_activate": False, "reason": reason}
+    if account_id is not None and await connection.fetchval(
+        "SELECT imported_trial_used FROM referral_benefits WHERE account_id=$1",account_id
+    ):
+        return {"state":"used","can_activate":False,"reason":"trial_already_used",
+                "starts_at":None,"ends_at":None,"replay":False}
     registration = await _registration_snapshot(connection, context.installation_id)
     if registration is None:
         return {"state": "none", "can_activate": False, "reason": "registration_required",
@@ -204,14 +209,22 @@ async def activate_trial(
     moment = now_utc()
     async with connection.transaction():
         account_id = await connection.fetchval(
-            """
-            SELECT account_id FROM account_bindings
-            WHERE installation_id = $1 AND status = 'active' FOR UPDATE
-            """,
+            "SELECT account_id FROM account_bindings WHERE installation_id=$1 AND status='active'",
             installation_id,
         )
         if account_id is None:
             raise ApiError("REGISTRATION_REQUIRED", http=403)
+        # Shared with paid/reward writers: account lock precedes binding/entitlement rows.
+        # The first read is only a lock key; recheck authoritative binding under row lock.
+        await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",f"paid-account:{account_id}")
+        locked_account = await connection.fetchval(
+            "SELECT account_id FROM account_bindings WHERE installation_id=$1 AND status='active' FOR UPDATE",
+            installation_id,
+        )
+        if locked_account is None:
+            raise ApiError("REGISTRATION_REQUIRED", http=403)
+        if locked_account != account_id:
+            raise ApiError("SERVICE_UNAVAILABLE",http=503,retryable=True)
         # Serialize per Telegram identity/account so concurrent activation cannot mint two trials.
         await connection.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
@@ -225,6 +238,8 @@ async def activate_trial(
         existing = await _trial_for_account(connection, account_id)
         if existing is not None:
             return {"trial": _trial_projection(existing, moment)}
+        if await connection.fetchval("SELECT imported_trial_used FROM referral_benefits WHERE account_id=$1",account_id):
+            raise ApiError("TRIAL_ALREADY_USED", http=409)
         if await _trial_history_for_telegram(connection, telegram_id, account_id):
             raise ApiError("TRIAL_ALREADY_USED", http=409)
         if await _active_commercial(connection, account_id, moment):
@@ -247,6 +262,12 @@ async def activate_trial(
                 details={"reason": "subscribe_to_official_channel_then_retry"},
             )
         from .mobile_account import BASE_LIMIT
+        from .referral_rewards import trial_bonus_days
+        bonus_days = await trial_bonus_days(connection, account_id)
+        days = TRIAL_DAYS + bonus_days
+        source_plan = dict(TRIAL_SOURCE_PLAN)
+        if bonus_days:
+            source_plan.update(plan_id="trial-10d", title="10 дней", duration_code="days:10", referral_bonus_days=bonus_days)
 
         row = await connection.fetchrow(
             """
@@ -257,9 +278,9 @@ async def activate_trial(
             """,
             account_id,
             moment,
-            moment + timedelta(days=TRIAL_DAYS),
+            moment + timedelta(days=days),
             BASE_LIMIT,
-            TRIAL_SOURCE_PLAN,
+            source_plan,
         )
         return {"trial": _trial_projection(row, moment, replay=False), "account_state": "ACTIVE_TRIAL"}
 

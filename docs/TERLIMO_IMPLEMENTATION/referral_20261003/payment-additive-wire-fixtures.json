@@ -1,0 +1,11 @@
+{
+  "terms_version":"referral-20261003-v1",
+  "compatibility":"Additive quote/order/credited_product fields. Existing payment_contract=2 envelopes and unrelated TEST10/20 receipts preserved. New discount cases require MAIN base >10000 minor. Client must explicitly implement create_resolution before rollout.",
+  "pricing":{"base_amount_minor":20000,"discount_minor":10000,"payable_amount_minor":10000,"currency":"RUB","discount_kind":"referral_first_main","terms_version":"referral-20261003-v1"},
+  "pricing_components":"base_amount_minor is whole quote including selected extras; discount subtracts 10000 only from MAIN, extras charged fully. MAIN product.base_amount_minor must independently exceed10000.",
+  "create_resolution":{"kind":"no_order","quote_id":"00000000-0000-4000-8000-000000000001","request_idempotency_key":"original-K","reason":"referral_discount_reserved"},
+  "create_resolution_reason_allowlist":["referral_discount_reserved","referral_quote_changed"],
+  "new_error":{"code":"REFERRAL_PRICE_UNSUPPORTED","retryable":false,"http":409},
+  "payment_referral_discount_state_allowlist":["reserved","reconciling","consumed"],
+  "finality_remainder":"Canceled/expired/failed reserved invoices are not automatically released; existing bounded status reconcile includes canceled reserved orders and accepts matching lateCONFIRMED. Provider-proven nonpayable release remains unimplemented."
+}

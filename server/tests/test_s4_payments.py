@@ -131,6 +131,23 @@ async def _bind(migrated_url: str, installation_id, telegram_id: int) -> None:
         await connection.close()
 
 
+async def _refresh_session_token(client, pop_client) -> str:
+    """Issue the normal account-bound session after fixture Telegram binding."""
+    session = await _session(
+        client, pop_client, await _challenge(client, pop_client.key, "session"),
+        ["session:read", "session:write"], f"refresh-{uuid.uuid4().hex}",
+    )
+    assert session.status == 200, await session.text()
+    return (await session.json())["session"]["session_id"]
+
+
+async def _bound_session_token(client, migrated_url, telegram_id=None):
+    pop, _ = await _session_token(client)
+    installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
+    await _bind(migrated_url, installation_id, telegram_id or 900000000 + uuid.uuid4().int % 100000000)
+    return pop, await _refresh_session_token(client, pop)
+
+
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -199,6 +216,7 @@ async def test_success_grants_paid_once_and_duplicate_events_do_not_repeat(migra
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
         await _bind(migrated_url, installation_id, 555000111)
+        token = await _refresh_session_token(client, pop)
         created = await _create_order(client, token, 3)
         assert created.status == 200, await created.text()
         order = (await created.json())["payment"]
@@ -250,6 +268,7 @@ async def test_amount_and_currency_mismatch_never_grant(migrated_url, settings_f
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
         await _bind(migrated_url, installation_id, 555000222)
+        token = await _refresh_session_token(client, pop)
         created = await _create_order(client, token, 1)
         order_id = (await created.json())["payment"]["order_id"]
         amount_bad = await client.post(
@@ -298,14 +317,35 @@ async def test_pending_then_failed_never_grants(migrated_url, settings_factory):
         await client.close()
 
 
-async def test_prebinding_payment_parked_then_applied_on_telegram_confirm(migrated_url, settings_factory):
+async def test_prebinding_payment_parked_then_applied_on_telegram_confirm(migrated_url, settings_factory, monkeypatch):
+    # The preserved 180/181-day assertion assumes a non-leap February start.
+    # Freeze only this fixture clock; production still credits six calendar months.
+    class PaymentClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = datetime(2030, 2, 1, tzinfo=UTC)
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+
+    monkeypatch.setattr("terlimo_backend.payments.datetime", PaymentClock)
     client, _settings_obj, database = await _app(settings_factory, migrated_url)
     try:
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
-        # Not bound yet: the paid order must stay parked.
+        # Create under the current purchase guard, then simulate an existing legacy
+        # invoice whose installation loses its binding before the paid callback.
+        await _bind(migrated_url, installation_id, 555000444)
+        token = await _refresh_session_token(client, pop)
         created = await _create_order(client, token, 6)
         order_id = (await created.json())["payment"]["order_id"]
+        connection = await _connect(migrated_url)
+        try:
+            await connection.execute(
+                "UPDATE account_bindings SET status='revoked' WHERE installation_id=$1", installation_id
+            )
+        finally:
+            await connection.close()
+        token = await _refresh_session_token(client, pop)
+        # Unbound at callback: the paid order must stay parked until confirmation.
         paid_event = await client.post(
             "/public/platega/webhook",
             headers=_webhook_headers(),
@@ -503,6 +543,7 @@ async def test_provider_failure_is_unknown_and_retry_never_duplicates(migrated_u
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
         await _bind(migrated_url, installation_id, 555001000)
+        token = await _refresh_session_token(client, pop)
         failed = await client.post(
             ORDERS_PATH, headers=_auth(token), json={"months": 1, "idempotency_key": "idem-provider-fail"}
         )
@@ -688,6 +729,7 @@ async def test_concurrent_same_key_creates_one_provider_invoice(migrated_url, se
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
         await _bind(migrated_url, installation_id, 555002000)
+        token = await _refresh_session_token(client, pop)
         body = {"months": 1, "idempotency_key": "idem-concurrent"}
         first, second = await asyncio.gather(
             client.post(ORDERS_PATH, headers=_auth(token), json=body),
@@ -708,6 +750,7 @@ async def test_provider_timeout_is_unknown_and_never_creates_second_invoice(migr
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
         await _bind(migrated_url, installation_id, 555002001)
+        token = await _refresh_session_token(client, pop)
         body = {"months": 1, "idempotency_key": "idem-unknown"}
         first = await client.post(ORDERS_PATH, headers=_auth(token), json=body)
         assert first.status == 503 and (await first.json())["code"] == "PAYMENT_PROVIDER_UNKNOWN"
@@ -1060,6 +1103,7 @@ async def test_concurrent_different_keys_serialize_and_unknown_blocks_new_key(mi
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
         await _bind(migrated_url, installation_id, 555004000)
+        token = await _refresh_session_token(client, pop)
         first, second = await asyncio.gather(
             client.post(ORDERS_PATH, headers=_auth(token), json={"months": 1, "idempotency_key": "idem-diff-a"}),
             client.post(ORDERS_PATH, headers=_auth(token), json={"months": 1, "idempotency_key": "idem-diff-b"}),
@@ -1199,6 +1243,7 @@ async def test_extension_uses_remaining_period_and_is_not_doubled(migrated_url, 
         pop, token = await _session_token(client)
         installation_id = await _installation_id(migrated_url, pop.key.fingerprint)
         await _bind(migrated_url, installation_id, 555005001)
+        token = await _refresh_session_token(client, pop)
         connection = await _connect(migrated_url)
         try:
             account_id = await connection.fetchval(

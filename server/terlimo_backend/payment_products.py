@@ -11,14 +11,14 @@ MONTH_SECONDS = 30 * 86400
 
 def product_of(row):
     raw = row["product"] if "product" in row else None
-    if isinstance(raw, str):
+    while isinstance(raw, str):
         raw = json.loads(raw)
     return raw
 
 
 def order_product(row):
     raw = row["quote"]
-    if isinstance(raw, str):
+    while isinstance(raw, str):
         raw = json.loads(raw)
     return raw.get("product") if isinstance(raw, dict) else None
 

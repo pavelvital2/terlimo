@@ -136,7 +136,12 @@ async def sweep_once(
             close = getattr(payment_provider, "close", None)
             if close is not None:
                 await close()
+    from .referral_rewards import sweep_trial_rewards, sweep_rewards
+    trial_rewards = await sweep_trial_rewards(connection, limit=batch)
+    applied_rewards = await sweep_rewards(connection, settings, limit=batch)
     return {
+        "referral_trial_rewards": trial_rewards,
+        "referral_applied_rewards": applied_rewards,
         "purged_receipt_results": purged_results or 0,
         "deleted_receipts": deleted_receipts or 0,
         "deleted_challenges": deleted_challenges or 0,

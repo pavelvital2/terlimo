@@ -104,6 +104,10 @@ def service_path_allowed(method: str, path: str) -> bool:
         "/api/mobile/v1/quotes": "POST",
         "/api/mobile/v1/payments": "POST",
     }
+    if path == "/api/mobile/v1/referral/candidate":
+        return method in {"POST", "DELETE"}
+    if path == "/api/mobile/v1/referral":
+        return method == "GET"
     if path in fixed:
         return method == fixed[path]
     prefix = "/api/mobile/v1/operations/"

@@ -454,6 +454,10 @@ async def create_order(
     if not key or len(key) > 128:
         raise ApiError("BAD_MESSAGE", http=400, details={"reason": "idempotency_key_required"})
     quote = _quote_view(settings, months) if months else {"months":0,"amount":_rub_json(amount),"currency":settings.payment_currency,"tariff_key":settings.payment_tariff_key,"duration":{"unit":"until","value":product["valid_until"]}}
+    from .referral_pricing import pricing_of
+    pricing = pricing_of(commercial_quote)
+    if pricing:
+        quote["pricing"] = pricing
     if product:
         quote["product"] = product
     if requested_public is not None:
@@ -509,80 +513,113 @@ async def create_order(
                 raise ApiError("PAYMENT_PROVIDER_UNKNOWN", http=503, retryable=False)
             order_id = existing["id"]
         else:
-            # Bounded evasion guard: while ANY order for this installation has an unresolved
-            # provider-create (unknown outcome), a different idempotency key may not start a new
-            # invoice. Recovery is reconciliation/operator identity lookup, not client retry.
-            unresolved = await connection.fetchval(
-                """
-                SELECT 1 FROM payment_orders
-                WHERE installation_id = $1 AND provider_create_state IN ('in_flight', 'unknown')
-                LIMIT 1
-                """,
-                installation_id,
-            )
-            if unresolved is not None:
-                raise ApiError(
-                    "PAYMENT_PROVIDER_UNKNOWN",
-                    http=503,
-                    retryable=False,
-                    details={"reason": "unresolved_unknown_order"},
-                )
-            if source_quote_id is not None:
-                # Server-side proof of the selected plan for a genuinely new order: the durable
-                # quote must belong to this installation and match parameters exactly; never an
-                # arbitrary caller-supplied dict.
-                proof = await connection.fetchrow(
-                    "SELECT * FROM s5_payment_quotes WHERE id = $1 AND installation_id = $2 FOR UPDATE",
-                    source_quote_id,
-                    installation_id,
-                )
-                quote["plan"] = _plan_from_quote(proof, settings, months, requested_public)
-                if product:
-                    from .payment_products import validate_credit_target
-                    binding = await connection.fetchrow("SELECT id,account_id FROM account_bindings WHERE installation_id=$1 AND status='active'",installation_id)
-                    _, review = await validate_credit_target(connection,{"quote":quote,"checkout_owner_binding_id":checkout_owner_binding_id},binding,datetime.now(UTC))
-                    if review:
-                        raise ApiError("PAYMENT_STATE_INVALID",http=409)
-        if requested_method is not None:
-            # Alias-aware configured set, identical to the plans/quote path: a bare "card" env also
-            # enables its provider method "international".
-            configured = {m.strip().lower() for m in settings.platega_methods.split(",") if m.strip()}
-            if "card" in configured:
-                configured.add("international")
-            if requested_method not in configured:
-                # Fail before any ledger write or provider call: an unmapped method cannot invoice.
-                raise ProviderMethodUnavailable()
-        # Pause only creation: durable replay/unknown decisions above remain authoritative,
-        # while callback/status and API maintenance keep using the configured provider.
-        if not settings.platega_create_enabled or provider is None:
-            raise ApiError("PAYMENT_PROVIDER_UNAVAILABLE", http=503, retryable=True)
-        if existing is None:
-            try:
-                order_id = await connection.fetchval(
+            async with connection.transaction():
+                # Bounded evasion guard: while ANY order for this installation has an unresolved
+                # provider-create (unknown outcome), a different idempotency key may not start a new
+                # invoice. Recovery is reconciliation/operator identity lookup, not client retry.
+                unresolved = await connection.fetchval(
                     """
-                    INSERT INTO payment_orders
-                        (installation_id, provider, idempotency_key, quote, amount, currency, months, tariff_key,
-                         provider_create_state, source_quote_id,
-                         checkout_owner_account_id, checkout_owner_binding_id)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'in_flight', $9, $10, $11)
-                    RETURNING id
+                    SELECT 1 FROM payment_orders
+                    WHERE installation_id = $1 AND provider_create_state IN ('in_flight', 'unknown')
+                    LIMIT 1
                     """,
                     installation_id,
-                    PAYMENT_PROVIDER_NAME,
-                    key,
-                    json.dumps(quote),
-                    Decimal(str(amount)),
-                    settings.payment_currency,
-                    months,
-                    settings.payment_tariff_key,
-                    source_quote_id,
-                    checkout_owner_account_id,
-                    checkout_owner_binding_id,
                 )
-            except asyncpg.UniqueViolationError:
-                # One quote funds at most one order; no provider create happened for this attempt.
-                raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "quote_already_used"}) from None
+                if unresolved is not None:
+                    raise ApiError(
+                        "PAYMENT_PROVIDER_UNKNOWN",
+                        http=503,
+                        retryable=False,
+                        details={"reason": "unresolved_unknown_order"},
+                    )
+                if source_quote_id is not None and await connection.fetchval("SELECT 1 FROM payment_orders WHERE source_quote_id=$1",source_quote_id):
+                    raise ApiError("ORDER_CONFLICT",http=409,details={"reason":"quote_already_used"})
+                serialization_account_id = checkout_owner_account_id
+                if months in (1,3,6) and serialization_account_id is None:
+                    # Old authenticated create has no immutable owner field. Fence its
+                    # current bound account without rewriting legacy order snapshots.
+                    serialization_account_id = await connection.fetchval(
+                        "SELECT account_id FROM account_bindings WHERE installation_id=$1 AND status='active'",installation_id)
+                if months in (1,3,6) and serialization_account_id is not None:
+                    from .referral_pricing import benefit_lock, reserve_check
+                    # Account FK insertion later takes KEY SHARE. Acquire it BEFORE the
+                    # benefit row so attribution/import account->benefit writers cannot
+                    # invert that implicit FK lock. Existing order rows are never locked here.
+                    await connection.fetchval("SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE",serialization_account_id)
+                    await benefit_lock(connection,serialization_account_id)
+                    # A different installation may have inserted the global K or
+                    # source Q while this account lock waited. Their durable facts
+                    # outrank any definitive quote-only rejection.
+                    if await connection.fetchval("SELECT 1 FROM payment_orders WHERE idempotency_key=$1",key):
+                        raise ApiError("ORDER_CONFLICT",http=409,details={"reason":"idempotency_key_reused"})
+                    if await connection.fetchval("SELECT 1 FROM payment_orders WHERE source_quote_id=$1",source_quote_id):
+                        raise ApiError("ORDER_CONFLICT",http=409,details={"reason":"quote_already_used"})
+                    rejection = await reserve_check(connection,serialization_account_id,source_quote_id,key,discounted=bool(pricing))
+                else:
+                    rejection = None
+                if rejection is None:
+                    if source_quote_id is not None:
+                        # Server-side proof of the selected plan for a genuinely new order: the durable
+                        # quote must belong to this installation and match parameters exactly; never an
+                        # arbitrary caller-supplied dict.
+                        proof = await connection.fetchrow(
+                            "SELECT * FROM s5_payment_quotes WHERE id = $1 AND installation_id = $2 FOR UPDATE",
+                            source_quote_id,
+                            installation_id,
+                        )
+                        quote["plan"] = _plan_from_quote(proof, settings, months, requested_public)
+                        if product:
+                            from .payment_products import validate_credit_target
+                            binding = await connection.fetchrow("SELECT id,account_id FROM account_bindings WHERE installation_id=$1 AND status='active'",installation_id)
+                            _, review = await validate_credit_target(connection,{"quote":quote,"checkout_owner_binding_id":checkout_owner_binding_id},binding,datetime.now(UTC))
+                            if review:
+                                raise ApiError("PAYMENT_STATE_INVALID",http=409)
+                    if requested_method is not None:
+                        # Alias-aware configured set, identical to the plans/quote path: a bare "card" env also
+                        # enables its provider method "international".
+                        configured = {m.strip().lower() for m in settings.platega_methods.split(",") if m.strip()}
+                        if "card" in configured:
+                            configured.add("international")
+                        if requested_method not in configured:
+                            # Fail before any ledger write or provider call: an unmapped method cannot invoice.
+                            raise ProviderMethodUnavailable()
+                    # Pause only creation: durable replay/unknown decisions above remain authoritative,
+                    # while callback/status and API maintenance keep using the configured provider.
+                    if not settings.platega_create_enabled or provider is None:
+                        raise ApiError("PAYMENT_PROVIDER_UNAVAILABLE", http=503, retryable=True)
+                    if existing is None:
+                        try:
+                            order_id = await connection.fetchval(
+                                """
+                                INSERT INTO payment_orders
+                                    (installation_id, provider, idempotency_key, quote, amount, currency, months, tariff_key,
+                                     provider_create_state, source_quote_id,
+                                     checkout_owner_account_id, checkout_owner_binding_id)
+                                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, 'in_flight', $9, $10, $11)
+                                RETURNING id
+                                """,
+                                installation_id,
+                                PAYMENT_PROVIDER_NAME,
+                                key,
+                                json.dumps(quote),
+                                Decimal(str(amount)),
+                                settings.payment_currency,
+                                months,
+                                settings.payment_tariff_key,
+                                source_quote_id,
+                                checkout_owner_account_id,
+                                checkout_owner_binding_id,
+                            )
+                        except asyncpg.UniqueViolationError:
+                            # One quote funds at most one order; no provider create happened for this attempt.
+                            raise ApiError("ORDER_CONFLICT", http=409, details={"reason": "quote_already_used"}) from None
+                    if pricing:
+                        await connection.execute("UPDATE referral_benefits SET reserved_order_id=$2,reservation_state='reserved',revision=revision+1 WHERE account_id=$1",checkout_owner_account_id,order_id)
+            if rejection is not None:
+                raise rejection
         if existing is not None:
+            if not settings.platega_create_enabled or provider is None:
+                raise ApiError("PAYMENT_PROVIDER_UNAVAILABLE", http=503, retryable=True)
             await connection.execute(
                 "UPDATE payment_orders SET provider_create_state = 'in_flight', updated_at = now() WHERE id = $1",
                 order_id,
@@ -665,6 +702,10 @@ async def apply_paid_entitlement(
                 await connection.execute("UPDATE payment_orders SET credit_review_reason='owner_unbound' WHERE id=$1",order_id)
             return None
         account_id = binding["account_id"]
+        # Parked legacy payments can acquire their verified account only here.
+        # Anchor before paid-account locks, matching the callback lock order.
+        from .referral_pricing import consume
+        await consume(connection,order)
         from .mobile_account import BASE_LIMIT
 
         # Different orders for the same account lock different order rows. Serialize the
@@ -752,6 +793,11 @@ async def apply_paid_entitlement(
             credit_end = paid_end(now,duration)
         final_entitlement = await connection.fetchrow("SELECT * FROM entitlements WHERE id=$1",entitlement_id)
         receipt = {"valid_from":rfc3339(credit_start),"valid_until":rfc3339(credit_end) if credit_end else None,"device_limit":2+len(product["renew_extra_slot_ids"]) if product else 2,"current_device_limit":await paid_limit(connection,final_entitlement,now)}
+        quote_snapshot = order["quote"]
+        while isinstance(quote_snapshot,str):
+            quote_snapshot = json.loads(quote_snapshot)
+        if quote_snapshot.get("pricing"):
+            receipt["pricing"] = quote_snapshot["pricing"]
         await connection.execute(
             """
             UPDATE payment_orders
@@ -779,6 +825,10 @@ async def apply_paid_entitlement(
             order_id,
             not enqueued,
         )
+        from .referral_rewards import enqueue_reward
+        if not product or product["kind"] == "subscription":
+            await enqueue_reward(connection,account_id=account_id,event_kind="first_main_paid",
+                source_entitlement_id=entitlement_id,source_order_id=order_id,months=int(order["months"]))
         return entitlement_id
 
 
@@ -879,6 +929,8 @@ async def record_webhook(
             "UPDATE payment_orders SET status = 'canceled', updated_at = now() WHERE id = $1 AND status = 'pending'",
             order["id"],
         )
+        from .referral_pricing import mark_reconciling
+        await mark_reconciling(connection,order)
         return {"result": "canceled"}
     # success: amount and currency are REQUIRED and must match the immutable snapshot exactly
     # before any paid right. Fractions of a kopeck and non-finite amounts are never accepted.
@@ -905,6 +957,8 @@ async def record_webhook(
         )
         if claimed is None:
             return {"result": "duplicate"}
+        from .referral_pricing import consume
+        await consume(connection,order)
         # Status transition and paid-entitlement application commit together, so a crash can
         # never leave a succeeded-but-unapplied order that later events silently skip.
         await apply_paid_entitlement(connection, settings, order_id=order["id"])
@@ -929,8 +983,11 @@ async def reconcile_payments(
     rows = await connection.fetch(
         """
         SELECT * FROM payment_orders
-        WHERE credit_review_reason IS NULL AND ((status = 'pending' AND provider_payment_id IS NOT NULL)
-           OR (status = 'succeeded' AND (applied_entitlement_id IS NULL OR needs_grant)))
+        WHERE (credit_review_reason IS NULL AND ((status = 'pending' AND provider_payment_id IS NOT NULL)
+           OR (status = 'succeeded' AND (applied_entitlement_id IS NULL OR needs_grant))))
+           OR (status IN ('pending','canceled','expired','failed') AND provider_payment_id IS NOT NULL
+               AND EXISTS(SELECT 1 FROM referral_benefits b WHERE b.reserved_order_id=payment_orders.id
+                   AND b.consumed_order_id IS NULL))
         ORDER BY updated_at, id
         LIMIT $1
         """,
@@ -940,7 +997,7 @@ async def reconcile_payments(
     status_changed = 0
     for order in rows:
         info: dict[str, Any] | None = None
-        if order["status"] == "pending" or (
+        if order["status"] in ("pending","canceled","expired","failed") or (
             order["status"] == "succeeded" and order["applied_entitlement_id"] is None
         ):
             try:
@@ -957,7 +1014,7 @@ async def reconcile_payments(
                     continue
                 if not isinstance(info.get("currency"), str) or info["currency"].upper() != order["currency"].upper():
                     continue
-            elif order["status"] == "pending":
+            elif order["status"] in ("pending","canceled","expired","failed"):
                 continue
         if order["status"] == "succeeded" and order["applied_entitlement_id"] is None:
             if await apply_paid_entitlement(connection, settings, order_id=order["id"]) is not None:
@@ -984,6 +1041,8 @@ async def reconcile_payments(
                     order["id"],
                 )
                 if claimed is not None:
+                    from .referral_pricing import consume
+                    await consume(connection,order)
                     await apply_paid_entitlement(connection, settings, order_id=order["id"])
                     status_changed += 1
         elif kind == "canceled":
@@ -991,6 +1050,8 @@ async def reconcile_payments(
                 "UPDATE payment_orders SET status = 'canceled', updated_at = now() WHERE id = $1 AND status = 'pending'",
                 order["id"],
             )
+            from .referral_pricing import mark_reconciling
+            await mark_reconciling(connection,order)
             status_changed += 1
     return {"checked": len(rows), "applied": applied, "status_changed": status_changed}
 

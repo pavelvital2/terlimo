@@ -2,7 +2,7 @@
 import uuid
 from dataclasses import replace
 import pytest
-from test_s4_payments import _app, _session_token, FakePlategaProvider, _bind, _installation_id
+from test_s4_payments import _app, _session_token, FakePlategaProvider, _bind, _installation_id, _bound_session_token
 from test_payment_recovery_off import quote, pay
 from test_step036_onboarding_hour_storage import _connect
 from terlimo_backend.config import load_settings
@@ -21,7 +21,7 @@ async def test_false_new_s5_no_records_or_provider_session(migrated_url,settings
     provider=FakePlategaProvider()
     client,settings,db=await _app(settings_factory,migrated_url,provider=provider,platega_create_enabled=False)
     try:
-        _,token=await _session_token(client);q=await quote(client,token)
+        _,token=await _bound_session_token(client,migrated_url);q=await quote(client,token)
         response=await pay(client,token,q,str(uuid.uuid4()))
         body=await response.json()
         assert response.status==503 and body['code']=='SERVICE_UNAVAILABLE'

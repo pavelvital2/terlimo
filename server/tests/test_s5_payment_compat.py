@@ -6,7 +6,7 @@ import uuid
 
 import asyncpg
 from test_auth_flow import _challenge, _session
-from test_s4_payments import _app, _auth, _bind, _installation_id, _session_token
+from test_s4_payments import _app, _auth, _bound_session_token, _installation_id
 
 from terlimo_backend.s5_payments import PAYMENTS_PATH, PLANS_PATH, QUOTES_PATH
 
@@ -30,8 +30,8 @@ async def test_public_plans_and_owner_bound_immutable_quote(migrated_url, settin
         # "card" is the public alias of the configured provider "international" method.
         assert all(p["base_device_limit"] == 2 and p["methods"] == ["sbp", "card", "crypto"] for p in plans["plans"])
 
-        first, token = await _session_token(client)
-        _second, other_token = await _session_token(client)
+        first, token = await _bound_session_token(client, migrated_url)
+        _second, other_token = await _bound_session_token(client, migrated_url)
         plan = plans["plans"][0]
         body = {"plan_id": plan["plan_id"], "duration_code": "days:30", "method": "sbp"}
         key = _key()
@@ -63,8 +63,8 @@ async def test_public_plans_and_owner_bound_immutable_quote(migrated_url, settin
 async def test_payment_create_off_never_mints_order_and_status_is_owner_only(migrated_url, settings_factory):
     client, _settings, database = await _app(settings_factory, migrated_url, disable_provider=True)
     try:
-        pop, token = await _session_token(client)
-        _other_pop, other_token = await _session_token(client)
+        pop, token = await _bound_session_token(client, migrated_url, 555000222)
+        _other_pop, other_token = await _bound_session_token(client, migrated_url)
         plan = (await (await client.get(PLANS_PATH)).json())["plans"][0]
         quote = await client.post(
             QUOTES_PATH, headers={**_auth(token), "Idempotency-Key": _key()},
@@ -107,7 +107,6 @@ async def test_payment_create_off_never_mints_order_and_status_is_owner_only(mig
             await connection.execute("UPDATE payment_orders SET status='succeeded' WHERE id=$1", order_id)
         finally:
             await connection.close()
-        await _bind(migrated_url, installation_id, 555000222)
         connection = await asyncpg.connect(migrated_url)
         try:
             account_id = await connection.fetchval(

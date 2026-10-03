@@ -1,0 +1,7 @@
+# Referral server SOURCE acceptance — 2026-10-03
+
+Cumulative donor802d0486a6c9899f7380a17e42e38a39b91a2a42 (product07eaf20cb331c5afe24033c9bdd32f9a8e5ba4c3) overba3934f683616cdc4572d3fe8e81f9d0ed8e63b7 integrated onto canonicald4bd48e06faebc4dd70c39119730b8cc903bf581.34 postimage hashes matched accepted manifests, including final evidence-only update. Existing canonical client changes preserved.
+
+Root reviewed identity/candidate/keyed registration/history seams; accepted prior R2 same-trial grant retry and R3 fair WAITING queue corrections. Independent bounded billing review accepted B1 all-new-MAIN account serialization and B2 account/FK-before-benefit lock ordering. Root accepted B3 frozen gross/payable expiry proof. Last isolated unknown-order HTTP case PASS4.87s: sameK503, differentK/sourceQ409, no false no_order and one fake-provider call. Together20 distinct B3 cases PASS; previous19 not rerun. Earlier fixture failures retained in B3_EXPIRY_CHECKS history. Existing49 implementation/11 repaired legacy fixture and13 correction cases reported in their documents; no broad rerun for integration.
+
+SOURCE acceptance only. No deployment/production/provider/phone action. Remaining release work: compatible client P1 correction/build and TEST runtime, real trusted legacy/new-account history readiness, single bot/site/account referral writer, production cutover authorization and provider cancellation finality. Synthetic history staging is not real-user onboarding readiness. No full feature/runtime PASS claimed.

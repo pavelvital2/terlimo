@@ -104,7 +104,7 @@ async def ensure_grant(
                installation.public_key_fingerprint, installation.public_key_spki_b64,
                installation.state AS installation_state, installation.environment,
                entitlement.id AS entitlement_id, entitlement.status AS entitlement_status,
-               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit, entitlement.paid_base_device_limit,
+               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit, entitlement.paid_base_device_limit, entitlement.created_at AS entitlement_created_at,
                gateway.id AS gateway_id, gateway.gateway_key, gateway.registry_state,
                gateway.environment AS gateway_environment,
                gateway.endpoints AS gateway_endpoints,
@@ -204,6 +204,9 @@ async def ensure_grant(
             binding_id=binding_id,
             correlation_id=correlation_id,
         )
+        from .referral_rewards import record_trial_target
+        await record_trial_target(connection,entitlement_id=entitlement_id,
+            grant_id=await connection.fetchval("SELECT id FROM grants WHERE opaque_id=$1",grant['opaque_id']),generation=1)
         return "enqueued"
 
     remaining = (existing["not_after"] - now).total_seconds()
@@ -217,8 +220,13 @@ async def ensure_grant(
         not_after < existing["not_after"] - timedelta(seconds=1)
         or remaining < max_lease_seconds / 3
         or cap_unconfirmed
+        or (row["kind"] == "trial" and existing["applied_at"] is not None
+            and existing["applied_at"] < row["entitlement_created_at"])
     )
     if not refresh:
+        from .referral_rewards import record_trial_target
+        await record_trial_target(connection,entitlement_id=entitlement_id,
+            grant_id=existing['id'],generation=existing['desired_generation'])
         if existing["applied_generation"] != existing["desired_generation"]:
             return "pending"
         return "unchanged"
@@ -250,6 +258,8 @@ async def ensure_grant(
         binding_id=binding_id,
         correlation_id=correlation_id,
     )
+    from .referral_rewards import record_trial_target
+    await record_trial_target(connection,entitlement_id=entitlement_id,grant_id=existing['id'],generation=generation)
     return "enqueued"
 
 
@@ -930,6 +940,8 @@ class GatewayControlHandlers:
             if updated is None:
                 log_phase(operation, "publish_superseded", publish_started)
                 return ("failed", "superseded_during_apply")
+            from .referral_rewards import confirm_trial_target
+            await confirm_trial_target(connection,grant_id=grant['id'])
             await connection.execute(
                 "UPDATE gateways SET confirmed_max_workers = $2 WHERE id = $1",
                 grant["gateway_id"],

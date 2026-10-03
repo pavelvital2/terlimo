@@ -75,17 +75,23 @@ async def purchase_available(connection, installation_id, account_id):
     """Same trusted account/binding condition as session issuance; never a paid right."""
     if account_id is None:
         return False
-    return bool(await connection.fetchval(
-        "SELECT 1 FROM account_bindings b JOIN accounts a ON a.id=b.account_id "
-        "WHERE b.installation_id=$1 AND b.account_id=$2 AND b.status='active' "
-        "AND a.status='verified' AND a.telegram_id IS NOT NULL LIMIT 1",
-        installation_id, account_id,
-    ))
+    return bool(
+        await connection.fetchval(
+            "SELECT 1 FROM account_bindings b JOIN accounts a ON a.id=b.account_id "
+            "WHERE b.installation_id=$1 AND b.account_id=$2 AND b.status='active' "
+            "AND a.status='verified' AND a.telegram_id IS NOT NULL LIMIT 1",
+            installation_id,
+            account_id,
+        )
+    )
 
 
 async def require_purchase_binding(connection, context):
-    if (context.binding is None or context.binding["status"] != "active"
-            or not await purchase_available(connection, context.installation_id, context.account_id)):
+    if (
+        context.binding is None
+        or context.binding["status"] != "active"
+        or not await purchase_available(connection, context.installation_id, context.account_id)
+    ):
         raise ApiError("ACCESS_DENIED", http=403, retryable=False)
 
 
@@ -125,7 +131,9 @@ async def _active_binding_status(connection, installation_id, telegram_id):
     )
     if active is not None:
         return "active"
-    account_id = await connection.fetchval("SELECT id FROM accounts WHERE telegram_id = $1", telegram_id)
+    account_id = await connection.fetchval(
+        "SELECT id FROM accounts WHERE telegram_id = $1", telegram_id
+    )
     if account_id is None:
         return "no_binding"
     still = await connection.fetchval(
@@ -137,7 +145,11 @@ async def _active_binding_status(connection, installation_id, telegram_id):
 
 
 async def registration_view(
-    connection: asyncpg.Connection, installation_id: Any, settings: Settings, *, account_id: Any = None
+    connection: asyncpg.Connection,
+    installation_id: Any,
+    settings: Settings,
+    *,
+    account_id: Any = None,
 ) -> dict[str, Any]:
     """Read-only registration projection for /me (never creates rows)."""
     eligible = await purchase_available(connection, installation_id, account_id)
@@ -197,7 +209,20 @@ async def create_registration_link(
     settings: Settings,
     *,
     installation_id: Any,
+    referral_candidate_id: Any = None,
+    idempotency_key: str | None = None,
+    _keyed: bool = False,
 ) -> dict[str, Any]:
+    if referral_candidate_id is not None:
+        from .referral import keyed_registration_link
+
+        return await keyed_registration_link(
+            connection,
+            settings,
+            installation_id=installation_id,
+            candidate_id=referral_candidate_id,
+            idempotency_key=idempotency_key,
+        )
     if not registration_enabled(settings):
         raise ApiError("REGISTRATION_DISABLED", http=503)
     # Pre-read only to derive the advisory-lock key (never trusted for writes); every
@@ -249,7 +274,11 @@ async def create_registration_link(
         )
         # Re-validate the advisory key derived before the lock against the locked rows.
         locked_account = active["account_id"] if active is not None else None
-        if locked_account is None and confirmed is not None and confirmed["telegram_id"] is not None:
+        if (
+            locked_account is None
+            and confirmed is not None
+            and confirmed["telegram_id"] is not None
+        ):
             locked_account = await connection.fetchval(
                 "SELECT id FROM accounts WHERE telegram_id = $1", confirmed["telegram_id"]
             )
@@ -257,10 +286,18 @@ async def create_registration_link(
             raise ApiError("REVISION_CONFLICT", http=409, retryable=True)
         if confirmed is not None and active is not None:
             # Registered is reported only while an active binding exists.
-            result = _confirmed_result(confirmed, binding_status="active",
-                purchase=await purchase_available(connection, installation_id, locked_account))
+            result = _confirmed_result(
+                confirmed,
+                binding_status="active",
+                purchase=await purchase_available(connection, installation_id, locked_account),
+            )
             result["state"] = result.pop("registration_state")
             return result
+        if not _keyed and await connection.fetchval(
+            "SELECT 1 FROM registration_links WHERE installation_id=$1 AND status='pending' AND referral_candidate_id IS NOT NULL AND expires_at>now()",
+            installation_id,
+        ):
+            raise ApiError("REFERRAL_CANDIDATE_LOCKED", http=409)
         # No active binding: a new Telegram proof is required (first bind, limit window after a
         # full-slot confirmation, or re-bind after removal). Invalidate every stale pending and
         # confirmed proof for this installation first so old tokens can never manage or bind.
@@ -294,7 +331,7 @@ async def create_registration_link(
         }
 
 
-async def confirm_registration(
+async def _confirm_registration(
     connection: asyncpg.Connection,
     settings: Settings,
     *,
@@ -314,6 +351,37 @@ async def confirm_registration(
     account0 = await connection.fetchval(
         "SELECT id FROM accounts WHERE telegram_id = $1", telegram_id
     )
+    expired_details = None
+    expired = False
+    async with connection.transaction():
+        if account0 is not None:
+            await _account_advisory(connection, account0)
+        await connection.fetchrow(
+            "SELECT id FROM installations WHERE id=$1 FOR UPDATE", link0["installation_id"]
+        )
+        expiry_link = await connection.fetchrow(
+            "SELECT * FROM registration_links WHERE token_sha256=$1 FOR UPDATE", token_sha
+        )
+        if (
+            expiry_link is not None
+            and expiry_link["status"] != "confirmed"
+            and (expiry_link["status"] == "expired" or expiry_link["expires_at"] <= now_utc())
+        ):
+            await connection.execute(
+                "UPDATE registration_links SET status='expired' WHERE id=$1", expiry_link["id"]
+            )
+            expired = True
+            if expiry_link["referral_candidate_id"] is not None:
+                expired_details = {
+                    "state": "expired",
+                    "referral_registration": {
+                        "candidate_id": str(expiry_link["referral_candidate_id"]),
+                        "registration_id": str(expiry_link["id"]),
+                        "idempotency_key": expiry_link["referral_idempotency_key"],
+                    },
+                }
+    if expired:
+        raise ApiError("REGISTRATION_EXPIRED", http=410, retryable=False, details=expired_details)
     limit_details: dict[str, int] | None = None
     result: dict[str, Any] | None = None
     async with connection.transaction():
@@ -333,10 +401,17 @@ async def confirm_registration(
                 raise ApiError("REGISTRATION_CONFLICT", http=409)
             # Idempotent replay: never (re)creates a binding. Only the current binding
             # projection is reported; a new Telegram flow is required to bind.
-            binding_status = await _active_binding_status(connection, link["installation_id"], telegram_id)
-            account_id = await connection.fetchval("SELECT id FROM accounts WHERE telegram_id=$1", telegram_id)
-            return _confirmed_result(link, binding_status=binding_status,
-                purchase=await purchase_available(connection, link["installation_id"], account_id))
+            binding_status = await _active_binding_status(
+                connection, link["installation_id"], telegram_id
+            )
+            account_id = await connection.fetchval(
+                "SELECT id FROM accounts WHERE telegram_id=$1", telegram_id
+            )
+            return _confirmed_result(
+                link,
+                binding_status=binding_status,
+                purchase=await purchase_available(connection, link["installation_id"], account_id),
+            )
         if link["status"] == "expired" or link["expires_at"] <= now_utc():
             await connection.execute(
                 "UPDATE registration_links SET status = 'expired' WHERE id = $1", link["id"]
@@ -345,6 +420,7 @@ async def confirm_registration(
         if installation is None or installation["state"] == "revoked":
             # Original precedence preserved: replay/expiry decisions above, then the fence.
             raise ApiError("DEVICE_REVOKED", http=403)
+        new_account = False
         account_id = await connection.fetchval(
             "SELECT id FROM accounts WHERE telegram_id = $1", telegram_id
         )
@@ -364,14 +440,22 @@ async def confirm_registration(
                 # conflict instead. The retry sees the account at pre-read and locks in order.
                 raise ApiError("REVISION_CONFLICT", http=409, retryable=True)
             account_id = row["id"]
+            new_account = True
             await _account_advisory(connection, account_id)
+        from .referral import attach_candidate, initialize_account
+
+        await initialize_account(connection, account_id, new_account=new_account)
+        await attach_candidate(connection, link, account_id)
         from .mobile_account import effective_device_limit  # local import avoids a cycle
 
         effective_limit = await effective_device_limit(connection, account_id)
-        used = int(await connection.fetchval(
-            "SELECT count(*) FROM account_bindings WHERE account_id = $1 AND status = 'active'",
-            account_id,
-        ) or 0)
+        used = int(
+            await connection.fetchval(
+                "SELECT count(*) FROM account_bindings WHERE account_id = $1 AND status = 'active'",
+                account_id,
+            )
+            or 0
+        )
         slots_after = used
         binding_status = "active"
         # Exact (account, installation) pair only: history for this account may be reactivated,
@@ -472,6 +556,66 @@ async def confirm_registration(
     return result
 
 
+async def confirm_registration(connection, settings, *, token, telegram_id, telegram_username):
+    """A deadline reached between lock phases must still commit expiry before 410."""
+    try:
+        return await _confirm_registration(
+            connection,
+            settings,
+            token=token,
+            telegram_id=telegram_id,
+            telegram_username=telegram_username,
+        )
+    except ApiError as error:
+        if error.code != "REGISTRATION_EXPIRED":
+            raise
+        link0 = await connection.fetchrow(
+            "SELECT installation_id FROM registration_links WHERE token_sha256=$1",
+            _token_hash(token),
+        )
+        if link0 is None:
+            raise
+        details = None
+        replay = False
+        async with connection.transaction():
+            account_id = await connection.fetchval(
+                "SELECT id FROM accounts WHERE telegram_id=$1", telegram_id
+            )
+            if account_id is not None:
+                await _account_advisory(connection, account_id)
+            await connection.fetchrow(
+                "SELECT id FROM installations WHERE id=$1 FOR UPDATE", link0["installation_id"]
+            )
+            link = await connection.fetchrow(
+                "SELECT * FROM registration_links WHERE token_sha256=$1 FOR UPDATE",
+                _token_hash(token),
+            )
+            if link["status"] == "confirmed":
+                replay = True
+            else:
+                await connection.execute(
+                    "UPDATE registration_links SET status='expired' WHERE id=$1", link["id"]
+                )
+                if link["referral_candidate_id"] is not None:
+                    details = {
+                        "state": "expired",
+                        "referral_registration": {
+                            "candidate_id": str(link["referral_candidate_id"]),
+                            "registration_id": str(link["id"]),
+                            "idempotency_key": link["referral_idempotency_key"],
+                        },
+                    }
+        if replay:
+            return await _confirm_registration(
+                connection,
+                settings,
+                token=token,
+                telegram_id=telegram_id,
+                telegram_username=telegram_username,
+            )
+        raise ApiError("REGISTRATION_EXPIRED", http=410, retryable=False, details=details) from None
+
+
 def _confirmed_result(
     link: asyncpg.Record,
     *,
@@ -489,6 +633,8 @@ def _confirmed_result(
         "trial_reason": link["trial_reason"],
         "purchase_available": purchase,
     }
+    if link.get("referral_attribution") is not None:
+        result["referral_attribution"] = link["referral_attribution"]
     if binding_status is not None:
         result["binding_status"] = binding_status
     if slots_used is not None:
@@ -519,6 +665,8 @@ def _registration_link_response(request_id: str, registration: dict[str, Any]) -
     projection: dict[str, Any] = registration
     if registration.get("state") == "registered":
         projection = {"state": "registered"}
+        if registration.get("referral_attribution") is not None:
+            projection["referral_attribution"] = registration["referral_attribution"]
     return web.json_response(
         {
             "request_id": request_id,
@@ -537,21 +685,38 @@ def _link_handler(settings: Settings, database: Database):
         fallback_id = random_hex(16)
         try:
             token = _bearer_token(request)
+            body = await _json_body(request) if request.can_read_body else {}
+            if not isinstance(body, dict) or set(body) - {"referral_candidate_id"}:
+                raise ApiError("BAD_MESSAGE", http=400)
+            if "referral_candidate_id" in body:
+                from .referral import candidate_uuid
+
+                body["referral_candidate_id"] = candidate_uuid(body["referral_candidate_id"])
             async with database.acquire() as connection:
                 context = await authenticate_session(connection, settings, token)
                 result = await create_registration_link(
-                    connection, settings, installation_id=context.installation_id
+                    connection,
+                    settings,
+                    installation_id=context.installation_id,
+                    referral_candidate_id=body.get("referral_candidate_id"),
+                    idempotency_key=request.headers.get("Idempotency-Key"),
                 )
+            if "referral_candidate_id" not in body:
+                result.pop("referral_attribution", None)
             return _registration_link_response(fallback_id, result)
         except AuthError as error:
             return _error_response(
                 fallback_id,
-                ApiError(error.code, http=error.http, retryable=error.retryable, request_id=fallback_id),
+                ApiError(
+                    error.code, http=error.http, retryable=error.retryable, request_id=fallback_id
+                ),
             )
         except ApiError as error:
             return _error_response(fallback_id, error)
         except (asyncpg.PostgresError, OSError):
-            return _error_response(fallback_id, ApiError("SERVICE_UNAVAILABLE", request_id=fallback_id))
+            return _error_response(
+                fallback_id, ApiError("SERVICE_UNAVAILABLE", request_id=fallback_id)
+            )
 
     return handler
 
@@ -568,7 +733,12 @@ def _confirm_handler(settings: Settings, database: Database):
             if not supplied or not hmac.compare_digest(supplied, settings.telegram_bot_key):
                 raise ApiError("REGISTRATION_AUTH", http=403)
             body = await _json_body(request)
-            if not isinstance(body, dict) or set(body) - CONFIRM_KEYS or "token" not in body or "telegram_id" not in body:
+            if (
+                not isinstance(body, dict)
+                or set(body) - CONFIRM_KEYS
+                or "token" not in body
+                or "telegram_id" not in body
+            ):
                 raise ApiError("BAD_MESSAGE")
             token = body["token"]
             telegram_id = body["telegram_id"]
@@ -581,7 +751,10 @@ def _confirm_handler(settings: Settings, database: Database):
                 raise ApiError("BAD_MESSAGE")
             async with database.acquire() as connection:
                 result = await confirm_registration(
-                    connection, settings, token=token, telegram_id=telegram_id,
+                    connection,
+                    settings,
+                    token=token,
+                    telegram_id=telegram_id,
                     telegram_username=username,
                 )
             result["request_id"] = fallback_id
@@ -589,6 +762,8 @@ def _confirm_handler(settings: Settings, database: Database):
         except ApiError as error:
             return _error_response(fallback_id, error)
         except (asyncpg.PostgresError, OSError):
-            return _error_response(fallback_id, ApiError("SERVICE_UNAVAILABLE", request_id=fallback_id))
+            return _error_response(
+                fallback_id, ApiError("SERVICE_UNAVAILABLE", request_id=fallback_id)
+            )
 
     return handler
