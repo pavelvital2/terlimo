@@ -494,6 +494,7 @@ class MainActivity : Activity() {
                 text = "Восстановить подключение"
                 setOnClickListener { openRecoveryEditor() }
             })
+            addView(helpLink("Открыть Telegram-бота", HelpContent.BOT_URL))
             addView(Button(this@MainActivity).apply {
                 text = "Работа с выключенным экраном"
                 minHeight = dp(48)
