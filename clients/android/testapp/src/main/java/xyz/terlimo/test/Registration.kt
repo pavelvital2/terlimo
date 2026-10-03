@@ -15,17 +15,13 @@ internal data class RegistrationState(
     val error: String? = null,
 )
 
-internal object RegistrationUi {    /**
-     * The registration action is offered while the confirmed hour is active, and also — with
-     * the parked paid order — after the hour expired: an already-paid order that still needs
-     * Telegram binding must be able to start the existing link/confirm flow (S5 §3.2C). It is
-     * never offered once the server reports the account registered.
-     */
+internal object RegistrationUi {
+    /** Telegram registration needs Internet, not a paid order or an unexpired hour. */
+    const val INTERNET_TEXT = "Для регистрации или входа через Telegram нужен интернет. Оплата доступна после подтверждения."
+
     fun registerVisible(state: ViewState): Boolean {
         val projection = state.accountAccess?.projection ?: return false
-        if (projection.registration.state == "registered") return false
-        if (PurchaseFlow.paidAwaitingBinding(state.purchase)) return true
-        return projection.grant.dataAccess == "onboarding_hour"
+        return !PurchaseFlow.usableAccount(projection)
     }
 
     /**
@@ -36,14 +32,14 @@ internal object RegistrationUi {    /**
     fun loginVisible(state: ViewState): Boolean {
         val projection = state.accountAccess?.projection ?: return false
         return loginVisibleFor(
-            registrationState = projection.registration.state,
+            usableAccount = PurchaseFlow.usableAccount(projection),
             dataAccess = projection.grant.dataAccess,
             paidAwaitingBinding = PurchaseFlow.paidAwaitingBinding(state.purchase),
         )
     }
 
-    fun loginVisibleFor(registrationState: String, dataAccess: String?, paidAwaitingBinding: Boolean): Boolean {
-        if (registrationState == "registered") return false
+    fun loginVisibleFor(usableAccount: Boolean, dataAccess: String?, paidAwaitingBinding: Boolean): Boolean {
+        if (usableAccount) return false
         if (paidAwaitingBinding) return false
         return dataAccess != "onboarding_hour"
     }
@@ -73,20 +69,26 @@ internal object RegistrationUi {    /**
         // A paid order awaiting binding: the user must register in Telegram so the parked
         // payment can be applied, even if the hour expired (S5 §3.2C).
         if (PurchaseFlow.paidAwaitingBinding(state.purchase) &&
-            state.accountAccess?.projection?.registration?.state != "registered") {
+            !PurchaseFlow.usableAccount(state.accountAccess?.projection)) {
             return "Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить оплаченный доступ."
         }
-        val status = registration ?: return null
-        return when {
-            status.state == "pending" -> "Завершите регистрацию в Telegram."
-            status.state != "registered" -> null
-            status.trialReason == "hour_expired" ->
-                "Регистрация подтверждена, но час истёк: пробный доступ недоступен."
-            status.trialReason == "trial_already_used" ->
-                "Регистрация подтверждена. Пробный доступ уже использован."
-            status.trialAvailable ->
-                "Регистрация подтверждена. Пробный доступ на 7 дней будет доступен позже."
-            else -> "Регистрация подтверждена."
+        if (PurchaseFlow.usableAccount(state.accountAccess?.projection)) {
+            val accepted = state.accountAccess!!.projection.registration
+            return when {
+                accepted.trialReason == "hour_expired" ->
+                    "Вход через Telegram подтверждён. Час истёк: пробный доступ недоступен."
+                accepted.trialReason == "trial_already_used" ->
+                    "Вход через Telegram подтверждён. Пробный доступ уже использован."
+                accepted.trialAvailable ->
+                    "Вход через Telegram подтверждён. Пробный доступ на 7 дней будет доступен позже."
+                else -> "Вход через Telegram подтверждён."
+            }
+        }
+        val status = registration ?: return if (registerVisible(state)) INTERNET_TEXT else null
+        return when (status.state) {
+            "pending" -> "Завершите регистрацию в Telegram."
+            "registered" -> "Подтверждение Telegram получено. Вход в аккаунт ещё не подтверждён сервером."
+            else -> INTERNET_TEXT
         }
     }
 }

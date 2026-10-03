@@ -78,9 +78,25 @@ internal object PurchaseFlow {
     const val UNAVAILABLE = "unavailable"
     const val ERROR = "error"
 
-    /** The purchase action is offered only on the server-owned `purchase_available` signal. */
-    fun offered(registration: AccountAccessProjection.Registration?): Boolean =
-        registration?.purchaseAvailable == true
+    /** Accepted account identity, independent of this installation's registration-link history. */
+    fun usableAccount(me: AccountAccessProjection?): Boolean = me?.account?.let {
+        !it.accountRef.isNullOrBlank() && it.telegramLinked && it.bindingStatus == "active"
+    } == true
+
+    /** Display/entry eligibility from accepted /me; serial prepare additionally requires freshness. */
+    fun offered(me: AccountAccessProjection?): Boolean =
+        usableAccount(me) && me?.registration?.purchaseAvailable == true
+
+    /** Checked on the serial service prepare path, before keys/intent or native write.
+     * Existing-order recovery keeps its separate strict durable account fence.
+     */
+    fun canPrepare(operation: PurchaseOperation, snapshot: AccountAccessSnapshot?, verifiedAccountRef: String?): Boolean {
+        if (operation == PurchaseOperation.Recover || operation is PurchaseOperation.PaymentGet ||
+            (operation is PurchaseOperation.Payment && operation.recovery)) return true
+        val me = snapshot?.takeIf { it.current }?.projection ?: return false
+        val account = me.account
+        return offered(me) && account.accountRef == verifiedAccountRef
+    }
 
     /** Plans need a known server duration, including a finite addon target. */
     fun selectablePlans(plans: List<PaymentPlan>): List<PaymentPlan> = plans.filter { plan ->

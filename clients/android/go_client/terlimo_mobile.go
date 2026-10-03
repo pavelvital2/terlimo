@@ -626,6 +626,11 @@ func (m *managedMobile) handleRegistration(ctx context.Context, op string) {
 		return
 	}
 	if op == "refresh_telegram_registration" {
+		// Telegram confirmation does not upgrade an existing UNLINKED bearer.
+		// Re-authenticate through the ordinary runner Ensure -> /me path.
+		if m.session != nil {
+			m.session.Refresh()
+		}
 		m.mu.Lock()
 		baseline := m.verified
 		me := m.me

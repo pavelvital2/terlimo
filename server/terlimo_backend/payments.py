@@ -1041,6 +1041,8 @@ async def _enqueue_paid_grant(
 def register_payment_routes(
     app: web.Application, settings: Settings, database: Database, provider: PaymentProvider | None = None
 ) -> None:
+    from .telegram_binding import require_purchase_binding
+
     if provider is None:
         provider = build_provider(settings)
     app[PAYMENT_PROVIDER_KEY] = provider
@@ -1061,7 +1063,8 @@ def register_payment_routes(
             if type(body["months"]) is not int:
                 raise ApiError("BAD_MESSAGE", http=400)
             async with database.acquire() as connection:
-                await authenticate_session(connection, settings, token)
+                context = await authenticate_session(connection, settings, token)
+                await require_purchase_binding(connection, context)
             if body["months"] not in SUPPORTED_MONTHS:
                 raise ApiError("BAD_MESSAGE", http=400, details={"reason": "unsupported_period"})
             if payment_amount(settings, body["months"]) is None:
@@ -1087,6 +1090,7 @@ def register_payment_routes(
                 raise ApiError("BAD_MESSAGE", http=400, details={"reason": "idempotency_key_required"})
             async with database.acquire() as connection:
                 context = await authenticate_session(connection, settings, token)
+                await require_purchase_binding(connection, context)
                 result = await create_order(
                     connection, settings, app[PAYMENT_PROVIDER_KEY],
                     installation_id=context.installation_id, months=body["months"], idempotency_key=idem,

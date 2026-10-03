@@ -991,32 +991,14 @@ class SessionService : Service() {
                         pingAll = PingAllGate.cancel(view.pingAll)))
                 }
             }
-            "telegram_register" -> {
-                val attempt = gate.active
-                if (!stopping.get() && attempt != null) native?.send(JSONObject().put("type", "request_telegram_registration"))
-            }
-            "telegram_login" -> {
-                // Existing-account sign-in on a fresh installation: reachable without TUN/hour.
-                // A live attempt sends once; otherwise one bounded service-only attempt is
-                // started and the single link request is sent after its first accepted /me.
-                val attempt = gate.active
-                when (loginGate.onTap(attempt, RegistrationUi.loginVisible(view))) {
-                    RegistrationLoginTapAction.SEND_NOW -> {
-                        val live = attempt
-                        if (live != null) submitControl {
-                            if (gate.active == live && !stopping.get())
-                                native?.send(JSONObject().put("type", "request_telegram_registration"))
-                        }
-                    }
-                    RegistrationLoginTapAction.START_SERVICE -> submitControl { begin("") }
-                    RegistrationLoginTapAction.ERROR -> publish(view.copy(registration =
-                        (view.registration ?: RegistrationState()).copy(error = "ACCESS_DENIED")))
-                    RegistrationLoginTapAction.IGNORE -> Unit
+            "telegram_register", "telegram_login", "telegram_refresh" -> {
+                val action = when (intent.action) {
+                    "telegram_register" -> RegistrationAction.REGISTER
+                    "telegram_login" -> RegistrationAction.LOGIN
+                    else -> RegistrationAction.REFRESH
                 }
-            }
-            "telegram_refresh" -> {
-                val attempt = gate.active
-                if (!stopping.get() && attempt != null) native?.send(JSONObject().put("type", "refresh_telegram_registration"))
+                if (stopping.get()) registrationError("REGISTRATION_DISABLED")
+                else submitControl { handleRegistrationAction(action) }
             }
             "trial_activate" -> {
                 if (!stopping.get()) {
@@ -1041,6 +1023,10 @@ class SessionService : Service() {
                 val selection = plan?.let { PurchaseSelection.fromPlan(it, method, renewIds) }
                 if (purchaseFlight.busy() || view.purchase?.sending == true) {
                     publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
+                } else if (!PurchaseFlow.offered(view.accountAccess?.projection)) {
+                    publish(view.copy(purchase = PurchaseFlow.failure(view.purchase,
+                        if (!PurchaseFlow.usableAccount(view.accountAccess?.projection)) "TELEGRAM_REQUIRED"
+                        else "SERVICE_UNAVAILABLE")))
                 } else if (!stopping.get() && plan != null && selection != null && plan.durationCode == durationCode &&
                     method in plan.methods && !PurchaseFlow.blocksNewPurchase(view.purchase)) {
                     val selected = PurchaseFlow.selectRenewExtraSlots(PurchaseFlow.selectMethod(
@@ -1060,6 +1046,10 @@ class SessionService : Service() {
                     // attempt keys are not rotated while the request is unanswered.
                     purchaseFlight.busy() ->
                         publish(view.copy(purchase = PurchaseFlow.sending(view.purchase)))
+                    !PurchaseFlow.offered(view.accountAccess?.projection) ->
+                        publish(view.copy(purchase = PurchaseFlow.failure(current,
+                            if (!PurchaseFlow.usableAccount(view.accountAccess?.projection)) "TELEGRAM_REQUIRED"
+                            else "SERVICE_UNAVAILABLE")))
                     PurchaseFlow.blocksNewPurchase(current) ->
                         publish(view.copy(purchase = PurchaseFlow.failure(current, "PURCHASE_RECOVERY_REQUIRED")))
                     quoteId.isEmpty() || current?.quote?.quoteId != quoteId ->
@@ -1101,6 +1091,72 @@ class SessionService : Service() {
         }
         return START_NOT_STICKY
     }
+    private fun registrationError(code: String) {
+        publish(view.copy(registration = (view.registration ?: RegistrationState()).copy(error = code)))
+    }
+
+    private fun handleRegistrationAction(action: RegistrationAction) {
+        // Resolve the current attempt on the actor: a queued tap cannot call begin over a
+        // different flow which started in the meantime (begin failure tears down its owner).
+        val attempt = gate.active
+        when (loginGate.onTap(attempt, action, action.eligible(view))) {
+            RegistrationLoginTapAction.START_SERVICE -> {
+                if (activeVpnConfig != null || retiringActors.get() != 0 || preAdmissionConnect) {
+                    loginGate.reset()
+                    registrationError("REGISTRATION_DISABLED")
+                } else {
+                    autoConnect.cancel()
+                    begin("")
+                }
+            }
+            RegistrationLoginTapAction.SEND_NOW -> if (attempt != null) {
+                val token = loginGate.token()
+                sendRegistrationAction(attempt, action)
+                main.postDelayed({ enqueueActive(attempt) {
+                    if (loginGate.onTimeout(attempt, token)) registrationError("REGISTRATION_DISABLED")
+                } }, PurchaseGate.COLD_WINDOW_MILLIS)
+            }
+            RegistrationLoginTapAction.ERROR -> registrationError("ACCESS_DENIED")
+            RegistrationLoginTapAction.IGNORE -> Unit
+        }
+    }
+
+    private fun sendRegistrationAction(attempt: String, action: RegistrationAction) {
+        if (gate.active != attempt || stopping.get()) return
+        if (native?.trySend(JSONObject().put("type", action.wireType)) != true) {
+            registrationError("REGISTRATION_DISABLED")
+            if (loginGate.onResolved(attempt)) releaseRegistrationAttempt(attempt, "registration_send_failed")
+        }
+    }
+
+    private fun finishRegistrationRefresh(attempt: String) {
+        if (!loginGate.expects(attempt, true)) return
+        // No anonymous/changed-owner fallback and no Recover->retryCreate here. The durable
+        // installation-to-account proof is a separate contract; only a known same-owner ID
+        // can enter the ordinary status -> fresh /me + plans path without Pay.
+        val order = runCatching { purchaseAttempts.current()?.order }.getOrNull()
+        val payment = order?.payment
+        if (PurchaseFlow.usableAccount(view.accountAccess?.projection) &&
+            purchaseVerifiedAccountRef != null && order?.accountRef == purchaseVerifiedAccountRef &&
+            payment != null && purchaseFlight.holder() == null && loginGate.beginRecovery(attempt)) {
+            sendPurchaseOperation(attempt, PurchaseOperation.PaymentGet(payment.paymentId))
+        } else if (loginGate.onResolved(attempt)) releaseRegistrationAttempt(attempt, "registration_refresh_result")
+    }
+
+    private fun registrationMayStop(attempt: String): Boolean =
+        gate.active == attempt && activeVpnConfig == null && !explicitConnect.armed(attempt) && !preAdmissionConnect
+
+    private fun releaseRegistrationAttempt(attempt: String, caller: String) {
+        // A user may explicitly Connect while the service-only request is outstanding.
+        // That promotion transfers the attempt to the user; registration may no longer stop it.
+        if (registrationMayStop(attempt)) stopAttempt(null, caller)
+    }
+
+    private fun stopColdPurchase(attempt: String): Boolean {
+        val registrationCold = loginGate.finishRecovery(attempt)
+        return purchaseGate.stopCold(attempt) || (registrationCold && registrationMayStop(attempt))
+    }
+
     private fun begin(link: String, requiredNetwork: Network? = null, recoveryGeneration: Long? = null,
         catalogRequestId: String? = null) {
         var startedAttempt: String? = null
@@ -1208,14 +1264,13 @@ class SessionService : Service() {
                 }, PurchaseGate.COLD_WINDOW_MILLIS)
             }
             if (loginGate.onAttemptStarted(attempt)) {
-                main.postDelayed({
-                    if (gate.active == attempt && !stopping.get() &&
-                        loginGate.isCold(attempt) && loginGate.onTimeout(attempt)) {
-                        publish(view.copy(registration = (view.registration ?: RegistrationState())
-                            .copy(error = "REGISTRATION_DISABLED")))
-                        stopAttempt(null, "login_cold_timeout")
+                val token = loginGate.token()
+                main.postDelayed({ enqueueActive(attempt) {
+                    if (loginGate.isCold(attempt) && loginGate.onTimeout(attempt, token)) {
+                        registrationError("REGISTRATION_DISABLED")
+                        releaseRegistrationAttempt(attempt, "registration_cold_timeout")
                     }
-                }, PurchaseGate.COLD_WINDOW_MILLIS)
+                } }, PurchaseGate.COLD_WINDOW_MILLIS)
             }
             if (mobileBaseUrl != null) {
                 // Exactly one bounded line per mobile attempt: public hex64 + normalized endpoint.
@@ -1317,6 +1372,7 @@ class SessionService : Service() {
             }
         } catch (e: Exception) {
             val code = hostFailureCode(e, "begin")
+            if (loginGate.onTimeout(startedAttempt)) registrationError("REGISTRATION_DISABLED")
             if (trialGate.onControlFailed()) {
                 publish(view.copy(trial = (view.trial ?: TrialState()).copy(error = "TRIAL_CONTROL_UNAVAILABLE")))
             }
@@ -1405,6 +1461,15 @@ class SessionService : Service() {
                                     error = null,
                                 ),
                                 purchase = nextPurchase))
+                            when (val registrationAction = loginGate.onVerifiedRights(attempt) { it.eligible(view) }) {
+                                is RegistrationVerified.Send -> sendRegistrationAction(attempt, registrationAction.action)
+                                RegistrationVerified.Refused -> {
+                                    registrationError("ACCESS_DENIED")
+                                    if (loginGate.onResolved(attempt)) releaseRegistrationAttempt(attempt, "registration_refused")
+                                }
+                                RegistrationVerified.Ignore -> Unit
+                            }
+                            if (stopping.get()) return
                             if (nextPurchase.phase == PurchaseFlow.CONFIRMED &&
                                 (previousPurchase?.phase != PurchaseFlow.CONFIRMED || previousPurchase.recovery != null)) {
                                 // The purchase is confirmed by the server projection; the
@@ -1415,9 +1480,6 @@ class SessionService : Service() {
                             }
                             val pendingPurchase = purchaseGate.onVerifiedRights(attempt)
                             if (pendingPurchase != null) sendPurchaseOperation(attempt, pendingPurchase)
-                            if (loginGate.onVerifiedRights(attempt)) {
-                                native?.send(JSONObject().put("type", "request_telegram_registration"))
-                            }
                             when (val devices = devicesGate.onVerifiedRights(
                                 attempt, DevicesPolicy.canManage(registration))) {
                                 is DevicesVerified.Send -> when (val request = devices.request) {
@@ -1579,6 +1641,14 @@ class SessionService : Service() {
                     }
                 }
                 "telegram_registration" -> {
+                    if (!loginGate.expects(attempt, false)) {
+                        // Refresh can also return a native fixed error; it must not open a link.
+                        if (loginGate.expects(attempt, true) && event.optString("state") == "error") {
+                            registrationError(event.optString("code").ifEmpty { "REGISTRATION_DISABLED" })
+                            if (loginGate.onResolved(attempt)) releaseRegistrationAttempt(attempt, "registration_refresh_error")
+                        }
+                        return
+                    }
                     // One-time deep link from the native link request. The link is opened
                     // externally and never persisted; a repeated tap is idempotent.
                     val link = event.optString("deep_link")
@@ -1588,14 +1658,23 @@ class SessionService : Service() {
                         // pending receipt even when the service-only attempt is stopped here.
                         publish(view.copy(registration =
                             (view.registration ?: RegistrationState()).copy(state = "pending", error = null)))
-                        if (loginGate.onResolved(attempt)) stopAttempt(null, "registration_link_result")
+                        if (loginGate.onResolved(attempt)) releaseRegistrationAttempt(attempt, "registration_link_result")
                     } else if (event.optString("state") == "error") {
                         publish(view.copy(registration =
                             (view.registration ?: RegistrationState()).copy(error = event.optString("code"))))
-                        if (loginGate.onResolved(attempt)) stopAttempt(null, "registration_link_result")
+                        if (loginGate.onResolved(attempt)) releaseRegistrationAttempt(attempt, "registration_link_result")
+                    } else {
+                        registrationError("REGISTRATION_DISABLED")
+                        if (loginGate.onResolved(attempt)) releaseRegistrationAttempt(attempt, "registration_link_invalid")
                     }
                 }
                 "telegram_registration_status" -> {
+                    if (loginGate.expects(attempt, true)) {
+                        // The native timeout may emit its old snapshot. Only accepted /me
+                        // is authoritative for a refresh we own; never regress it to pending.
+                        finishRegistrationRefresh(attempt)
+                        return
+                    }
                     publishActive(attempt, view.copy(registration = RegistrationState(
                         state = event.optString("state").ifEmpty { "none" },
                         withinHour = event.optBoolean("within_hour"),
@@ -2007,7 +2086,7 @@ class SessionService : Service() {
         } catch (_: Exception) {
             publishActive(attempt, view.copy(purchase = purchaseAttempts.recoveryState(purchaseVerifiedAccountRef)
                 ?: PurchaseFlow.failure(view.purchase, "PURCHASE_RECOVERY_UNAVAILABLE")))
-            if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+            if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
             return
         }
         if (stopping.get() || gate.active != attempt) return
@@ -2027,9 +2106,15 @@ class SessionService : Service() {
         )
         // One explicit request under the single-flight capture: a queued duplicate is refused
         // before any durable key is touched, and the write result is never an escaped exception.
+        var prepareError: String? = null
         val outcome = purchaseSender.send(
             request = flight,
             prepare = {
+                if (!PurchaseFlow.canPrepare(operation, view.accountAccess, purchaseVerifiedAccountRef)) {
+                    prepareError = if (!PurchaseFlow.usableAccount(view.accountAccess?.projection))
+                        "TELEGRAM_REQUIRED" else "MOBILE_STATE_UNAVAILABLE"
+                    error(prepareError ?: "MOBILE_STATE_UNAVAILABLE")
+                }
                 purchaseRequestAccountRef = purchaseVerifiedAccountRef
                 when (operation) {
                     PurchaseOperation.Recover -> error("PURCHASE_STATE_INVALID")
@@ -2095,7 +2180,8 @@ class SessionService : Service() {
                 // Preparation failed after capture and nothing was written: no create correlation
                 // may survive, and the capture was already freed by the sender.
                 paymentCreates.clear()
-                publishActive(attempt, view.copy(purchase = PurchaseFlow.failure(view.purchase, "TRANSPORT")))
+                publishActive(attempt, view.copy(purchase = PurchaseFlow.failure(view.purchase, prepareError ?: "TRANSPORT")))
+                if (prepareError != null && purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_registration_required")
             }
             PurchaseSendOutcome.WRITTEN ->
                 publishActive(attempt, view.copy(purchase = PurchaseFlow.sending(view.purchase)))
@@ -2152,7 +2238,7 @@ class SessionService : Service() {
                         ?: view.purchase, "TRANSPORT")
                     // UI unblocks only after the encrypted intent/history/result commit returns.
                     publishActive(attempt, view.copy(purchase = result))
-                    if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                    if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
                     return
                 }
                 if (parsed.code == "IDEMPOTENCY_CONFLICT") {
@@ -2165,7 +2251,7 @@ class SessionService : Service() {
                     PurchaseFlow.plansFailure(view.purchase, parsed.code)
                 else PurchaseFlow.failure(view.purchase, parsed.code)
                 publishActive(attempt, view.copy(purchase = failed))
-                if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
             }
             is PaymentsEvent.Plans -> {
                 val previous = view.purchase
@@ -2179,7 +2265,7 @@ class SessionService : Service() {
                 if (result.quoteBinding?.quote == parsed.quote)
                     purchaseAttempts.bindQuote(parsed.quote.quoteId, event.toString())
                 publishActive(attempt, view.copy(purchase = result))
-                if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
             }
             is PaymentsEvent.Payment -> {
                 val saved = try { purchaseAttempts.savePayment(purchaseVerifiedAccountRef, event.toString()) }
@@ -2188,7 +2274,7 @@ class SessionService : Service() {
                     publishActive(attempt, view.copy(purchase = PurchaseFlow.failure(
                         purchaseAttempts.recoveryState(purchaseVerifiedAccountRef) ?: view.purchase,
                         "PURCHASE_STATE_UNAVAILABLE")))
-                    if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                    if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
                     return
                 }
                 // Only the payment_create_result of the explicitly sent operation may carry
@@ -2220,9 +2306,9 @@ class SessionService : Service() {
                         armPurchaseConfirmationWindow(attempt)
                     }
                     PurchaseFlow.terminalPayment(parsed.payment) -> {
-                        if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                        if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
                     }
-                    else -> if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+                    else -> if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
                 }
             }
         }
@@ -2251,7 +2337,7 @@ class SessionService : Service() {
                 freshMeConfirmed = false, error = "PURCHASE_STATE_UNAVAILABLE")))
         }
         paymentCreates.clear()
-        if (purchaseGate.stopCold(attempt)) stopAttempt(null, "purchase_release")
+        if (stopColdPurchase(attempt)) stopAttempt(null, "purchase_release")
     }
 
     private fun sign(event: JSONObject, attempt: String) {

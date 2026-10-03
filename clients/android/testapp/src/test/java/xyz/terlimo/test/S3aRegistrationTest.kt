@@ -41,8 +41,10 @@ class S3aRegistrationTest {
         accessVersion = 1, serverTime = "2026-09-24T10:00:00Z", sessionGeneration = "1",
         previousSessionGeneration = null, accessRevision = "4",
         account = AccountAccessProjection.AccountAccessAccount(
-            state = "UNLINKED", telegramLinked = false, bindingStatus = "none",
-            managementOnly = false, accountRef = null),
+            state = if (registration.state == "registered") "VERIFIED_NO_ENTITLEMENT" else "UNLINKED",
+            telegramLinked = registration.state == "registered",
+            bindingStatus = if (registration.state == "registered") "active" else "none",
+            managementOnly = false, accountRef = if (registration.state == "registered") "account-A" else null),
         entitlement = AccountAccessProjection.AccountAccessEntitlement(
             type = "none", status = "none", effectiveDeviceLimit = 1, slotsUsed = 0,
             revision = "1", perpetualCommercial = false, validFrom = null, validUntil = null, sourceRef = null),
@@ -91,11 +93,11 @@ class S3aRegistrationTest {
     }
 
     @Test
-    fun `registration action is offered only during the active hour and not once registered`() {
+    fun `registration action is offered without an hour and not once registered`() {
         assertTrue(RegistrationUi.registerVisible(state(projection())))
         assertFalse(RegistrationUi.registerVisible(
             state(projection(registration = AccountAccessProjection.Registration("registered", true, true, null, true)))))
-        assertFalse(RegistrationUi.registerVisible(
+        assertTrue(RegistrationUi.registerVisible(
             state(projection(dataAccess = "subscription_data"))))
         assertFalse(RegistrationUi.registerVisible(state(null)))
     }
@@ -106,23 +108,44 @@ class S3aRegistrationTest {
         assertEquals("Завершите регистрацию в Telegram.", RegistrationUi.statusText(pending))
         assertEquals("Ожидаем подтверждение в Telegram", RegistrationUi.buttonText(pending))
 
-        val expired = state(projection()).copy(registration = RegistrationState(state = "registered",
+        val expired = state(projection(registration = AccountAccessProjection.Registration("registered", false, false, "hour_expired", true))).copy(registration = RegistrationState(state = "registered",
             withinHour = false, trialAvailable = false, trialReason = "hour_expired", purchaseAvailable = true))
-        assertEquals("Регистрация подтверждена, но час истёк: пробный доступ недоступен.",
+        assertEquals("Вход через Telegram подтверждён. Час истёк: пробный доступ недоступен.",
             RegistrationUi.statusText(expired))
 
-        val used = state(projection()).copy(registration = RegistrationState(state = "registered",
+        val used = state(projection(registration = AccountAccessProjection.Registration("registered", false, false, "trial_already_used", true))).copy(registration = RegistrationState(state = "registered",
             withinHour = false, trialAvailable = false, trialReason = "trial_already_used", purchaseAvailable = true))
-        assertEquals("Регистрация подтверждена. Пробный доступ уже использован.", RegistrationUi.statusText(used))
+        assertEquals("Вход через Telegram подтверждён. Пробный доступ уже использован.", RegistrationUi.statusText(used))
 
-        val available = state(projection()).copy(registration = RegistrationState(state = "registered",
+        val available = state(projection(registration = AccountAccessProjection.Registration("registered", true, true, "within_hour_no_prior_trial", true))).copy(registration = RegistrationState(state = "registered",
             withinHour = true, trialAvailable = true, trialReason = "within_hour_no_prior_trial", purchaseAvailable = true))
-        assertEquals("Регистрация подтверждена. Пробный доступ на 7 дней будет доступен позже.",
+        assertEquals("Вход через Telegram подтверждён. Пробный доступ на 7 дней будет доступен позже.",
             RegistrationUi.statusText(available))
 
         val disabled = state(projection()).copy(registration = RegistrationState(state = "none", error = "REGISTRATION_DISABLED"))
         assertEquals("Регистрация временно недоступна.", RegistrationUi.statusText(disabled))
         assertEquals("Повторить регистрацию в Telegram", RegistrationUi.buttonText(disabled))
+    }
+
+    @Test
+    fun coldRegistrationRechecksServerEligibilityAfterMe() {
+        val hour = state(projection())
+        val expired = state(projection(dataAccess = "none"))
+        val registered = state(projection(registration = AccountAccessProjection.Registration(
+            "registered", false, false, null, true)))
+        val paidExpired = expired.copy(purchase = PurchaseFlow.paymentResult(null, paidPayment()))
+        for ((fresh, expected) in listOf(hour to true, expired to true, paidExpired to true, registered to false)) {
+            val gate = RegistrationLoginGate()
+            assertEquals(RegistrationLoginTapAction.START_SERVICE,
+                gate.onTap(null, RegistrationAction.REGISTER, RegistrationAction.REGISTER.eligible(hour)))
+            gate.onAttemptStarted("cold")
+            val decision = gate.onVerifiedRights("cold") { it.eligible(fresh) }
+            assertEquals(if (expected) RegistrationVerified.Send(RegistrationAction.REGISTER)
+                else RegistrationVerified.Refused, decision)
+            assertTrue(gate.onResolved("cold"))
+        }
+        assertTrue(RegistrationAction.REFRESH.eligible(hour.copy(registration = RegistrationState(state = "pending"))))
+        assertFalse(RegistrationAction.REFRESH.eligible(registered.copy(registration = RegistrationState(state = "registered"))))
     }
 
     private fun paidPayment() = PaymentStatusView(
@@ -134,7 +157,7 @@ class S3aRegistrationTest {
         val expired = projection(dataAccess = "none",
             registration = AccountAccessProjection.Registration("none", false, false, null, true))
         val base = state(expired)
-        assertFalse(RegistrationUi.registerVisible(base))
+        assertTrue(RegistrationUi.registerVisible(base))
         val paid = base.copy(purchase = PurchaseFlow.paymentResult(
             PurchaseFlow.plansLoaded(null, "5", emptyList()), paidPayment()))
         assertTrue(PurchaseFlow.paidAwaitingBinding(paid.purchase))
@@ -142,16 +165,16 @@ class S3aRegistrationTest {
         assertEquals("Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить оплаченный доступ.",
             RegistrationUi.statusText(paid))
         assertEquals("Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить доступ.",
-            PaymentsText.purchaseStatus(paid.purchase, expired.registration, java.time.ZoneId.of("UTC")))
-        // Once registered the action is gone even with a paid order.
+            PaymentsText.purchaseStatus(paid.purchase, expired, java.time.ZoneId.of("UTC")))
+        // A registration link alone does not upgrade the old unlinked bearer.
         val registered = paid.copy(accountAccess = AccountAccessSnapshot(
             expired.copy(registration = AccountAccessProjection.Registration("registered", false, false, null, true)),
             0L, AccountAccessChain()))
-        assertFalse(RegistrationUi.registerVisible(registered))
-        // Once the entitlement is confirmed (no longer awaiting binding) the paid branch is off.
+        assertTrue(RegistrationUi.registerVisible(registered))
+        // Registration no longer depends on payment state, even after a historical confirmation.
         val confirmed = paid.copy(purchase = paid.purchase!!.copy(phase = PurchaseFlow.CONFIRMED))
         assertFalse(PurchaseFlow.paidAwaitingBinding(confirmed.purchase))
-        assertFalse(RegistrationUi.registerVisible(confirmed))
+        assertTrue(RegistrationUi.registerVisible(confirmed))
     }
 
     @Test

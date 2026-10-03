@@ -1590,6 +1590,8 @@ class MainActivity : Activity() {
     }
 
     /** Back/Cancel abandon only the local selection, never the existing server order. */
+    private var purchaseQuoteAfterConfirmation = false
+
     private fun clearPurchaseSelection(clearPlan: Boolean) {
         if (clearPlan) {
             purchasePlanId = null
@@ -1603,7 +1605,8 @@ class MainActivity : Activity() {
     }
 
     private fun showPurchasePlans() {
-        if (purchaseBusy() || PurchaseFlow.blocksNewPurchase(SessionService.view.purchase)) return
+        if (!PurchaseFlow.offered(SessionService.view.accountAccess?.projection) ||
+            purchaseBusy() || PurchaseFlow.blocksNewPurchase(SessionService.view.purchase)) return
         val plans = PaymentsText.orderedPlans(SessionService.view.purchase?.plans.orEmpty())
         android.app.AlertDialog.Builder(this).setTitle("Тариф подписки")
             .setItems(plans.map(PaymentsText::purchasePlanLine).toTypedArray()) { _, index ->
@@ -1660,13 +1663,15 @@ class MainActivity : Activity() {
     private fun showPurchaseMethods() {
         val current = SessionService.view.purchase ?: return
         val plan = current.plans.firstOrNull { it.planId == purchasePlanId } ?: return
-        if (purchaseBusy() || PurchaseFlow.blocksNewPurchase(current)) return
+        if (!PurchaseFlow.offered(SessionService.view.accountAccess?.projection) ||
+            purchaseBusy() || PurchaseFlow.blocksNewPurchase(current)) return
         val methods = PaymentsText.orderedMethods(plan)
         android.app.AlertDialog.Builder(this).setTitle("Способ оплаты")
             .setItems(methods.map { PaymentsText.methodLabel(it).orEmpty() }.toTypedArray()) { _, index ->
                 if (!purchaseBusy()) {
                     clearPurchaseSelection(clearPlan = false)
                     purchaseMethod = methods[index]
+                    purchaseQuoteAfterConfirmation = SessionService.view.purchase?.phase == PurchaseFlow.CONFIRMED
                     // Exactly one quote per explicit method choice. No render/resume retry.
                     startForegroundService(Intent(this, SessionService::class.java)
                         .setAction("purchase_quote")
@@ -1684,8 +1689,7 @@ class MainActivity : Activity() {
 
     /** Rendering cannot request a quote or create an invoice; it only displays server data. */
     private fun renderPurchase(state: ViewState) {
-        val registration = state.accountAccess?.projection?.registration
-        val offered = PurchaseFlow.offered(registration)
+        val offered = PurchaseFlow.offered(state.accountAccess?.projection)
         val plans = PaymentsText.orderedPlans(state.purchase?.plans.orEmpty())
         val sending = state.purchase?.sending == true
         val bindingPaid = PurchaseFlow.blocksNewPurchase(state.purchase)
@@ -1723,12 +1727,10 @@ class MainActivity : Activity() {
         }
         val open = if (offered) checkoutOpenPolicy.autoOpenAfterPay(state.purchase?.createAck) else null
         if (open != null) launchCheckoutBrowser(open)
-        purchaseStatus.text = purchaseStatusLine(state, registration)
-        if (purchaseMethod != null && !bindingPaid && quote == null &&
-            state.purchase?.phase != PurchaseFlow.EXPIRED_NO_ORDER &&
-            (!sending || state.purchase?.quote == null)) {
-            purchaseStatus.append("\n" + if (sending) PaymentsText.PRICE_WAIT_TEXT else PaymentsText.PRICE_RETRY_TEXT)
-        }
+        if (state.purchase?.phase != PurchaseFlow.CONFIRMED) purchaseQuoteAfterConfirmation = false
+        purchaseStatus.text = purchaseStatusLine(state)
+        PaymentsText.quoteHint(state.purchase, offered && purchaseMethod != null, quote != null,
+            purchaseQuoteAfterConfirmation)?.let { purchaseStatus.append("\n$it") }
         // These actions depend on the existing order, not on the new choice or its cancellation.
         val payment = state.purchase?.payment
         purchaseContinueButton.visibility = if (checkoutOpenPolicy.canContinue(payment)) View.VISIBLE else View.GONE
@@ -1741,10 +1743,7 @@ class MainActivity : Activity() {
     }
 
     /** The accepted purchase status plus the visible checkout-open error, when one exists. */
-    private fun purchaseStatusLine(
-        state: ViewState,
-        registration: AccountAccessProjection.Registration?,
-    ): String = PaymentsText.purchaseStatus(state.purchase, registration, java.time.ZoneId.systemDefault()) +
+    private fun purchaseStatusLine(state: ViewState): String = PaymentsText.purchaseStatus(state.purchase, state.accountAccess?.projection, java.time.ZoneId.systemDefault()) +
         (checkoutOpenPolicy.openError?.let { "\n$it" } ?: "")
 
     /**

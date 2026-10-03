@@ -386,7 +386,7 @@ class AccountService:
         entitlement = _entitlement_snapshot(context)
         onboarding = _onboarding(context)
         resolution = _grant_resolution(context)
-        registration = await registration_view(connection, context.installation_id, self._settings)
+        registration = await registration_view(connection, context.installation_id, self._settings, account_id=context.account_id if context.binding_status == "active" else None)
         trial = await trial_status(connection, self._settings, context)
         # Binding generation fence from the same snapshot; reading never creates a slot/right.
         # For an installation-scoped active hour (no commercial binding) the same backward

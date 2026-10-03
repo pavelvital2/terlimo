@@ -48,6 +48,17 @@ internal object PaymentsText {
     const val CANCEL_TEXT = "❌ Отмена"
     const val EXTRA_RENEWAL_WARNING =
         "Если продлить меньше дополнительных мест, после окончания их оплаченного срока последнее добавленное устройство будет отключено. Два базовых места сохранятся."
+    /** A completed order never inherits the abandoned quote hint from its old selection. */
+    fun quoteHint(state: PurchaseState?, methodSelected: Boolean, quoteVisible: Boolean,
+        explicitNextPurchase: Boolean): String? {
+        if (!methodSelected || PurchaseFlow.blocksNewPurchase(state) || quoteVisible ||
+            state?.phase == PurchaseFlow.EXPIRED_NO_ORDER ||
+            (state?.phase == PurchaseFlow.CONFIRMED && !explicitNextPurchase) ||
+            (state?.sending == true && state.quote != null)) return null
+        return if (state?.sending == true) PRICE_WAIT_TEXT else PRICE_RETRY_TEXT
+    }
+
+    const val REGISTRATION_FIRST_TEXT = "Сначала зарегистрируйтесь или войдите через Telegram. Для регистрации и оплаты нужен интернет."
     const val PRICE_WAIT_TEXT = "Уточняем цену…"
     const val PRICE_RETRY_TEXT = "Цена не подтверждена. Выберите способ оплаты ещё раз."
 
@@ -189,6 +200,7 @@ internal object PaymentsText {
         "SERVICE_UNAVAILABLE" -> UNAVAILABLE_TEXT
         "INVALID_REQUEST" -> "Запрос покупки отклонён. Проверьте выбор тарифа."
         "MOBILE_STATE_UNAVAILABLE" -> "Сервис покупки сейчас недоступен. Повторите позже."
+        "TELEGRAM_REQUIRED" -> REGISTRATION_FIRST_TEXT
         "BUSY" -> "Сервис покупки занят. Повторите позже."
         "TRANSPORT" -> "Нет связи с сервисом покупки. Повторите позже."
         "QUOTE_EXPIRED" -> "Предложение истекло. Оформите его заново."
@@ -212,7 +224,7 @@ internal object PaymentsText {
      */
     fun purchaseStatus(
         state: PurchaseState?,
-        registration: AccountAccessProjection.Registration?,
+        me: AccountAccessProjection?,
         zone: ZoneId,
     ): String {
         when (state?.recovery) {
@@ -233,7 +245,9 @@ internal object PaymentsText {
                     "Нажмите «Восстановить оплату», чтобы проверить прежний запрос. " +
                     "Новая покупка недоступна до выяснения результата."
         }
-        val offered = state != null && PurchaseFlow.offered(registration)
+        if (me != null && !PurchaseFlow.usableAccount(me) && state?.payment == null &&
+            state?.recovery == null && state?.error == null) return REGISTRATION_FIRST_TEXT
+        val offered = state != null && PurchaseFlow.offered(me)
         if (state == null || state.phase == PurchaseFlow.IDLE) {
             return if (offered) CHECK_AVAILABILITY_TEXT else PaymentsText.UNAVAILABLE_TEXT
         }
@@ -263,7 +277,7 @@ internal object PaymentsText {
                 ).joinToString(" ")
             }
             PurchaseFlow.AWAITING_CONFIRMATION ->
-                if (PurchaseFlow.paidAwaitingBinding(state) && registration?.state != "registered")
+                if (PurchaseFlow.paidAwaitingBinding(state) && !PurchaseFlow.usableAccount(me))
                     "Оплата получена. Зарегистрируйтесь в Telegram, чтобы применить доступ."
                 else "Оплата получена. Ожидаем подтверждение подписки по серверу…"
             PurchaseFlow.CONFIRMED -> "Оплата подтверждена сервером. Доступ обновлён." + creditedPeriod(state.payment, zone)

@@ -42,7 +42,6 @@ LINK_PATH = f"{MOBILE_PREFIX}/registration/telegram/link"
 CONFIRM_PATH = f"{MOBILE_PREFIX}/internal/telegram/registration/confirm"
 BOT_KEY_HEADER = "X-Telegram-Bot-Key"
 CONFIRM_KEYS = frozenset({"token", "telegram_id", "telegram_username"})
-PURCHASE_AVAILABLE = True
 
 
 def registration_enabled(settings: Settings) -> bool:
@@ -60,7 +59,7 @@ def _bearer_token(request: web.Request) -> str:
     return header[len("Bearer ") :].strip()
 
 
-def _empty_registration() -> dict[str, Any]:
+def _empty_registration(*, purchase: bool = False) -> dict[str, Any]:
     return {
         "state": "none",
         "telegram_id": None,
@@ -68,8 +67,26 @@ def _empty_registration() -> dict[str, Any]:
         "within_hour": False,
         "trial_available": False,
         "trial_reason": None,
-        "purchase_available": PURCHASE_AVAILABLE,
+        "purchase_available": purchase,
     }
+
+
+async def purchase_available(connection, installation_id, account_id):
+    """Same trusted account/binding condition as session issuance; never a paid right."""
+    if account_id is None:
+        return False
+    return bool(await connection.fetchval(
+        "SELECT 1 FROM account_bindings b JOIN accounts a ON a.id=b.account_id "
+        "WHERE b.installation_id=$1 AND b.account_id=$2 AND b.status='active' "
+        "AND a.status='verified' AND a.telegram_id IS NOT NULL LIMIT 1",
+        installation_id, account_id,
+    ))
+
+
+async def require_purchase_binding(connection, context):
+    if (context.binding is None or context.binding["status"] != "active"
+            or not await purchase_available(connection, context.installation_id, context.account_id)):
+        raise ApiError("ACCESS_DENIED", http=403, retryable=False)
 
 
 async def _trial_used(connection: asyncpg.Connection, telegram_id: int) -> bool:
@@ -120,9 +137,10 @@ async def _active_binding_status(connection, installation_id, telegram_id):
 
 
 async def registration_view(
-    connection: asyncpg.Connection, installation_id: Any, settings: Settings
+    connection: asyncpg.Connection, installation_id: Any, settings: Settings, *, account_id: Any = None
 ) -> dict[str, Any]:
     """Read-only registration projection for /me (never creates rows)."""
+    eligible = await purchase_available(connection, installation_id, account_id)
     link = await connection.fetchrow(
         """
         SELECT * FROM registration_links
@@ -135,7 +153,7 @@ async def registration_view(
     )
     if link is not None and link["status"] == "confirmed":
         if not registration_enabled(settings):
-            return _empty_registration()
+            return _empty_registration(purchase=eligible)
         # NOTE: the /me Registration projection schema is frozen (additionalProperties=false);
         # device binding state is reported by GET /api/mobile/v1/devices, not here.
         return {
@@ -145,7 +163,7 @@ async def registration_view(
             "within_hour": bool(link["within_hour"]),
             "trial_available": bool(link["trial_available"]),
             "trial_reason": link["trial_reason"],
-            "purchase_available": PURCHASE_AVAILABLE,
+            "purchase_available": eligible,
         }
     if link is not None and link["status"] == "pending":
         return {
@@ -155,10 +173,10 @@ async def registration_view(
             "within_hour": False,
             "trial_available": False,
             "trial_reason": None,
-            "purchase_available": PURCHASE_AVAILABLE,
+            "purchase_available": eligible,
             "link_expires_at": rfc3339(link["expires_at"]),
         }
-    return _empty_registration()
+    return _empty_registration(purchase=eligible)
 
 
 async def _account_advisory(connection, account_id: Any) -> None:
@@ -239,7 +257,8 @@ async def create_registration_link(
             raise ApiError("REVISION_CONFLICT", http=409, retryable=True)
         if confirmed is not None and active is not None:
             # Registered is reported only while an active binding exists.
-            result = _confirmed_result(confirmed, binding_status="active")
+            result = _confirmed_result(confirmed, binding_status="active",
+                purchase=await purchase_available(connection, installation_id, locked_account))
             result["state"] = result.pop("registration_state")
             return result
         # No active binding: a new Telegram proof is required (first bind, limit window after a
@@ -315,7 +334,9 @@ async def confirm_registration(
             # Idempotent replay: never (re)creates a binding. Only the current binding
             # projection is reported; a new Telegram flow is required to bind.
             binding_status = await _active_binding_status(connection, link["installation_id"], telegram_id)
-            return _confirmed_result(link, binding_status=binding_status)
+            account_id = await connection.fetchval("SELECT id FROM accounts WHERE telegram_id=$1", telegram_id)
+            return _confirmed_result(link, binding_status=binding_status,
+                purchase=await purchase_available(connection, link["installation_id"], account_id))
         if link["status"] == "expired" or link["expires_at"] <= now_utc():
             await connection.execute(
                 "UPDATE registration_links SET status = 'expired' WHERE id = $1", link["id"]
@@ -440,6 +461,7 @@ async def confirm_registration(
         result = _confirmed_result(
             confirmed,
             binding_status=binding_status,
+            purchase=await purchase_available(connection, link["installation_id"], account_id),
             slots_used=slots_after,
             device_limit=effective_limit,
         )
@@ -456,6 +478,7 @@ def _confirmed_result(
     binding_status: str | None = None,
     slots_used: int | None = None,
     device_limit: int | None = None,
+    purchase: bool = False,
 ) -> dict[str, Any]:
     result = {
         "registration_state": "registered",
@@ -464,7 +487,7 @@ def _confirmed_result(
         "within_hour": bool(link["within_hour"]),
         "trial_available": bool(link["trial_available"]),
         "trial_reason": link["trial_reason"],
-        "purchase_available": PURCHASE_AVAILABLE,
+        "purchase_available": purchase,
     }
     if binding_status is not None:
         result["binding_status"] = binding_status

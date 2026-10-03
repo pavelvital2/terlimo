@@ -25,6 +25,7 @@ from .mobile_account import BASE_LIMIT
 from .payments import PAYMENT_PROVIDER_KEY, _envelope, _order_view, create_order, payment_amount
 from .s5_checkout_receipts import CheckoutPolicy, issue_checkout_receipt
 from .session_auth import AuthError, authenticate_session
+from .telegram_binding import require_purchase_binding
 from .payments import payment_install_lock
 from .payment_products import ADDON_PLAN, quote_product, product_of, public_product, active_paid, slots, order_product
 
@@ -258,6 +259,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
             digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
             async with database.acquire() as connection:
                 context = await authenticate_session(connection, settings, token)
+                await require_purchase_binding(connection, context)
                 existing = await connection.fetchrow(
                     "SELECT * FROM s5_payment_quotes WHERE installation_id=$1 AND idempotency_key=$2",
                     context.installation_id, key,
@@ -342,6 +344,7 @@ def register_s5_payment_routes(app: web.Application, settings: Settings, databas
                 # create_order reenters this same connection/session lock.
                 async with payment_install_lock(connection, installation_id):
                     context = await authenticate_session(connection, settings, token)
+                    await require_purchase_binding(connection, context)
                     if context.installation_id != installation_id:
                         raise AuthError("SESSION_INVALID", 401)
                     # Global key conflicts and all durable states outrank freshness.

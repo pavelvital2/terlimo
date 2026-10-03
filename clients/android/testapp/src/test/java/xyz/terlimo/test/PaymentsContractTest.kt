@@ -144,7 +144,7 @@ class PaymentsContractTest {
         assertEquals("payment_create_result", unavailable.type)
         val state = PurchaseFlow.failure(null, unavailable.code)
         assertEquals(PurchaseFlow.UNAVAILABLE, state.phase)
-        val registration = AccountAccessProjection.Registration("registered", true, false, null, false)
+        val registration: AccountAccessProjection? = null
         assertEquals(PaymentsText.PROVIDER_UNAVAILABLE_TEXT,
             PaymentsText.purchaseStatus(state, registration, moscow))
         // purchase_available=false shows the same honest unavailable state, never a dead button claim.

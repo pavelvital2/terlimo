@@ -28,7 +28,7 @@ class PurchaseFlowTest {
         PaymentStatusView("pay-1", status, null, creditedRevision, "not_requested")
 
     private fun registration(purchaseAvailable: Boolean) =
-        AccountAccessProjection.Registration("registered", true, true, null, purchaseAvailable)
+        projection("active").let { it.copy(registration = it.registration.copy(state = "registered", purchaseAvailable = purchaseAvailable)) }
 
     private fun projection(entitlementStatus: String, entitlementType: String = "paid",
                            entitlementRevision: String = "9"): AccountAccessProjection =
