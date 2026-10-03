@@ -62,14 +62,18 @@ async def trusted_operation(connection, body, key=None):
         return result
 
 
+def require_trusted_backend(request, settings):
+    supplied = request.headers.get(BOT_KEY_HEADER, '')
+    expected = settings.telegram_bot_key
+    if not supplied or not expected or not hmac.compare_digest(supplied.encode(), expected.encode()):
+        raise ApiError('REGISTRATION_AUTH', http=403, retryable=False)
+
+
 def register_trusted_referral_routes(app,settings,database):
     async def handler(request):
         request_id = random_hex(16)
         try:
-            supplied = request.headers.get(BOT_KEY_HEADER,'')
-            expected = settings.telegram_bot_key
-            if not supplied or not expected or not hmac.compare_digest(supplied.encode(),expected.encode()):
-                raise ApiError('REGISTRATION_AUTH',http=403,retryable=False)
+            require_trusted_backend(request,settings)
             body = await _json_body(request)
             async with database.acquire() as connection:
                 result = await trusted_operation(connection,body,request.headers.get('Idempotency-Key'))

@@ -1,0 +1,16 @@
+{
+  "path": "/api/mobile/v1/internal/telegram/account",
+  "method": "POST",
+  "authentication": "X-Telegram-Bot-Key (backend only; value omitted)",
+  "request": {"operation": "ensure", "telegram_id": 701},
+  "response_ready": {"request_id": "example", "account": {"account_ref": "00000000-0000-4000-8000-000000000701", "status": "verified", "history_state": "ready"}},
+  "response_pending": {"request_id": "example", "account": {"account_ref": "00000000-0000-4000-8000-000000000701", "status": "verified", "history_state": "history_pending"}},
+  "errors": [
+    {"http": 400, "code": "BAD_MESSAGE"},
+    {"http": 403, "code": "REGISTRATION_AUTH", "retryable": false},
+    {"http": 409, "code": "REGISTRATION_REQUIRED", "retryable": false},
+    {"http": 409, "code": "REVISION_CONFLICT", "retryable": true},
+    {"http": 503, "code": "SERVICE_UNAVAILABLE", "retryable": true}
+  ],
+  "error_envelope": "Existing flat ApiError envelope; these are code/status fixture projections, not full HTTP payloads. Ordinary initializer errors are preserved."
+}
