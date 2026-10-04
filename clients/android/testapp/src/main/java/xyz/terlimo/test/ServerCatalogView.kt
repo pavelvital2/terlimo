@@ -59,11 +59,10 @@ internal class ServerCatalogView(
             browseMode -> addBrowse(state, BrowseCatalogCodec.displayedNodes(state))
             expired -> addExpired(state)
             // Retained verified catalog after an ordinary Disconnect: show it read-only
-            // (selection cannot mutate the stale cache) plus the idle/error message.
+            // (selection cannot mutate the stale cache) plus any error message.
             CatalogRenderPolicy.showRetained(state.phase, state.nodes) -> {
                 if (state.phase == "Error")
                     addError(state.error, retry = CatalogErrorActions.credentialRetry(state.phase, state.error))
-                else addIdle()
                 addContent(state, readOnly = true)
             }
             state.phase == "Idle" -> addIdle()

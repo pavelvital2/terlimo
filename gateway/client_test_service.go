@@ -200,8 +200,10 @@ func servicePathAllowed(method, path string) bool {
 		"/api/mobile/v1/trial/activate":
 		return method == "POST"
 	case "/api/mobile/v1/me", "/api/mobile/v1/service-seed", "/api/mobile/v1/gateways", "/api/mobile/v1/plans",
-		"/api/mobile/v1/usage", "/api/mobile/v1/devices", "/api/mobile/v1/announcements":
+		"/api/mobile/v1/usage", "/api/mobile/v1/devices", "/api/mobile/v1/announcements", "/api/mobile/v1/referral":
 		return method == "GET"
+	case "/api/mobile/v1/referral/candidate":
+		return method == "POST" || method == "DELETE"
 	case "/api/mobile/v1/quotes", "/api/mobile/v1/payments":
 		return method == "POST"
 	}
@@ -230,7 +232,7 @@ func servicePathAllowed(method, path string) bool {
 		mid := strings.TrimSuffix(strings.TrimPrefix(path, announcements), "/read")
 		return serviceOperationID.MatchString(mid)
 	}
-	// Device removal is the only non-GET operation class: DELETE with a strict operation-style
+	// Device removal is the dynamic DELETE operation: DELETE with a strict operation-style
 	// UUID and nothing else (no trailing slash, suffix, query or path escape; the caller
 	// sanitizes those before this gate).
 	const devices = "/api/mobile/v1/devices/"
