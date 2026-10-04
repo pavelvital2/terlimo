@@ -206,6 +206,8 @@ class MixedDeliveryHandlers:
             await benefit_lock(connection,source['account_id'])
             await connection.fetchrow('SELECT account_id FROM referral_benefits WHERE account_id=$1 FOR UPDATE',source['account_id'])
             await connection.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))','paid-account:'+str(source['account_id']))
+            if source['source_kind']=='reward':
+                await connection.fetchrow('SELECT id FROM referral_rewards WHERE id=$1 FOR UPDATE',source['source_reward_id'])
             source=await connection.fetchrow('SELECT * FROM delivery_fulfillments WHERE id=$1 FOR UPDATE',source['id'])
             if not await _token(connection,operation):return ('failed','claim_token_lost')
             batch,error=await freeze(connection,source,self.settings)
@@ -216,7 +218,10 @@ class MixedDeliveryHandlers:
             created=await connection.fetchval('''INSERT INTO delivery_completions(source_id,plan_id,receipt) VALUES($1,$2,$3::jsonb) ON CONFLICT(source_id) DO NOTHING RETURNING source_id''',source['id'],batch['id'],{'source_digest':source['snapshot_digest'],'required_items':count,'typed_proofs':proofs})
             if created:
                 from .referral_rewards import enqueue_reward
-                if order:
+                if source['source_kind']=='reward':
+                    from .typed_inviter import complete
+                    await complete(connection,source)
+                elif order:
                     await connection.execute('UPDATE payment_orders SET needs_grant=false,updated_at=now() WHERE id=$1',order['id'])
                     if order['months'] in (1,3,6):await enqueue_reward(connection,account_id=source['account_id'],event_kind='first_main_paid',source_entitlement_id=source['entitlement_id'],source_order_id=order['id'],months=order['months'])
                 elif source['source_kind']=='trial':

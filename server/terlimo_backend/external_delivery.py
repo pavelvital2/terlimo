@@ -212,6 +212,9 @@ async def freeze_and_enqueue(connection, fulfillment_id, manifest_id):
 
 
 async def _applicable(connection, source):
+    if source['source_kind']=='reward':
+        from .typed_inviter import source_matches
+        if not await source_matches(connection,source):return False
     account=await connection.fetchval("SELECT status='verified' FROM accounts WHERE id=$1",source['account_id'])
     current=await connection.fetchrow('SELECT * FROM entitlements WHERE id=$1',source['entitlement_id'])
     newest=await connection.fetchval('SELECT max(source_sequence) FROM delivery_fulfillments WHERE account_id=$1',source['account_id'])

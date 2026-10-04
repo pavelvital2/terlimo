@@ -139,12 +139,20 @@ async def sweep_rewards(connection, settings, *, limit: int = 100) -> int:
     for source in rows:
         async with connection.transaction():
             from .gateway_control import grant_owner_lock
-            await grant_owner_lock(connection,source['inviter_account_id'])
+            mapped=await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',source['inviter_account_id'])
+            if mapped:
+                await connection.fetchval('SELECT id FROM accounts WHERE id=$1 FOR SHARE',source['inviter_account_id'])
+            else:
+                await grant_owner_lock(connection,source['inviter_account_id'])
             await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",f"paid-account:{source['inviter_account_id']}")
             reward = await connection.fetchrow("SELECT * FROM referral_rewards WHERE id=$1 FOR UPDATE",source['id'])
             if reward['state'] == 'APPLIED':
                 continue
             await connection.execute("UPDATE referral_rewards SET updated_at=clock_timestamp() WHERE id=$1",reward['id'])
+            if reward['fulfillment_kind']=='typed' or (mapped and reward['state']=='WAITING'):
+                from .typed_inviter import examine
+                await examine(connection,reward)
+                continue
             if reward['state'] == 'WAITING':
                 entitlement = await connection.fetchrow("""
                     SELECT * FROM entitlements WHERE account_id=$1 AND kind IN ('paid','imported','trial')

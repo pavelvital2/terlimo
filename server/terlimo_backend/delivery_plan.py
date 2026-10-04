@@ -115,20 +115,31 @@ async def capture_trial(connection, row, moment):
                           await _snapshot(connection, row, at=moment, commercial=None))
 
 
-async def _capture(connection, ent, kind, order_id, snap):
+async def _capture(connection, ent, kind, order_id, snap, *, reward_id=None):
     # Caller already owns order/account/benefit/paid-account locks. Insert FKs use
     # compatible KEY SHARE; no late account/advisory lock introduced here.
     sequence = await connection.fetchval('''INSERT INTO delivery_source_counters(account_id,sequence)
         VALUES($1,1) ON CONFLICT(account_id) DO UPDATE
         SET sequence=delivery_source_counters.sequence+1 RETURNING sequence''', ent['account_id'])
     source=await connection.fetchrow('''INSERT INTO delivery_fulfillments
-        (account_id,source_kind,source_order_id,entitlement_id,source_revision,snapshot,snapshot_digest,source_sequence)
-        VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *''', ent['account_id'], kind,
-        order_id, ent['id'], ent['revision'], snap, digest(snap), sequence)
+        (account_id,source_kind,source_order_id,entitlement_id,source_revision,snapshot,snapshot_digest,source_sequence,source_reward_id)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9) RETURNING *''', ent['account_id'], kind,
+        order_id, ent['id'], ent['revision'], snap, digest(snap), sequence,reward_id)
     if await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',ent['account_id']):
         from .mixed_delivery import queue
         await queue(connection,source['id'],'capture')
     return source
+
+
+async def capture_reward(connection, reward, entitlement, previous_plan_id):
+    """Only original WAITING extension transaction; never reconstruct old APPLYING."""
+    if not connection.is_in_transaction() or reward['state']!='WAITING':
+        raise ValueError('original typed reward extension transaction required')
+    snap=await _snapshot(connection,entitlement,at=await connection.fetchval('SELECT clock_timestamp()'),
+        commercial={'reward_id':str(reward['id']),'days':reward['days'],
+            'base_end':stamp(reward['target_base_ends_at']), 'target_end':stamp(entitlement['ends_at']),
+            'eligible_plan_id':str(previous_plan_id)})
+    return await _capture(connection,entitlement,'reward',None,snap,reward_id=reward['id'])
 
 
 def validate_manifest(body, allowlist):
