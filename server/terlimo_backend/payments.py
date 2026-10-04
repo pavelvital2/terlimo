@@ -889,6 +889,9 @@ async def apply_paid_entitlement(
             credited = await connection.fetchrow("UPDATE entitlements SET device_limit=$2,revision=revision+1 WHERE id=$1 RETURNING id,revision",target["id"],await paid_limit(connection,target,now))
             receipt = {"valid_from":rfc3339(now),"valid_until":rfc3339(target["ends_at"]),"device_limit":await paid_limit(connection,target,now),"current_device_limit":await paid_limit(connection,target,now)}
             await connection.execute("UPDATE payment_orders SET applied_entitlement_id=$2,account_id=$3,binding_id=$4,credited_entitlement_revision=$5,credited_product=$6::jsonb WHERE id=$1",order_id,credited["id"],account_id,binding_id,credited["revision"],json.dumps(receipt))
+            if account_owned:
+                from .delivery_plan import capture_paid
+                await capture_paid(connection, order_id)
             enqueued = await _enqueue_paid_grant(connection,settings,order_id=order_id)
             await connection.execute("UPDATE payment_orders SET needs_grant=$2 WHERE id=$1",order_id,not enqueued)
             return credited["id"]
@@ -975,6 +978,9 @@ async def apply_paid_entitlement(
             int(credited["revision"]),
             json.dumps(receipt),
         )
+        if account_owned:
+            from .delivery_plan import capture_paid
+            await capture_paid(connection, order_id)
         # Automatic paid access: enqueue the normal grant/outbox path for the bound account so a
         # paid webhook does not depend on a later client access.sync. Gateway unavailability is
         # handled by the existing outbox retries.

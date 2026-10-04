@@ -60,6 +60,8 @@ async def trusted_trial(connection, checker, body):
         if existing is not None:
             return {'trial': projection(existing, moment)}
         row = await insert_trial(connection, account_id, moment)
+        from .delivery_plan import capture_trial
+        await capture_trial(connection, row, moment)
         return {'trial': projection(row, moment, replay=False), 'account_state':'ACTIVE_TRIAL'}
 
 

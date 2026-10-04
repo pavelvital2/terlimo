@@ -1,0 +1,30 @@
+{
+  "manifest": {
+    "id": "00000000-0000-4000-8000-000000000002",
+    "account_id": "00000000-0000-4000-8000-000000000001",
+    "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "targets": [
+      {
+        "kind": "direct",
+        "deployment": "offline-test",
+        "external_key": "test:device:1",
+        "grant_uuid": "6f1f90d6-91c6-54e7-ae67-23a868356d80",
+        "fence": "00000000-0000-4000-8000-000000000003",
+        "expected_base": {
+          "state": "absent",
+          "expires_at": null,
+          "revision": 0
+        },
+        "device_index": 1
+      }
+    ]
+  },
+  "allowlist": {
+    "offline-test": {
+      "test:device:1": {
+        "account_id": "00000000-0000-4000-8000-000000000001",
+        "grant_uuid": "6f1f90d6-91c6-54e7-ae67-23a868356d80"
+      }
+    }
+  }
+}
