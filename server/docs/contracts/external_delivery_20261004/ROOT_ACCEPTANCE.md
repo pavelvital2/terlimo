@@ -1,0 +1,9 @@
+# Root SOURCE acceptance — external delivery worker + W1
+
+Base55dc744af0ab8f007aa84f191ca5120fdafb5e38; initial donor e56bb3ec6b3915296318a316a048ce904a8804f7; corrected donor094416cd4afabfd64c512715fd7598a470537383. All298postimages and artifact hashes match, full/delta review/apply and diffcheck PASS.
+
+Root inspected operator claim/mapping authority, immutable original source capture, physical queue/proof/worker-token transactions and0044storage/rollback. Independent bounded review found W1: dependency terminal failure stranded a successor after predecessor success. Root verified correction: exact token is cleared under physical lock before handler returns, authenticated proof wakes only matching unstarted dependency rows, late worker finalization is fenced. Accepted/proven gap and unacknowledged/actual-conflict/dead barriers remain. Specifically recoverable readback commits observation and uses existing bounded same-wire retry; sharedworker/adapter/client unchanged.
+
+Executor evidence: original20distinct cases/27executions PASS; W1 five distinct cases/five executions PASS69.21s. Root read actual tests and raw logs, did not rerun accepted suites. W1 uses real tempPG workers and accepted adapter/tempSQLite/FakeAdmin/strictclient fakeUnix; both completion orders, no manual reset/status update; acknowledged readback recovers with one mutation; unacked/conflict stay blocked.
+
+SOURCE accepted, not runtime/VPN/business completion. Claims do not enable access; application history/current projection differ; no reward/needs_grant clear/artifact storage. Runtime registration default remains unchanged. Common capacity/admission, aggregate rewards/lifecycle/caller projection, protected writer ownership/history/cutover and end-to-end acceptance remain required. No production/phone/provider/liveDB change authorized by this receipt.

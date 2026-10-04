@@ -116,10 +116,13 @@ async def capture_trial(connection, row, moment):
 async def _capture(connection, ent, kind, order_id, snap):
     # Caller already owns order/account/benefit/paid-account locks. Insert FKs use
     # compatible KEY SHARE; no late account/advisory lock introduced here.
+    sequence = await connection.fetchval('''INSERT INTO delivery_source_counters(account_id,sequence)
+        VALUES($1,1) ON CONFLICT(account_id) DO UPDATE
+        SET sequence=delivery_source_counters.sequence+1 RETURNING sequence''', ent['account_id'])
     return await connection.fetchrow('''INSERT INTO delivery_fulfillments
-        (account_id,source_kind,source_order_id,entitlement_id,source_revision,snapshot,snapshot_digest)
-        VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING *''', ent['account_id'], kind,
-        order_id, ent['id'], ent['revision'], snap, digest(snap))
+        (account_id,source_kind,source_order_id,entitlement_id,source_revision,snapshot,snapshot_digest,source_sequence)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *''', ent['account_id'], kind,
+        order_id, ent['id'], ent['revision'], snap, digest(snap), sequence)
 
 
 def validate_manifest(body, allowlist):
