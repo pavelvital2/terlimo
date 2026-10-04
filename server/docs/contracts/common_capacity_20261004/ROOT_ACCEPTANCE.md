@@ -1,0 +1,9 @@
+# Common capacity — root SOURCE acceptance
+
+Donor1c18d5844940b1d0e7501ffc7ea20bb2df62b8ad over006be0a885b622880ca44fff88e166bfff81669b. All304postimages/artifact hashes and five rawlog hashes match; apply/diffcheck PASS. Root inspected protected activation/0045/storage/membership/planner/worker integration; independent bounded mobile/admission review ACCEPT, no new concrete defect. Neither reviewer reran suites or runtime.
+
+Verified source: explicit activation from full retained authenticated direct mapping, current verified owner/capacity and no active mobile; stage/claim reserve zero. Existing bind-account serializes activation/real mobile admissions/revoke; typed stable order and shared live deadlines/counts. Source-only current mixed membership remains incomplete for direct-only planner; immutable sources/items are preserved. Possibly-issued recovery retains original wire; incomplete aggregate is not full transport completion. Existing unmapped/mobile-only behavior and referral-info authorization retained.
+
+Executor evidence:16unique affected successful cases over staged runs,19executions/17PASS/two resolved fixture failures plus initial collection quoting error. Actual PG handlers and accepted fake direct adapter/client; both activation-confirm lock orders, simultaneous confirms, revoke/reactivate, shared ranks and expired mobile dispatch, frozen mixed incomplete, authority/overcapacity/empty migration down. Root read final coverage and test source; no extra full rerun required.
+
+SOURCE accepted, not runtime/cutover/product completion. Full imported mixed activation, typed mixed delivery/membership catchup, aggregate paid/trial/inviter rewards, lifecycle/artifact/caller integration and E2E remain mandatory. No live TEST/production/phone/provider change. No new business policy, entitlement or physical pairing.

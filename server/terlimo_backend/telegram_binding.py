@@ -449,13 +449,8 @@ async def _confirm_registration(
         from .mobile_account import effective_device_limit  # local import avoids a cycle
 
         effective_limit = await effective_device_limit(connection, account_id)
-        used = int(
-            await connection.fetchval(
-                "SELECT count(*) FROM account_bindings WHERE account_id = $1 AND status = 'active'",
-                account_id,
-            )
-            or 0
-        )
+        from .common_capacity import occupied_count, append_mobile
+        used = await occupied_count(connection, account_id)
         slots_after = used
         binding_status = "active"
         # Exact (account, installation) pair only: history for this account may be reactivated,
@@ -487,14 +482,15 @@ async def _confirm_registration(
                 limit_details = {"slots_used": used, "device_limit": effective_limit}
                 binding_status = "no_binding"
             else:
-                await connection.execute(
+                binding_id = await connection.fetchval(
                     """
                     INSERT INTO account_bindings (account_id, installation_id, status)
-                    VALUES ($1, $2, 'active')
+                    VALUES ($1, $2, 'active') RETURNING id
                     """,
                     account_id,
                     link["installation_id"],
                 )
+                await append_mobile(connection, account_id, binding_id)
                 slots_after = used + 1
         elif pair["status"] == "active":
             binding_status = "active"
@@ -511,6 +507,7 @@ async def _confirm_registration(
                 """,
                 pair["id"],
             )
+            await append_mobile(connection, account_id, pair["id"])
             slots_after = used + 1
         within_hour = await _hour_active(connection, link["installation_id"])
         trial_used = await _trial_used(connection, telegram_id)

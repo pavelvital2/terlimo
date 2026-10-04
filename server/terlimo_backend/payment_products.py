@@ -40,9 +40,8 @@ async def slots(connection, entitlement_id, now=None):
 
 
 async def paid_limit(connection, entitlement, now=None):
-    if entitlement["kind"] != "paid" or entitlement["ends_at"] is None:
-        return int(entitlement["device_limit"] or 2)
-    return int(entitlement["paid_base_device_limit"]) + len(await slots(connection, entitlement["id"], now))
+    from .common_capacity import live_deadlines
+    return len(await live_deadlines(connection,entitlement,now))
 
 
 def _micros(delta):
@@ -194,21 +193,12 @@ async def binding_paid_capacity(connection, entitlement, binding_id, now=None):
     Non-finite/non-paid rights retain their existing policy.
     """
     now = now or datetime.now(UTC)
+    from .common_capacity import binding_capacity
+    if await connection.fetchval("SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)",entitlement["account_id"]):
+        return await binding_capacity(connection,entitlement,binding_id,now)
     if entitlement["kind"] != "paid" or entitlement["ends_at"] is None:
         return True, entitlement["ends_at"]
-    bound = await connection.fetch("SELECT id FROM account_bindings WHERE account_id=$1 AND status='active' ORDER BY bound_at,id",entitlement["account_id"])
-    ranks = {row["id"]:i+1 for i,row in enumerate(bound)}
-    rank = ranks.get(binding_id)
-    if rank is None:
-        return False, now
-    base = int(entitlement["paid_base_device_limit"])
-    if rank <= base:
-        return True, entitlement["ends_at"]
-    extra = sorted((row["expires_at"] for row in await slots(connection,entitlement["id"],now)),reverse=True)
-    if rank-base-1 >= len(extra):
-        return False, now
-    deadline = min(entitlement["ends_at"],extra[rank-base-1])
-    return deadline > now, deadline
+    return await binding_capacity(connection,entitlement,binding_id,now)
 
 
 async def current_binding_paid_capacity(connection, binding_id, now=None):
@@ -232,8 +222,7 @@ async def cap_existing_extra_grants(connection, *, max_lease_seconds, limit=100)
     Expired rights cannot be refreshed: an old uncapped lease ends at its stored bound.
     """
     rows = await connection.fetch("""WITH ranked AS (
-        SELECT id,account_id,row_number() OVER (PARTITION BY account_id ORDER BY bound_at,id) AS rank
-        FROM account_bindings WHERE status='active'
+        SELECT id,account_id,rank FROM capacity_mobile_ranks
     ) SELECT b.id AS binding_id,g.gateway_id,e.id AS entitlement_id
     FROM ranked b
     JOIN grants g ON g.binding_id=b.id AND g.state IN ('pending','applying','applied')

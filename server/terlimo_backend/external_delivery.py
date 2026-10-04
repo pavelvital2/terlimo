@@ -258,6 +258,8 @@ class ExternalDeliveryHandlers:
         preliminary=await connection.fetchrow('''SELECT f.* FROM delivery_fulfillments f JOIN delivery_items i ON i.fulfillment_id=f.id WHERE i.id=$1''',item_id)
         if not preliminary:return None,'item_missing'
         async with connection.transaction():
+            from .common_capacity import admission_lock, plan_membership
+            await admission_lock(connection,preliminary['account_id'])
             if not await connection.fetchval("SELECT status='verified' FROM accounts WHERE id=$1 FOR SHARE",preliminary['account_id']):return None,'account_unverified'
             source=await connection.fetchrow('SELECT * FROM delivery_fulfillments WHERE id=$1 FOR UPDATE',preliminary['id'])
             i=await connection.fetchrow('SELECT * FROM delivery_items WHERE id=$1',item_id)
@@ -273,6 +275,8 @@ class ExternalDeliveryHandlers:
                 target=await connection.fetchrow('SELECT * FROM delivery_targets WHERE id=$1',i['target_id'])
                 if not _intent_matches(source,i,p,req,target):return None,'wire_source_identity_mismatch'
                 return (source,i,p,req),None
+            membership=await plan_membership(connection,source['account_id'],source['manifest_id'])
+            if not membership['complete']:return None,'incomplete_account_plan'
             if source['source_sequence'] is None:return None,'source_order_unproven'
             if source['source_sequence']<=p['source_frontier'] or not await _applicable(connection,source):
                 await connection.execute("UPDATE delivery_items SET outcome='superseded' WHERE id=$1",item_id)
@@ -350,11 +354,14 @@ async def fulfillment_proof(connection, fulfillment_id):
     rows=await connection.fetch("""SELECT i.*,p.proven_revision,p.proven_snapshot FROM delivery_items i
         LEFT JOIN delivery_physical_targets p ON p.id=i.physical_id WHERE i.fulfillment_id=$1""",fulfillment_id)
     complete=bool(rows) and all(r['application_receipt'] is not None for r in rows)
+    from .common_capacity import plan_membership
+    membership=await plan_membership(connection,source['account_id'],source['manifest_id']) if source and source['manifest_id'] else {'complete':True,'reason':None}
+    complete=complete and membership['complete']
     now=int((await connection.fetchval('SELECT clock_timestamp()')).timestamp())
     current=complete and source is not None and await _applicable(connection,source)
     for r in rows:
         snap=plan.obj(r['proven_snapshot'] or {})
         current=current and plan.obj(r['observation'] or {}).get('observed_current_usable') is True and r['proven_revision']==r['delivery_revision'] and snap.get('state')=='active' and snap.get('expires_at') is not None and snap['expires_at']>now
-    return {'transport_complete':complete,'required_items':len(rows),
+    return {'transport_complete':complete,'plan_status':membership.get('reason') or 'complete_target_set','required_items':len(rows),
         'historical_application_items':sum(r['application_receipt'] is not None for r in rows),
         'all_observed_current_usable':bool(current),'business_completed':False}

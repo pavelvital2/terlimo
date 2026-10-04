@@ -203,13 +203,8 @@ async def authenticate_session(
             """,
             row["installation_id"],
         )
-        slots_used = (
-            await connection.fetchval(
-                "SELECT count(*) FROM account_bindings WHERE account_id = $1 AND status = 'active'",
-                row["account_id"],
-            )
-            or 0
-        )
+        from .common_capacity import occupied_count
+        slots_used = await occupied_count(connection, row["account_id"])
     elif row["binding_id"] is not None:
         raise AuthError("SESSION_INVALID", 401)
 

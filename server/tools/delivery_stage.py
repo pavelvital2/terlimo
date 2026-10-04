@@ -39,7 +39,7 @@ def private_json(path):
 
 
 async def run(args):
-    if args.stage and args.schedule_claims:
+    if sum(bool(x) for x in (args.stage,args.schedule_claims,args.activate_capacity))>1:
         raise ValueError('stage and claim scheduling are separate operator actions')
     manifest, allowlist = private_json(args.manifest), private_json(args.allowlist)
     with os.fdopen(os.dup(args.dsn_fd)) as stream:
@@ -49,7 +49,11 @@ async def run(args):
     c = await asyncpg.connect(dsn)
     try:
         await Database._init_connection(c)
-        if args.schedule_claims:
+        if args.activate_capacity:
+            if args.writer_fence_record:raise ValueError('activation uses retained authenticated mapping proof')
+            from terlimo_backend.common_capacity import activate
+            result=await activate(c,manifest,allowlist,dry_run=not args.commit)
+        elif args.schedule_claims:
             from terlimo_backend.external_delivery import schedule_claims
             if not args.writer_fence_record:
                 raise ValueError('protected writer fence record required')
@@ -69,6 +73,7 @@ if __name__ == '__main__':
     p.add_argument('--manifest',required=True);p.add_argument('--allowlist',required=True)
     p.add_argument('--dsn-fd',type=int,required=True);p.add_argument('--stage',action='store_true')
     p.add_argument('--schedule-claims',action='store_true');p.add_argument('--writer-fence-record')
+    p.add_argument('--activate-capacity',action='store_true')
     p.add_argument('--commit',action='store_true')
     try:
         asyncio.run(run(p.parse_args()))

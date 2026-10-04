@@ -271,6 +271,10 @@ async def revoke_binding_grants(
 ) -> int:
     """Revoke the binding and fence every related grant; atomic with its outbox ops."""
     now = now or utc_now()
+    from .common_capacity import admission_lock, release_mobile
+    account_id = await connection.fetchval('SELECT account_id FROM account_bindings WHERE id=$1',binding_id)
+    if account_id is None:return 0
+    await admission_lock(connection,account_id)
     binding = await connection.fetchrow(
         "SELECT id, status, generation, account_id FROM account_bindings WHERE id = $1 FOR UPDATE",
         binding_id,
@@ -286,6 +290,7 @@ async def revoke_binding_grants(
             """,
             binding_id,
         )
+    await release_mobile(connection,binding_id)
     grants = await connection.fetch(
         "SELECT * FROM grants WHERE binding_id = $1 AND state <> 'revoked' FOR UPDATE",
         binding_id,

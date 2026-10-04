@@ -248,7 +248,11 @@ async def freeze_plan(connection, fulfillment_id, manifest_id):
         aid = await connection.fetchval('SELECT account_id FROM delivery_fulfillments WHERE id=$1',fulfillment_id)
         if aid is None:
             raise ValueError('unknown source')
+        from .common_capacity import admission_lock, plan_membership
+        await admission_lock(connection,aid)
         await _owner(connection,aid)
+        membership = await plan_membership(connection,aid,manifest_id)
+        if not membership['complete']:raise ValueError('incomplete_account_plan')
         source = await connection.fetchrow('SELECT * FROM delivery_fulfillments WHERE id=$1 FOR UPDATE',fulfillment_id)
         if source['state']=='planned':
             if source['manifest_id']!=manifest_id:
@@ -267,11 +271,13 @@ async def freeze_plan(connection, fulfillment_id, manifest_id):
             raise ValueError('source capacity conflict')
         moment = await connection.fetchval('SELECT clock_timestamp()')
         for i,t in enumerate(targets):
-            deadline=deadlines[i]
+            rank=membership['ranks'].get(t['id'],i+1)
+            if rank>len(deadlines):raise ValueError('source capacity conflict')
+            deadline=deadlines[rank-1]
             # v3 accepts whole UTC seconds only. Floor once, never round access up.
             if t['kind']=='direct' and deadline is not None:
                 deadline=deadline.replace(microsecond=0)
-            desired = desired_for_rank(snap,i+1,deadline,moment,source['snapshot_digest'])
+            desired = desired_for_rank(snap,rank,deadline,moment,source['snapshot_digest'])
             await connection.execute('INSERT INTO delivery_items(fulfillment_id,target_id,desired) VALUES($1,$2,$3::jsonb)',fulfillment_id,t['id'],desired)
         return await connection.fetchrow("UPDATE delivery_fulfillments SET state='planned',manifest_id=$2,target_digest=$3 WHERE id=$1 RETURNING *",fulfillment_id,manifest_id,digest(evidence))
 

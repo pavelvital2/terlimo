@@ -325,10 +325,8 @@ async def _device_list(connection, settings: Settings, account_id, current_bindi
 
 
 async def _slots_used(connection, account_id) -> int:
-    return int(await connection.fetchval(
-        "SELECT count(*) FROM account_bindings WHERE account_id = $1 AND status = 'active'",
-        account_id,
-    ) or 0)
+    from .common_capacity import occupied_count
+    return await occupied_count(connection, account_id)
 
 
 def register_device_routes(app: web.Application, settings: Settings, database: Database) -> None:
