@@ -202,6 +202,8 @@ async def _account_advisory(connection, account_id: Any) -> None:
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
         f"bind-account:{account_id}",
     )
+    from .common_capacity import admission_lock
+    await admission_lock(connection,account_id)
 
 
 async def create_registration_link(

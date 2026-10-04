@@ -192,6 +192,11 @@ async def _mapping_proofs(connection, account_id):
 async def freeze_and_enqueue(connection, fulfillment_id, manifest_id):
     """Canonical protected planner seam; no send, ownership invention or reward."""
     async with connection.transaction():
+        source=await connection.fetchrow('SELECT * FROM delivery_fulfillments WHERE id=$1',fulfillment_id)
+        if source and await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',source['account_id']):
+            from .mixed_delivery import queue
+            await queue(connection,source['id'],'explicit-plan')
+            return source
         source=await plan.freeze_plan(connection,fulfillment_id,manifest_id)
         items=await connection.fetch('''SELECT i.*,t.kind,t.deployment,t.external_key,t.evidence FROM delivery_items i
             JOIN delivery_targets t ON t.id=i.target_id WHERE i.fulfillment_id=$1 ORDER BY t.deployment,t.external_key''',fulfillment_id)
@@ -269,27 +274,31 @@ class ExternalDeliveryHandlers:
             if i['outbox_id']!=operation['id'] or not p or p['account_id']!=source['account_id'] or p['claim_receipt'] is None:return None,'mapping_missing'
             if p['deployment'] not in self.clients:return None,'deployment_not_configured'
             if i['outcome']=='superseded':return None,'obsolete_source'
+            from .mixed_delivery import source_for_item, current_item
+            source=await source_for_item(connection,source,i)
+            delivery_order=i['delivery_order'] or source['source_sequence']
             # Prepared/possibly-issued original must never be rewritten or superseded.
             if i['dispatch_started']:
                 req=_request(i['wire'],_snapshot(p['proven_snapshot']))
                 target=await connection.fetchrow('SELECT * FROM delivery_targets WHERE id=$1',i['target_id'])
                 if not _intent_matches(source,i,p,req,target):return None,'wire_source_identity_mismatch'
                 return (source,i,p,req),None
-            membership=await plan_membership(connection,source['account_id'],source['manifest_id'])
-            if not membership['complete']:return None,'incomplete_account_plan'
+            if i['plan_id'] is None:
+                membership=await plan_membership(connection,source['account_id'],source['manifest_id'])
+                if not membership['complete']:return None,'incomplete_account_plan'
             if source['source_sequence'] is None:return None,'source_order_unproven'
-            if source['source_sequence']<=p['source_frontier'] or not await _applicable(connection,source):
+            if not await current_item(connection,source,i) or delivery_order<=p['source_frontier'] or not await _applicable(connection,source):
                 await connection.execute("UPDATE delivery_items SET outcome='superseded' WHERE id=$1",item_id)
                 return None,'obsolete_or_inapplicable_source'
             # Explicitly supersede only older unsent sources, before any dispatch marker.
             await connection.execute('''UPDATE delivery_items x SET outcome='superseded'
                 FROM delivery_fulfillments f WHERE x.fulfillment_id=f.id AND x.physical_id=$1
                 AND x.id<>$2 AND NOT x.dispatch_started AND x.application_receipt IS NULL
-                AND f.source_sequence<$3''',p['id'],item_id,source['source_sequence'])
+                AND coalesce(x.delivery_order,f.source_sequence)<$3''',p['id'],item_id,delivery_order)
             blocking=await connection.fetchval('''SELECT EXISTS(SELECT 1 FROM delivery_items x
                 JOIN delivery_fulfillments f ON f.id=x.fulfillment_id WHERE x.physical_id=$1 AND x.id<>$2
                 AND (x.dispatch_started AND x.application_receipt IS NULL OR
-                NOT x.dispatch_started AND x.outcome NOT IN ('blocked','superseded') AND f.source_sequence<$3))''',p['id'],item_id,source['source_sequence'])
+                NOT x.dispatch_started AND x.outcome NOT IN ('blocked','superseded') AND coalesce(x.delivery_order,f.source_sequence)<$3))''',p['id'],item_id,delivery_order)
             if blocking or p['accepted_revision']!=p['proven_revision']:
                 await _park_dependency(connection,operation)
                 return None,DEPENDENCY_WAIT
@@ -307,7 +316,7 @@ class ExternalDeliveryHandlers:
             value=dict(version=3,operation='apply',external_key=p['external_key'],grant_id=str(p['grant_id']),fence_id=str(p['fence_id']),operation_id=str(i['operation_id']),revision=revision,expected_revision=p['accepted_revision'],desired_state=desired['state'],expires_at=desired['expires_at'])
             wire=_wire(value);req=_request(wire,_snapshot(p['proven_snapshot']))
             await connection.execute('''UPDATE delivery_items SET preparation='prepared',expected_revision=$2,request=$3::jsonb,request_digest=$4,wire=$5,delivery_revision=$6,dispatch_started=true WHERE id=$1''',item_id,p['accepted_revision'],value,req.digest,wire,revision)
-            await connection.execute('UPDATE delivery_physical_targets SET accepted_revision=$2,source_frontier=$3 WHERE id=$1',p['id'],revision,source['source_sequence'])
+            await connection.execute('UPDATE delivery_physical_targets SET accepted_revision=$2,source_frontier=$3 WHERE id=$1',p['id'],revision,delivery_order)
             i=await connection.fetchrow('SELECT * FROM delivery_items WHERE id=$1',item_id)
             return (source,i,p,req),None
 
@@ -326,6 +335,8 @@ class ExternalDeliveryHandlers:
             if not await _token(connection,operation):return ('failed','claim_token_lost')
             current=await connection.fetchrow('SELECT * FROM delivery_items WHERE id=$1 FOR UPDATE',item['id'])
             target=await connection.fetchrow('SELECT * FROM delivery_targets WHERE id=$1',current['target_id'])
+            from .mixed_delivery import source_for_item, queue
+            source=await source_for_item(connection,source,current)
             if current['wire']!=req.body.decode() or not _intent_matches(source,current,physical,req,target):return ('failed','intent_changed')
             await connection.execute('UPDATE delivery_physical_targets SET accepted_revision=greatest(accepted_revision,$2) WHERE id=$1',p['id'],response.accepted_revision)
             receipt,observation=_metadata(response,req,now=int(datetime.now(UTC).timestamp()),applicable=await _applicable(connection,source))
@@ -340,6 +351,8 @@ class ExternalDeliveryHandlers:
                 await connection.execute('UPDATE delivery_items SET observation=$2::jsonb,outcome=$3 WHERE id=$1',item['id'],observation,'conflict' if response.delivery_state=='conflict' else 'pending')
             if historical:
                 await _release_dependencies(connection,p['id'])
+                if await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',source['account_id']):
+                    await queue(connection,source['id'],['direct-proof',str(current['id'])])
             recoverable_readback=(not historical and response.delivery_state=='pending' and response.code=='wdtt_readback_failed')
             if not historical or response.delivery_state!='applied':
                 if not recoverable_readback:return ('failed',response.code or response.delivery_state)
@@ -351,6 +364,9 @@ class ExternalDeliveryHandlers:
 async def fulfillment_proof(connection, fulfillment_id):
     """Evidence only; recheck lifecycle/expiry before any current-observation projection."""
     source=await connection.fetchrow('SELECT * FROM delivery_fulfillments WHERE id=$1',fulfillment_id)
+    if source and await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',source['account_id']):
+        from .mixed_delivery import readiness
+        return await readiness(connection,fulfillment_id)
     rows=await connection.fetch("""SELECT i.*,p.proven_revision,p.proven_snapshot FROM delivery_items i
         LEFT JOIN delivery_physical_targets p ON p.id=i.physical_id WHERE i.fulfillment_id=$1""",fulfillment_id)
     complete=bool(rows) and all(r['application_receipt'] is not None for r in rows)

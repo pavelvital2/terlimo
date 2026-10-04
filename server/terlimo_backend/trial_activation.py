@@ -214,6 +214,7 @@ async def activate_trial(
         )
         if account_id is None:
             raise ApiError("REGISTRATION_REQUIRED", http=403)
+        await connection.fetchval('SELECT id FROM accounts WHERE id=$1 FOR KEY SHARE',account_id)
         # Shared with paid/reward writers: account lock precedes binding/entitlement rows.
         # The first read is only a lock key; recheck authoritative binding under row lock.
         await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",f"paid-account:{account_id}")
@@ -302,6 +303,9 @@ async def insert_trial(connection, account_id, moment):
         BASE_LIMIT,
         source_plan,
     )
+    if await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',account_id):
+        from .delivery_plan import capture_trial
+        await capture_trial(connection,row,moment)
     return row
 
 

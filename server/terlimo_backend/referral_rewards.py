@@ -90,6 +90,7 @@ async def record_trial_target(connection, *, entitlement_id, grant_id, generatio
 
 async def confirm_trial_target(connection, *, grant_id):
     """Called atomically with gateway readback publication, not on a VPN UI event."""
+    if await connection.fetchval('SELECT EXISTS(SELECT 1 FROM grants g JOIN account_bindings b ON b.id=g.binding_id JOIN capacity_scopes s ON s.account_id=b.account_id WHERE g.id=$1)',grant_id):return 0
     rows = await connection.fetch("""
         SELECT e.id,e.account_id,t.generation FROM referral_trial_targets t
         JOIN entitlements e ON e.id=t.source_entitlement_id
@@ -137,6 +138,8 @@ async def sweep_rewards(connection, settings, *, limit: int = 100) -> int:
     applied = 0
     for source in rows:
         async with connection.transaction():
+            from .gateway_control import grant_owner_lock
+            await grant_owner_lock(connection,source['inviter_account_id'])
             await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",f"paid-account:{source['inviter_account_id']}")
             reward = await connection.fetchrow("SELECT * FROM referral_rewards WHERE id=$1 FOR UPDATE",source['id'])
             if reward['state'] == 'APPLIED':

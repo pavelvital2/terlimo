@@ -889,7 +889,7 @@ async def apply_paid_entitlement(
             credited = await connection.fetchrow("UPDATE entitlements SET device_limit=$2,revision=revision+1 WHERE id=$1 RETURNING id,revision",target["id"],await paid_limit(connection,target,now))
             receipt = {"valid_from":rfc3339(now),"valid_until":rfc3339(target["ends_at"]),"device_limit":await paid_limit(connection,target,now),"current_device_limit":await paid_limit(connection,target,now)}
             await connection.execute("UPDATE payment_orders SET applied_entitlement_id=$2,account_id=$3,binding_id=$4,credited_entitlement_revision=$5,credited_product=$6::jsonb WHERE id=$1",order_id,credited["id"],account_id,binding_id,credited["revision"],json.dumps(receipt))
-            if account_owned:
+            if account_owned or await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',account_id):
                 from .delivery_plan import capture_paid
                 await capture_paid(connection, order_id)
             enqueued = await _enqueue_paid_grant(connection,settings,order_id=order_id)
@@ -978,7 +978,8 @@ async def apply_paid_entitlement(
             int(credited["revision"]),
             json.dumps(receipt),
         )
-        if account_owned:
+        mapped=await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',account_id)
+        if account_owned or mapped:
             from .delivery_plan import capture_paid
             await capture_paid(connection, order_id)
         # Automatic paid access: enqueue the normal grant/outbox path for the bound account so a
@@ -995,7 +996,7 @@ async def apply_paid_entitlement(
             not enqueued,
         )
         from .referral_rewards import enqueue_reward
-        if not account_owned and (not product or product["kind"] == "subscription"):
+        if not account_owned and not mapped and (not product or product["kind"] == "subscription"):
             await enqueue_reward(connection,account_id=account_id,event_kind="first_main_paid",
                 source_entitlement_id=entitlement_id,source_order_id=order_id,months=int(order["months"]))
         return entitlement_id
@@ -1269,7 +1270,8 @@ async def _enqueue_paid_grant(
             )
     except Exception:  # noqa: BLE001
         return False
-    return outcome in ("enqueued", "unchanged", "pending")
+    mapped=await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes s JOIN account_bindings b ON b.account_id=s.account_id WHERE b.id=$1)',binding['id'])
+    return not mapped and outcome in ("enqueued", "unchanged", "pending")
 
 
 def register_payment_routes(

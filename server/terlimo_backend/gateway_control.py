@@ -85,6 +85,18 @@ async def _enqueue(
     )
 
 
+async def grant_owner_lock(connection, account_id):
+    """Mapped grant producers take the owner fence BEFORE binding/paid/grant locks.
+
+    Existing owner-fenced callers may reacquire it without introducing an edge.
+    Unmapped accounts acquire no added row lock. Caller transaction retains fence.
+    """
+    if account_id is not None:
+        await connection.fetchval("""SELECT a.id FROM accounts a
+            JOIN capacity_scopes s ON s.account_id=a.id WHERE a.id=$1
+            FOR KEY SHARE OF a""",account_id)
+
+
 async def ensure_grant(
     connection: asyncpg.Connection,
     *,
@@ -97,14 +109,16 @@ async def ensure_grant(
 ) -> str:
     """Desired grant for one active binding/entitlement/gateway; atomic with its outbox op."""
     now = now or utc_now()
+    owner_id=await connection.fetchval('SELECT account_id FROM account_bindings WHERE id=$1',binding_id)
+    await grant_owner_lock(connection,owner_id)
     row = await connection.fetchrow(
         """
-        SELECT binding.id AS binding_id, binding.status AS binding_status,
+        SELECT binding.id AS binding_id, binding.status AS binding_status, binding.generation AS binding_generation,
                binding.account_id AS account_id, binding.installation_id,
                installation.public_key_fingerprint, installation.public_key_spki_b64,
                installation.state AS installation_state, installation.environment,
                entitlement.id AS entitlement_id, entitlement.status AS entitlement_status,
-               entitlement.starts_at, entitlement.ends_at, entitlement.kind, entitlement.device_limit, entitlement.paid_base_device_limit, entitlement.created_at AS entitlement_created_at,
+               entitlement.starts_at, entitlement.ends_at, entitlement.revision AS entitlement_revision, entitlement.kind, entitlement.device_limit, entitlement.paid_base_device_limit, entitlement.created_at AS entitlement_created_at,
                gateway.id AS gateway_id, gateway.gateway_key, gateway.registry_state,
                gateway.environment AS gateway_environment,
                gateway.endpoints AS gateway_endpoints,
@@ -121,7 +135,8 @@ async def ensure_grant(
         gateway_id,
         entitlement_id,
     )
-    if row is None:
+    if row is None or row['account_id']!=owner_id:
+        # Revalidate owner after the early fence and authoritative binding lock.
         # The authoritative query requires entitlement.account_id = binding.account_id; a
         # mismatched or missing pair is a non-granting outcome and writes nothing.
         return "ownership_mismatch"
@@ -166,6 +181,8 @@ async def ensure_grant(
     capacity, deadline = await binding_paid_capacity(connection,{"id":row["entitlement_id"],"account_id":row["account_id"],"kind":row["kind"],"ends_at":row["ends_at"],"device_limit":row["device_limit"],"paid_base_device_limit":row["paid_base_device_limit"]},binding_id,now)
     if not capacity:
         return "device_limit_reached"
+    from .mixed_delivery import grant_source, grant_event
+    mixed_source = await grant_source(connection,row)
     not_after = _technical_not_after(deadline, now, max_lease_seconds)
     existing = await connection.fetchrow(
         "SELECT * FROM grants WHERE binding_id = $1 AND gateway_id = $2 FOR UPDATE",
@@ -188,6 +205,8 @@ async def ensure_grant(
             not_after,
             secrets.token_urlsafe(24),
         )
+        await connection.execute('UPDATE grants SET delivery_source_id=$2,delivery_binding_generation=$3 WHERE opaque_id=$1',grant['opaque_id'],mixed_source,row['binding_generation'] if mixed_source else None)
+        await grant_event(connection,await connection.fetchval('SELECT id FROM grants WHERE opaque_id=$1',grant['opaque_id']),'desired')
         await _enqueue(
             connection,
             operation_type=APPLY_OPERATION,
@@ -217,7 +236,9 @@ async def ensure_grant(
         and not _gateway_cap_confirmed(endpoints, row["gateway_confirmed_max_workers"])
     )
     refresh = (
-        not_after < existing["not_after"] - timedelta(seconds=1)
+        existing['delivery_source_id'] != mixed_source
+        or mixed_source is not None and existing['delivery_binding_generation'] != row['binding_generation']
+        or not_after < existing["not_after"] - timedelta(seconds=1)
         or remaining < max_lease_seconds / 3
         or cap_unconfirmed
         or (row["kind"] == "trial" and existing["applied_at"] is not None
@@ -227,6 +248,7 @@ async def ensure_grant(
         from .referral_rewards import record_trial_target
         await record_trial_target(connection,entitlement_id=entitlement_id,
             grant_id=existing['id'],generation=existing['desired_generation'])
+        await grant_event(connection,existing['id'],'desired')
         if existing["applied_generation"] != existing["desired_generation"]:
             return "pending"
         return "unchanged"
@@ -242,6 +264,8 @@ async def ensure_grant(
         generation,
         not_after,
     )
+    await connection.execute('UPDATE grants SET delivery_source_id=$2,delivery_binding_generation=$3 WHERE id=$1',existing['id'],mixed_source,row['binding_generation'] if mixed_source else None)
+    await grant_event(connection,existing['id'],'desired')
     await _enqueue(
         connection,
         operation_type=APPLY_OPERATION,
@@ -821,6 +845,18 @@ class GatewayControlHandlers:
             if deadline is not None and grant["not_after"] > deadline:
                 return ("failed", "commercial_deadline_changed")
 
+        if grant['delivery_source_id'] is not None:
+            # Same-source required set must be durable before the first mobile RPC.
+            # A scheduling race uses the existing bounded worker retry, never a new wire.
+            frozen = await connection.fetchval("""SELECT EXISTS(
+                SELECT 1 FROM delivery_mobile_items i JOIN delivery_plans p ON p.id=i.plan_id
+                WHERE p.source_id=$1 AND i.binding_id=$2 AND i.binding_generation=$3
+                AND EXISTS(SELECT 1 FROM jsonb_array_elements(i.required_grants) r
+                    WHERE r->>'grant_id'=$4 AND r->>'generation'=$5))""",
+                grant['delivery_source_id'],grant['binding_id'],grant['delivery_binding_generation'],
+                str(grant['id']),str(grant['desired_generation']))
+            if not frozen:raise RuntimeError('mixed_plan_not_frozen')
+
         endpoints = grant["endpoints"]
         if isinstance(endpoints, str):
             endpoints = json.loads(endpoints)
@@ -925,6 +961,9 @@ class GatewayControlHandlers:
         publish_started = time.monotonic()
         log_phase(operation, "publish_begin")
         async with connection.transaction():
+            if grant['delivery_source_id'] is not None:
+                from .external_delivery import _token
+                if not await _token(connection,operation):return ('failed','claim_token_lost')
             updated = await connection.fetchval(
                 """
                 UPDATE grants
@@ -947,6 +986,8 @@ class GatewayControlHandlers:
                 return ("failed", "superseded_during_apply")
             from .referral_rewards import confirm_trial_target
             await confirm_trial_target(connection,grant_id=grant['id'])
+            from .mixed_delivery import grant_event
+            await grant_event(connection,grant['id'],'proof')
             await connection.execute(
                 "UPDATE gateways SET confirmed_max_workers = $2 WHERE id = $1",
                 grant["gateway_id"],

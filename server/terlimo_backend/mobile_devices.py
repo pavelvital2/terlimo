@@ -427,6 +427,8 @@ def register_device_routes(app: web.Application, settings: Settings, database: D
                         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
                         f"bind-account:{scope['account_id']}",
                     )
+                    from .common_capacity import admission_lock
+                    await admission_lock(connection,scope['account_id'])
                     await _revalidate_authorized(connection, settings, token, context, scope)
                     # Two installations may be involved (caller proof + target). They are always
                     # locked in ascending id order so two cross-deletes cannot invert them; the

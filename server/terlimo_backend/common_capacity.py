@@ -7,8 +7,10 @@ from datetime import datetime, UTC
 from . import delivery_plan as plan
 
 
-async def admission_lock(connection, account_id):
+async def admission_lock(connection, account_id, *, activation=False):
     await connection.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))','bind-account:'+str(account_id))
+    if activation or await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',account_id):
+        await connection.fetchval('SELECT id FROM accounts WHERE id=$1 FOR UPDATE',account_id)
 
 
 async def current_entitlement(connection, account_id, now=None):
@@ -67,11 +69,16 @@ async def append_mobile(connection, account_id, binding_id):
     if await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_admissions WHERE binding_id=$1 AND released_at IS NULL)',binding_id):return
     await connection.execute("""INSERT INTO capacity_admissions(account_id,admission_order,kind,binding_id)
         SELECT $1,coalesce(max(admission_order),0)+1,'mobile',$2 FROM capacity_admissions WHERE account_id=$1""",account_id,binding_id)
+    from .mixed_delivery import membership_changed
+    await membership_changed(connection,account_id)
 
 
 async def release_mobile(connection, binding_id):
     # Same transaction and already-held bind-account lock as authorized revoke.
-    await connection.execute("UPDATE capacity_admissions SET released_at=now() WHERE binding_id=$1 AND kind='mobile' AND released_at IS NULL",binding_id)
+    account_id=await connection.fetchval("UPDATE capacity_admissions SET released_at=now() WHERE binding_id=$1 AND kind='mobile' AND released_at IS NULL RETURNING account_id",binding_id)
+    if account_id:
+        from .mixed_delivery import membership_changed
+        await membership_changed(connection,account_id)
 
 
 async def activate(connection, body, allowlist, *, dry_run=True):
@@ -79,7 +86,7 @@ async def activate(connection, body, allowlist, *, dry_run=True):
     plan.validate_manifest(body,allowlist)
     aid,mid=plan.uuid(body['account_id']),plan.uuid(body['id'])
     async with connection.transaction():
-        await admission_lock(connection,aid)
+        await admission_lock(connection,aid,activation=True)
         await plan._owner(connection,aid)
         m=await connection.fetchrow('SELECT * FROM delivery_manifests WHERE id=$1',mid)
         proof=await connection.fetchrow('SELECT * FROM delivery_mapping_proofs WHERE manifest_id=$1',mid)
@@ -109,8 +116,12 @@ async def activate(connection, body, allowlist, *, dry_run=True):
             raise ValueError('no current capacity or overcapacity')
         if not dry_run:
             await connection.execute('INSERT INTO capacity_scopes(account_id,manifest_id,manifest_digest) VALUES($1,$2,$3)',aid,mid,m['digest'])
+            await connection.execute('INSERT INTO capacity_heads(account_id) VALUES($1)',aid)
             for index,pid in enumerate(physical,1):
                 await connection.execute("INSERT INTO capacity_admissions(account_id,admission_order,kind,physical_id) VALUES($1,$2,'direct',$3)",aid,index,pid)
+        if not dry_run:
+            from .mixed_delivery import schedule_latest
+            await schedule_latest(connection,aid,'activation:'+str(mid))
         return {'dry_run':dry_run,'active':not dry_run,'replay':False,'direct_seats':len(physical)}
 
 

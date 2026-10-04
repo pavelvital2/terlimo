@@ -91,10 +91,12 @@ async def capture_paid(connection, order_id):
     if old:
         return old
     order = await connection.fetchrow('SELECT * FROM payment_orders WHERE id=$1', order_id)
-    if not order or order['owner_kind'] != 'telegram_account' or not order['applied_entitlement_id']:
+    if not order or not order['applied_entitlement_id']:
         raise ValueError('applied account order required')
     ent = await connection.fetchrow('SELECT * FROM entitlements WHERE id=$1', order['applied_entitlement_id'])
-    if ent['account_id'] != order['trusted_owner_account_id'] or ent['revision'] != order['credited_entitlement_revision']:
+    owner_id=order['trusted_owner_account_id'] if order['owner_kind']=='telegram_account' else order['account_id']
+    if order['owner_kind']!='telegram_account' and not await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',owner_id):raise ValueError('mapped mobile original capture required')
+    if ent['account_id'] != owner_id or ent['revision'] != order['credited_entitlement_revision']:
         raise ValueError('original revision required')
     snap = await _snapshot(connection, ent, at=await connection.fetchval('SELECT clock_timestamp()'), commercial={
         'order_id': str(order_id), 'quote': obj(order['quote']), 'credited_product': obj(order['credited_product']),
@@ -119,10 +121,14 @@ async def _capture(connection, ent, kind, order_id, snap):
     sequence = await connection.fetchval('''INSERT INTO delivery_source_counters(account_id,sequence)
         VALUES($1,1) ON CONFLICT(account_id) DO UPDATE
         SET sequence=delivery_source_counters.sequence+1 RETURNING sequence''', ent['account_id'])
-    return await connection.fetchrow('''INSERT INTO delivery_fulfillments
+    source=await connection.fetchrow('''INSERT INTO delivery_fulfillments
         (account_id,source_kind,source_order_id,entitlement_id,source_revision,snapshot,snapshot_digest,source_sequence)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING *''', ent['account_id'], kind,
         order_id, ent['id'], ent['revision'], snap, digest(snap), sequence)
+    if await connection.fetchval('SELECT EXISTS(SELECT 1 FROM capacity_scopes WHERE account_id=$1)',ent['account_id']):
+        from .mixed_delivery import queue
+        await queue(connection,source['id'],'capture')
+    return source
 
 
 def validate_manifest(body, allowlist):

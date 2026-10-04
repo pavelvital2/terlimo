@@ -1070,6 +1070,9 @@ class CatalogService:
             raise ApiError("ACCESS_DENIED", http=403, request_id=request_id)
         self._require_data_subject(context, request_id, subject)
         kind, ident = subject
+        if kind == SUBJECT_BINDING:
+            from .gateway_control import grant_owner_lock
+            await grant_owner_lock(connection,context.account_id)
         digest = self._sync_digest(context, subject, catalog_revision, binding_revision)
         if kind == SUBJECT_BINDING:
             receipt_id = await connection.fetchval(
